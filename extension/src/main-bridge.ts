@@ -15,7 +15,6 @@ import {
 import { normalizeBridgeData } from "./normalize";
 
 const FACEIT_PAGE_ORIGIN = "https://www.faceit.com";
-const FACEIT_API_ORIGIN = "https://api.faceit.com";
 const MAX_DEPTH = 9;
 const MAX_ARRAY_ITEMS = 250;
 const MAX_OBJECT_KEYS = 96;
@@ -107,68 +106,48 @@ export function isValidBridgeRequest(value: unknown): value is AnyBridgeRequest 
   }
 }
 
-function endpointFor(request: AnyBridgeRequest): URL | null {
+/**
+ * FACEIT's authenticated web client exposes its read models through the
+ * same-origin `/api` gateway.  Using api.faceit.com here bypasses that gateway
+ * and loses the WebView session, which makes every enhancement look empty.
+ */
+export function endpointFor(request: AnyBridgeRequest): URL | null {
   switch (request.operation) {
     case "viewer":
-      return new URL("/users/v1/sessions/me", FACEIT_API_ORIGIN);
+      return new URL("/api/users/v1/sessions/me", FACEIT_PAGE_ORIGIN);
     case "player":
-      return new URL(`/users/v1/nicknames/${encodeURIComponent(request.args.nickname)}`, FACEIT_API_ORIGIN);
+      return new URL(`/api/users/v1/nicknames/${encodeURIComponent(request.args.nickname)}`, FACEIT_PAGE_ORIGIN);
     case "recentMatches": {
       const url = new URL(
-        `/match-history/v5/players/${encodeURIComponent(request.args.playerId)}/history`,
-        FACEIT_API_ORIGIN
+        `/api/stats/v1/stats/time/users/${encodeURIComponent(request.args.playerId)}/games/cs2`,
+        FACEIT_PAGE_ORIGIN
       );
-      url.searchParams.set("game", "cs2");
-      url.searchParams.set("offset", "0");
-      url.searchParams.set("limit", String(request.args.limit));
+      url.searchParams.set("page", "0");
+      url.searchParams.set("size", String(request.args.limit));
+      url.searchParams.set("game_mode", "5v5");
       return url;
     }
     case "playerMapStats":
       return new URL(
-        `/stats/v1/stats/users/${encodeURIComponent(request.args.playerId)}/games/cs2`,
-        FACEIT_API_ORIGIN
+        `/api/stats/v1/stats/users/${encodeURIComponent(request.args.playerId)}/games/cs2`,
+        FACEIT_PAGE_ORIGIN
       );
     case "match":
-      return new URL(`/match/v2/match/${encodeURIComponent(request.args.matchId)}`, FACEIT_API_ORIGIN);
+      return new URL(`/api/match/v2/match/${encodeURIComponent(request.args.matchId)}`, FACEIT_PAGE_ORIGIN);
     case "matchStats":
-      return new URL(`/stats/v1/stats/matches/${encodeURIComponent(request.args.matchId)}`, FACEIT_API_ORIGIN);
+      return new URL(`/api/stats/v1/stats/matches/${encodeURIComponent(request.args.matchId)}`, FACEIT_PAGE_ORIGIN);
     case "vetoState":
-      return new URL(`/democracy/v1/match/${encodeURIComponent(request.args.matchId)}/history`, FACEIT_API_ORIGIN);
+      return new URL(`/api/democracy/v1/match/${encodeURIComponent(request.args.matchId)}/history`, FACEIT_PAGE_ORIGIN);
   }
-}
-
-function transientSessionToken(): string | undefined {
-  // FACEIT owns these stores. EloScope only reads the value for this single GET;
-  // it is never copied to extension storage, messages, logs, or an error object.
-  const cookieValue = document.cookie
-    .split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith("t="))
-    ?.slice(2);
-
-  let value = cookieValue;
-  if (!value) {
-    try {
-      value = window.localStorage.getItem("token") ?? window.sessionStorage.getItem("token") ?? undefined;
-    } catch {
-      value = undefined;
-    }
-  }
-  if (!value) return undefined;
-
-  const normalized = value.replace(/^Bearer\s+/i, "").replace(/^"|"$/g, "").trim();
-  return normalized.length >= 16 && normalized.length <= 8_192 ? normalized : undefined;
 }
 
 async function executeRead(request: AnyBridgeRequest): Promise<BridgeResult> {
   const endpoint = endpointFor(request);
-  if (!endpoint || endpoint.origin !== FACEIT_API_ORIGIN || endpoint.protocol !== "https:") {
+  if (!endpoint || endpoint.origin !== FACEIT_PAGE_ORIGIN || !endpoint.pathname.startsWith("/api/") || endpoint.protocol !== "https:") {
     return { status: "error", code: "unsupported" };
   }
 
-  const token = transientSessionToken();
   const headers = new Headers({ Accept: "application/json" });
-  if (token) headers.set("Authorization", `Bearer ${token}`);
 
   try {
     const response = await fetch(endpoint, {

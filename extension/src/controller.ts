@@ -4,6 +4,7 @@ import {
   type DataState,
   type MatchContext,
   type MatchStats,
+  type MapId,
   type Player,
   type PlayerMapStats,
   type PlayerMatch,
@@ -16,14 +17,24 @@ import { observeScopedDom } from "./dom";
 import { isSelectedMapVisible, QuickPositionSender, visibleSelectedMap } from "./positions";
 import { MAIN_SOURCE, PROTOCOL_VERSION, type MainMessage } from "./protocol";
 import { parseFaceitRoute, type FaceitRoute } from "./routes";
-import { loadSettings, saveSettings, type ExtensionSettings } from "./settings";
+import { loadSettings, positionForMap, saveSettings, type ExtensionSettings } from "./settings";
 import { EloSnapshotStore } from "./snapshots";
 import { EloScopeOverlay, type HistoryDetailData } from "./ui";
 
 type CachedState = DataState<unknown>;
 
+export type ControllerOptions = {
+  onMapPoolChange?: (mapIds: readonly MapId[]) => void;
+};
+
 function requestedWindow(window: StatsWindow): StatsWindow {
   return window < 30 ? 30 : window;
+}
+
+const AUTOMATIC_POSITION_MATCH_STATES = new Set(["voting", "configuring", "ready"]);
+
+export function allowsAutomaticPosition(status: string): boolean {
+  return AUTOMATIC_POSITION_MATCH_STATES.has(status.trim().toLowerCase());
 }
 
 export function routeIdentity(route: FaceitRoute): string {
@@ -48,9 +59,15 @@ export class EloScopeController {
   #currentPlayerMatches = new Map<string, PlayerMatch[]>();
   #routeRevision = 0;
   #stopObserver: (() => void) | undefined;
+  #destroyed = false;
+  readonly #lifecycle = new AbortController();
+
+  constructor(private readonly options: ControllerOptions = {}) {}
 
   async start(): Promise<void> {
+    if (this.#destroyed) return;
     this.#settings = await loadSettings();
+    if (this.#destroyed) return;
     this.#overlay = new EloScopeOverlay(this.#settings, {
       onSettingsChange: async (settings) => {
         this.#settings = settings;
@@ -66,20 +83,21 @@ export class EloScopeController {
         void this.navigate(location.pathname);
       },
       onPositionSend: async (map, message, mode) => {
-        if (this.#route.kind !== "match" || !this.#capabilities.quickPositions) return "chat-unavailable";
-        const position = this.#settings.automations.positions[map];
+        if (this.#destroyed || this.#route.kind !== "match" || !this.#capabilities.quickPositions) return "chat-unavailable";
+        const position = positionForMap(this.#settings, map);
         if (
           !this.#currentMatch?.selectedMap ||
           this.#currentMatch.selectedMap.toLowerCase() !== map.toLowerCase() ||
           !position?.enabled ||
           !isSelectedMapVisible(document, map)
         ) return "chat-unavailable";
-        return this.#positionSender.send(document, this.#route.matchId, map, message, mode);
+        return this.#positionSender.send(document, this.#route.matchId, map, message, mode, this.#lifecycle.signal);
       },
       onHistoryDetail: (matchId) => this.#loadHistoryDetail(matchId)
     });
 
-    const compatibility = await loadCompatibility();
+    const compatibility = await loadCompatibility({ signal: this.#lifecycle.signal });
+    if (this.#destroyed) return;
     this.#capabilities = compatibility.capabilities;
     this.#compatibilityStatus = compatibility.status;
     this.#overlay.setCompatibility(this.#compatibilityStatus);
@@ -90,11 +108,16 @@ export class EloScopeController {
   }
 
   destroy(): void {
+    if (this.#destroyed) return;
+    this.#destroyed = true;
+    this.#lifecycle.abort();
+    this.#routeRevision += 1;
     window.removeEventListener("message", this.#routeMessage);
     this.#stopObserver?.();
     this.#adapter.destroy();
     this.#cache.clear();
     this.#overlay?.destroy();
+    this.#publishMapPool([]);
   }
 
   readonly #routeMessage = (event: MessageEvent<unknown>): void => {
@@ -107,6 +130,7 @@ export class EloScopeController {
   };
 
   async navigate(pathname: string): Promise<void> {
+    if (this.#destroyed) return;
     const revision = ++this.#routeRevision;
     const nextRoute = parseFaceitRoute(pathname);
     const nextIdentity = routeIdentity(nextRoute);
@@ -114,10 +138,16 @@ export class EloScopeController {
     if (nextIdentity !== this.#routeIdentity) {
       this.#routeIdentity = nextIdentity;
       this.#automations.resetForRoute();
+      if (nextRoute.kind === "match") {
+        this.#currentMatch = undefined;
+        this.#currentPlayerMatches.clear();
+        this.#publishMapPool([]);
+      }
     }
     if (nextRoute.kind !== "match") {
       this.#currentMatch = undefined;
       this.#currentPlayerMatches.clear();
+      this.#publishMapPool([]);
     }
 
     switch (this.#route.kind) {
@@ -126,19 +156,23 @@ export class EloScopeController {
         this.#overlay.hideRoutePanels();
         break;
       case "profile":
-        if (!this.#capabilities.profile) this.#overlay.hideRoutePanels();
+        if (!this.#capabilities.profile || !this.#settings.interfaceVisibility.profile) this.#overlay.hideRoutePanels();
         else await this.#loadProfile(this.#route.nickname, false, revision);
         break;
       case "history":
-        if (!this.#capabilities.history) this.#overlay.hideRoutePanels();
+        if (!this.#capabilities.history || !this.#settings.interfaceVisibility.history) this.#overlay.hideRoutePanels();
         else await this.#loadProfile(this.#route.nickname, true, revision);
         break;
       case "match":
         if (!this.#capabilities.matchRoom) this.#overlay.hideRoutePanels();
-        else await this.#loadMatch(this.#route.matchId, revision);
+        else await this.#loadMatch(
+          this.#route.matchId,
+          revision,
+          this.#settings.interfaceVisibility.matchRoom
+        );
         break;
     }
-    if (revision === this.#routeRevision) this.#runAutomations();
+    if (this.#isCurrent(revision)) this.#runAutomations();
   }
 
   async #loadProfile(nickname: string, history: boolean, revision: number): Promise<void> {
@@ -148,12 +182,13 @@ export class EloScopeController {
       () => this.#adapter.getPlayer(nickname),
       CACHE_TTLS.playerStats
     );
-    if (revision !== this.#routeRevision) return;
+    if (!this.#isCurrent(revision)) return;
     if (playerState.status !== "ready" || !playerState.data) {
       this.#overlay.showState(history ? "Расширенная история" : "Профиль", playerState.status === "restricted" ? "restricted" : "error");
       return;
     }
     await this.#snapshots.recordPlayer(playerState.data);
+    if (!this.#isCurrent(revision)) return;
 
     const limit = requestedWindow(this.#settings.statsWindow);
     const [matchesState, mapsState] = await Promise.all([
@@ -170,28 +205,33 @@ export class EloScopeController {
             CACHE_TTLS.playerStats
           )
     ]);
-    if (revision !== this.#routeRevision) return;
+    if (!this.#isCurrent(revision)) return;
     if (matchesState.status !== "ready") {
       this.#overlay.showState(history ? "Расширенная история" : "Профиль", matchesState.status === "restricted" ? "restricted" : "error");
       return;
     }
     const matches = await this.#snapshots.hydrateMatchElos(playerState.data.id, matchesState.data);
+    if (!this.#isCurrent(revision)) return;
     await this.#snapshots.rememberMatchElos(playerState.data.id, matches);
+    if (!this.#isCurrent(revision)) return;
     const maps = mapsState.status === "ready" ? mapsState.data : [];
     if (history) this.#overlay.showHistory(playerState.data, matches);
     else this.#overlay.showProfile(playerState.data, matches, maps);
   }
 
-  async #loadMatch(matchId: string, revision: number): Promise<void> {
-    this.#overlay.showLoading("Match room");
+  async #loadMatch(matchId: string, revision: number, renderOverlay: boolean): Promise<void> {
+    if (renderOverlay) this.#overlay.showLoading("Match room");
+    else this.#overlay.hideRoutePanels();
     const matchState = await this.#cached<MatchContext>(
       `match:${matchId}`,
       () => this.#adapter.getMatch(matchId),
       CACHE_TTLS.activeMatch
     );
-    if (revision !== this.#routeRevision) return;
+    if (!this.#isCurrent(revision)) return;
     if (matchState.status !== "ready" || !matchState.data) {
-      this.#overlay.showState("Match room", matchState.status === "restricted" ? "restricted" : "error");
+      if (renderOverlay) {
+        this.#overlay.showState("Match room", matchState.status === "restricted" ? "restricted" : "error");
+      }
       return;
     }
 
@@ -206,10 +246,12 @@ export class EloScopeController {
         }
       : matchState.data;
     this.#currentMatch = match;
+    this.#publishMapPool(match.mapPool);
     if (match.status === "finished") this.#cache.set(`match:${matchId}`, matchState, CACHE_TTLS.finishedMatch);
     const limit = requestedWindow(this.#settings.statsWindow);
     const players = match.teams.flatMap((team) => team.players);
     await Promise.all(players.map((player) => this.#snapshots.recordPlayer(player)));
+    if (!this.#isCurrent(revision)) return;
     const states = await Promise.all(
       players.map(async (player) => [
         player.id,
@@ -220,7 +262,7 @@ export class EloScopeController {
         )
       ] as const)
     );
-    if (revision !== this.#routeRevision) return;
+    if (!this.#isCurrent(revision)) return;
     const matches = new Map<string, PlayerMatch[]>();
     for (const [playerId, state] of states) {
       if (state.status !== "ready") {
@@ -228,11 +270,14 @@ export class EloScopeController {
         continue;
       }
       const hydrated = await this.#snapshots.hydrateMatchElos(playerId, state.data);
+      if (!this.#isCurrent(revision)) return;
       await this.#snapshots.rememberMatchElos(playerId, hydrated);
+      if (!this.#isCurrent(revision)) return;
       matches.set(playerId, hydrated);
     }
+    if (!this.#isCurrent(revision)) return;
     this.#currentPlayerMatches = matches;
-    this.#overlay.showMatch(match, matches);
+    if (renderOverlay) this.#overlay.showMatch(match, matches);
     await this.#maybeSendAutomaticPosition();
   }
 
@@ -266,6 +311,7 @@ export class EloScopeController {
   }
 
   async #handleDomMutation(): Promise<void> {
+    if (this.#destroyed) return;
     this.#runAutomations();
     if (this.#route.kind !== "match" || !this.#currentMatch) return;
     const selected = visibleSelectedMap(document);
@@ -281,20 +327,51 @@ export class EloScopeController {
         ? this.#currentMatch.mapPool
         : [...this.#currentMatch.mapPool, selected],
     };
-    this.#overlay.showMatch(this.#currentMatch, this.#currentPlayerMatches);
+    this.#publishMapPool(this.#currentMatch.mapPool);
+    if (this.#settings.interfaceVisibility.matchRoom) {
+      this.#overlay.showMatch(this.#currentMatch, this.#currentPlayerMatches);
+    }
     await this.#maybeSendAutomaticPosition();
   }
 
   async #maybeSendAutomaticPosition(): Promise<void> {
+    if (this.#destroyed) return;
     const selected = this.#currentMatch?.selectedMap;
-    if (!selected || !this.#capabilities.quickPositions || !isSelectedMapVisible(document, selected)) return;
-    const position = this.#settings.automations.positions[selected];
+    const status = this.#currentMatch?.status;
+    if (
+      !selected ||
+      !status ||
+      !allowsAutomaticPosition(status) ||
+      !this.#capabilities.quickPositions ||
+      !isSelectedMapVisible(document, selected)
+    ) return;
+    const position = positionForMap(this.#settings, selected);
     if (position?.enabled && position.mode === "auto") {
-      await this.#positionSender.send(document, this.#currentMatch?.id ?? "", selected, position.message, "auto");
+      await this.#positionSender.send(
+        document,
+        this.#currentMatch?.id ?? "",
+        selected,
+        position.message,
+        "auto",
+        this.#lifecycle.signal
+      );
     }
   }
 
   #runAutomations(): void {
+    if (this.#destroyed) return;
     this.#automations.run(document, this.#route, this.#settings.automations, this.#capabilities);
+  }
+
+  #isCurrent(revision: number): boolean {
+    return !this.#destroyed && revision === this.#routeRevision;
+  }
+
+  #publishMapPool(mapIds: readonly MapId[]): void {
+    try {
+      this.options.onMapPoolChange?.([...new Set(mapIds)]);
+    } catch {
+      // UI integration callbacks must never break the native FACEIT route.
+    }
   }
 }

@@ -7,6 +7,34 @@ const root = path.resolve(import.meta.dirname, "..");
 const extensionRoot = path.join(root, "extension", "build");
 const manifestPath = path.join(extensionRoot, "manifest.json");
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const tauriConfig = JSON.parse(
+  await readFile(path.join(root, "src-tauri", "tauri.conf.json"), "utf8"),
+);
+const requiredResources = new Map([
+  ["../extension/build/", "extension/"],
+  ["../docs/PRIVACY.md", "docs/PRIVACY.md"],
+  ["../docs/THIRD_PARTY_NOTICES.md", "docs/THIRD_PARTY_NOTICES.md"],
+]);
+for (const [source, destination] of requiredResources) {
+  if (tauriConfig.bundle?.resources?.[source] !== destination) {
+    throw new Error(`Required bundled resource is missing: ${source} -> ${destination}`);
+  }
+}
+
+const requiredDocuments = [
+  ["PRIVACY.md", "Privacy Policy"],
+  ["THIRD_PARTY_NOTICES.md", "Third-Party Notices"],
+];
+for (const [filename, heading] of requiredDocuments) {
+  const contents = await readFile(path.join(root, "docs", filename), "utf8");
+  if (!contents.includes(`# ${heading}`)) {
+    throw new Error(`Bundled document is malformed: docs/${filename}`);
+  }
+}
+const expectedExtensionKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwHBlAovISb2dUzZopqhoV8umLwlh/xh7vCoJgZ56xqFiy6n3olhPH0s7Iky2h0yUOZKGAXq/QYWJXyk2A7dA25SWB12BmPw3BOyyVMW1BdIHGg6K2XHBTMBVRlH+URomEK5qr3QE+w8RnwW9Pl93yfxrrFXe/qoBPRbCTrA2LliwkGraO5b+3TTtB/ZAKaqDvkzMuu89oglW7gd4iPiWxnnUSAAlI8zmgHidW4zLNqGigYcbqX5t7qoq/FPBuZJQzWSnqdQMFx/Io6G/RL+giyxdlIOXHOjjzLqXqP/G7C2oLVjqliJm7OE9QEF/BpYPyDXfLyAyH8fejxXxpwv7XQIDAQAB";
+if (manifest.key !== expectedExtensionKey) {
+  throw new Error("The stable WebView2 extension identity key is missing or changed");
+}
 const compatibilityConfig = JSON.parse(
   await readFile(path.join(root, "compatibility", "config.json"), "utf8"),
 );
@@ -45,7 +73,6 @@ if (JSON.stringify(actualPermissions) !== JSON.stringify(expectedPermissions)) {
 
 const allowedHosts = new Set([
   "https://www.faceit.com/*",
-  "https://api.faceit.com/*",
   "https://raw.githubusercontent.com/lsby1808/Faceit-client-mode/*",
 ]);
 for (const host of manifest.host_permissions ?? []) {

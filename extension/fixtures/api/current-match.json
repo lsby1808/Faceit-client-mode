@@ -1,0 +1,46 @@
+{
+  "code": "OPERATION-OK",
+  "payload": {
+    "id": "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "game": "cs2",
+    "state": "FINISHED",
+    "status": "FINISHED",
+    "region": "EU",
+    "teams": {
+      "faction1": {
+        "id": "faction1",
+        "name": "team_alpha",
+        "roster": [
+          {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "nickname": "FixturePlayer",
+            "elo": 2511,
+            "gameSkillLevel": 10,
+            "partyId": "party-a"
+          }
+        ]
+      },
+      "faction2": {
+        "id": "faction2",
+        "name": "team_bravo",
+        "roster": [
+          {
+            "id": "66666666-7777-8888-9999-aaaaaaaaaaaa",
+            "nickname": "FixtureOpponent",
+            "elo": 2645,
+            "gameSkillLevel": 10
+          }
+        ]
+      }
+    },
+    "voting": {
+      "map": {
+        "entities": [
+          { "guid": "de_dust2", "name": "Dust2" },
+          { "guid": "de_mirage", "name": "Mirage" }
+        ],
+        "pick": ["de_dust2"]
+      }
+    }
+  }
+}

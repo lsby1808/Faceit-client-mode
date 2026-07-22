@@ -93,4 +93,31 @@ describe("Shadow DOM overlays", () => {
     expect(overlay.shadow.textContent).toContain("100.0%");
     overlay.destroy();
   });
+
+  it("renders the optional 11–20 tier for match-room players after it is enabled", () => {
+    const settings = { ...createDefaultSettings(), showExtendedTier: true };
+    const overlay = new EloScopeOverlay(settings, callbacks());
+    overlay.showMatch({
+      id: "match-1",
+      game: "cs2",
+      status: "finished",
+      mapPool: ["dust2"],
+      selectedMap: "dust2",
+      teams: [
+        {
+          id: "team-a",
+          players: [{ id: "player-1", nickname: "One", game: "cs2", elo: 2_511, officialLevel: 10 }],
+        },
+        {
+          id: "team-b",
+          players: [{ id: "player-2", nickname: "Two", game: "cs2", elo: 2_100, officialLevel: 10 }],
+        },
+      ],
+    }, new Map([["player-1", [validMatch]]]));
+
+    const extended = overlay.shadow.querySelector<HTMLElement>('.es-level-mini[title^="Шкала EloScope"]');
+    expect(extended?.textContent).toBe("12");
+    expect(extended?.title).toContain("официальный FACEIT level 10");
+    overlay.destroy();
+  });
 });

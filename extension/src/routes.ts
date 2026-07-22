@@ -6,9 +6,12 @@ export type FaceitRoute =
   | { kind: "other" };
 
 const LOCALE = "(?:[a-z]{2}(?:-[A-Z]{2})?/)?";
-const PROFILE = new RegExp(`^/${LOCALE}players/([^/]+)/?$`, "u");
+const PROFILE = new RegExp(`^/${LOCALE}players/([^/]+)(?:/cs2(?:/stats)?)?/?$`, "u");
 const HISTORY = new RegExp(`^/${LOCALE}players/([^/]+)/cs2/history/?$`, "u");
-const MATCH = new RegExp(`^/${LOCALE}(?:cs2/)?room/([a-f0-9-]{20,64})/?$`, "iu");
+const MATCH = new RegExp(
+  `^/${LOCALE}(?:cs2/)?room/([a-f0-9-]{20,64})(?:/scoreboard(?:/(?:summary|utility|duels|match-insights))?)?/?$`,
+  "iu"
+);
 
 export function parseFaceitRoute(pathname: string): FaceitRoute {
   if (/^\/(?:[a-z]{2}(?:-[A-Z]{2})?\/)?(?:login|signup|register)\/?$/u.test(pathname)) {

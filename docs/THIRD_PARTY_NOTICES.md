@@ -1,8 +1,9 @@
 # Third-Party Notices
 
 EloScope uses open-source components distributed through Cargo and npm. Exact
-versions and licenses are generated from `Cargo.lock` and `pnpm-lock.yaml` for
-each release and attached to the release artifact.
+component versions are recorded in `Cargo.lock` and `pnpm-lock.yaml` in the
+source repository. Complete license terms remain available from each component's
+distribution and upstream repository.
 
 Key runtime components include Tauri, Microsoft WebView2, serde, url, TypeScript,
 esbuild and Vitest. Each remains subject to its own license.

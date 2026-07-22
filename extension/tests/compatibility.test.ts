@@ -13,6 +13,14 @@ function base64Url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
 }
 
+const hangingFetcher = (async (_input: RequestInfo | URL, init?: RequestInit) =>
+  new Promise<Response>((_resolve, reject) => {
+    const signal = init?.signal;
+    const rejectAbort = (): void => reject(new Error("aborted"));
+    if (signal?.aborted) rejectAbort();
+    else signal?.addEventListener("abort", rejectAbort, { once: true });
+  })) as typeof fetch;
+
 async function sign(payload: CompatibilityPayload): Promise<{ envelope: SignedCompatibilityEnvelope; publicKey: string }> {
   const keys = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
   const bytes = new TextEncoder().encode(JSON.stringify(payload));
@@ -90,6 +98,61 @@ describe("signed compatibility manifest", () => {
     expect(result.capabilities.profile).toBe(true);
     expect(result.capabilities.quickPositions).toBe(true);
     expect(result.capabilities.readyUp).toBe(false);
+    expect(result.capabilities.connect).toBe(false);
+  });
+
+  it("times out a hanging compatibility fetch and uses the verified cache", async () => {
+    const signed = await sign({
+      schemaVersion: 1,
+      issuedAt: "2026-07-22T11:00:00.000Z",
+      expiresAt: "2026-07-23T00:00:00.000Z",
+      capabilities: { readyUp: false }
+    });
+    await loadCompatibility({
+      url: "https://releases.example.test/compatibility.json",
+      publicKey: signed.publicKey,
+      now,
+      fetcher: (async () => new Response(JSON.stringify(signed.envelope), { status: 200 })) as typeof fetch
+    });
+
+    const result = await loadCompatibility({
+      url: "https://releases.example.test/compatibility.json",
+      publicKey: signed.publicKey,
+      now,
+      fetcher: hangingFetcher,
+      timeoutMs: 5
+    });
+
+    expect(result.status).toBe("cached");
+    expect(result.capabilities.readyUp).toBe(false);
+  });
+
+  it("aborts an in-flight compatibility fetch and still uses the verified cache", async () => {
+    const signed = await sign({
+      schemaVersion: 1,
+      issuedAt: "2026-07-22T11:00:00.000Z",
+      expiresAt: "2026-07-23T00:00:00.000Z",
+      capabilities: { connect: false }
+    });
+    await loadCompatibility({
+      url: "https://releases.example.test/compatibility.json",
+      publicKey: signed.publicKey,
+      now,
+      fetcher: (async () => new Response(JSON.stringify(signed.envelope), { status: 200 })) as typeof fetch
+    });
+    const controller = new AbortController();
+    const resultPromise = loadCompatibility({
+      url: "https://releases.example.test/compatibility.json",
+      publicKey: signed.publicKey,
+      now,
+      fetcher: hangingFetcher,
+      signal: controller.signal,
+      timeoutMs: 1_000
+    });
+
+    controller.abort();
+    const result = await resultPromise;
+    expect(result.status).toBe("cached");
     expect(result.capabilities.connect).toBe(false);
   });
 });

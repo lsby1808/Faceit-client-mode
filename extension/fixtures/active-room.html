@@ -1,7 +1,17 @@
 <main data-fixture="active-room" data-match-id="11111111-2222-3333-4444-555555555555">
   <section data-testid="roster"><div>player-a</div><div>player-b</div></section>
-  <div data-testid="selected-map" data-map-id="mirage" data-eloscope-visible="true">Mirage</div>
+  <div data-testid="matchPreference" data-eloscope-visible="true">Germany</div>
+  <div><span data-testid="mapsVetoHistory">Veto</span></div>
+  <div data-testid="matchPreference" data-eloscope-visible="true">Mirage</div>
   <button data-testid="match-ready-button" data-eloscope-visible="true">READY</button>
-  <textarea data-testid="chat-input" data-eloscope-visible="true"></textarea>
-  <button data-testid="chat-send" data-eloscope-visible="true">SEND</button>
+  <section data-testid="room-chat">
+    <div id="scrollable-container-match-11111111-2222-3333-4444-555555555555@muclight.chat.faceit.com" data-eloscope-visible="true"></div>
+    <textarea enterkeyhint="send" aria-multiline="true" data-eloscope-visible="true"></textarea>
+    <button data-testid="chat-send" data-eloscope-visible="true">ROOM SEND</button>
+  </section>
+  <section data-testid="team-chat">
+    <div id="scrollable-container-team-11111111-2222-3333-4444-555555555555_team-id@muclight.chat.faceit.com" data-eloscope-visible="true"></div>
+    <textarea data-testid="team-chat-input" enterkeyhint="send" aria-multiline="true" data-eloscope-visible="true"></textarea>
+    <button data-testid="team-chat-send" data-eloscope-visible="true">TEAM SEND</button>
+  </section>
 </main>

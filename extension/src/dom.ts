@@ -58,7 +58,22 @@ export function observeScopedDom(callback: () => void): () => void {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["disabled", "aria-hidden", "data-state", "data-active", "data-action", "data-veto-action", "href", "class", "style"]
+      attributeFilter: [
+        "disabled",
+        "aria-hidden",
+        "aria-multiline",
+        "data-state",
+        "data-active",
+        "data-action",
+        "data-veto-action",
+        "data-map-id",
+        "data-testid",
+        "enterkeyhint",
+        "href",
+        "id",
+        "class",
+        "style"
+      ]
     });
   };
   const observer = new MutationObserver(() => {

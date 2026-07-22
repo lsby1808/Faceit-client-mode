@@ -55,6 +55,7 @@ export const BUILT_IN_CAPABILITIES: Capabilities = Object.freeze({
 });
 
 export const COMPATIBILITY_CACHE_KEY = "eloscope:compatibility-lkg:v1";
+export const COMPATIBILITY_TIMEOUT_MS = 8_000;
 const AUTOMATION_CAPABILITIES: CapabilityName[] = [
   "partyAccept",
   "readyUp",
@@ -189,6 +190,8 @@ export async function loadCompatibility(
     builtIn?: Capabilities;
     fetcher?: typeof fetch;
     now?: number;
+    signal?: AbortSignal;
+    timeoutMs?: number;
   } = {}
 ): Promise<CompatibilityResult> {
   const builtIn = options.builtIn ?? BUILT_IN_CAPABILITIES;
@@ -214,6 +217,16 @@ export async function loadCompatibility(
   }
   if (endpoint.protocol !== "https:") return fallback("invalid");
 
+  const requestController = new AbortController();
+  const abortRequest = (): void => { requestController.abort(); };
+  if (options.signal?.aborted) abortRequest();
+  else options.signal?.addEventListener("abort", abortRequest, { once: true });
+  const configuredTimeout = options.timeoutMs ?? COMPATIBILITY_TIMEOUT_MS;
+  const timeoutMs = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+    ? Math.min(configuredTimeout, 60_000)
+    : COMPATIBILITY_TIMEOUT_MS;
+  const timeout = setTimeout(abortRequest, timeoutMs);
+
   try {
     const response = await (options.fetcher ?? fetch)(endpoint, {
       method: "GET",
@@ -221,6 +234,7 @@ export async function loadCompatibility(
       cache: "no-store",
       redirect: "error",
       referrerPolicy: "no-referrer",
+      signal: requestController.signal,
       headers: { Accept: "application/json" }
     });
     if (!response.ok) return fallback("unavailable");
@@ -233,5 +247,8 @@ export async function loadCompatibility(
     return fallback(verified.status === "expired" ? "expired" : "invalid");
   } catch {
     return fallback("unavailable");
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortRequest);
   }
 }

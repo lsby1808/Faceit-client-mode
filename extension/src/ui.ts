@@ -6,7 +6,6 @@ import {
   getEloTier,
   getOfficialEloProgress,
   toEpochMs,
-  type AutomationSettings,
   type DataState,
   type FormBattery,
   type MatchContext,
@@ -19,7 +18,7 @@ import {
 } from "@eloscope/core";
 import type { CompatibilityStatus } from "./compatibility";
 import type { ExtensionSettings } from "./settings";
-import { STATS_WINDOWS } from "./settings";
+import { canonicalPositionMapId, positionForMap, STATS_WINDOWS } from "./settings";
 import { isSelectedMapVisible, type PositionSendResult } from "./positions";
 import { OVERLAY_STYLES } from "./styles";
 
@@ -120,10 +119,7 @@ export class EloScopeOverlay {
   readonly #shell: HTMLElement;
   readonly #panel: HTMLElement;
   readonly #positions: HTMLElement;
-  readonly #modal: HTMLElement;
-  readonly #launcherStatus: HTMLElement;
   #settings: ExtensionSettings;
-  #compatibilityStatus: CompatibilityStatus = "built-in";
 
   constructor(settings: ExtensionSettings, private readonly callbacks: OverlayCallbacks) {
     this.#settings = settings;
@@ -136,18 +132,11 @@ export class EloScopeOverlay {
     this.shadow.append(style);
 
     this.#shell = element("div", { className: "es-shell" });
-    const launcher = element("button", { className: "es-launcher", text: "E", title: "EloScope настройки" });
-    launcher.type = "button";
-    this.#launcherStatus = element("span", { className: "es-launcher-status" });
-    launcher.append(this.#launcherStatus);
-    launcher.addEventListener("click", () => this.openSettings());
     this.#panel = element("section", { className: "es-panel" });
     this.#panel.hidden = true;
     this.#positions = element("section", { className: "es-positions" });
     this.#positions.hidden = true;
-    this.#modal = element("div", { className: "es-modal-backdrop" });
-    this.#modal.hidden = true;
-    append(this.#shell, launcher, this.#panel, this.#positions, this.#modal);
+    append(this.#shell, this.#panel, this.#positions);
     this.shadow.append(this.#shell);
     (document.documentElement ?? document).append(this.host);
   }
@@ -161,9 +150,7 @@ export class EloScopeOverlay {
   }
 
   setCompatibility(status: CompatibilityStatus): void {
-    this.#compatibilityStatus = status;
-    this.#launcherStatus.dataset.status = status;
-    this.#launcherStatus.title = `Compatibility: ${status}`;
+    this.host.dataset.compatibility = status;
   }
 
   hideRoutePanels(): void {
@@ -446,14 +433,23 @@ export class EloScopeOverlay {
       teamNode.append(head);
       for (const player of team.players) {
         const rows = eligibleMatches(playerMatches.get(player.id) ?? []);
+        const displayedLevel = player.elo === undefined
+          ? player.officialLevel
+          : getEloTier(player.elo, this.#settings.showExtendedTier);
         const playerNode = element("div", { className: "es-player" });
         const meta = element("div", { className: "es-player-meta" });
         const name = element("strong");
         append(
           name,
-          player.officialLevel === undefined
+          displayedLevel === undefined
             ? null
-            : element("span", { className: "es-level-mini", text: String(player.officialLevel), title: "Официальный FACEIT level" }),
+            : element("span", {
+                className: "es-level-mini",
+                text: String(displayedLevel),
+                title: this.#settings.showExtendedTier
+                  ? `Шкала EloScope 1–20 · официальный FACEIT level ${player.officialLevel ?? "—"}`
+                  : "Официальный FACEIT level"
+              }),
           player.country ? `${player.country} ` : "",
           player.nickname,
         );
@@ -504,7 +500,8 @@ export class EloScopeOverlay {
   }
 
   #positionCard(match: MatchContext, map: string): HTMLElement {
-    const current = this.#settings.automations.positions[map] ?? { enabled: false, message: "", mode: "confirm" as const };
+    const canonicalMap = canonicalPositionMapId(map) ?? map;
+    const current = positionForMap(this.#settings, canonicalMap) ?? { enabled: false, message: "", mode: "confirm" as const };
     const selected = match.selectedMap?.toLowerCase() === map.toLowerCase() && isSelectedMapVisible(document, map);
     const card = element("div", { className: "es-position-card" });
     card.dataset.selected = String(selected);
@@ -525,7 +522,7 @@ export class EloScopeOverlay {
       mode.append(option);
     }
     const savePosition = (): void => {
-      const positions = { ...this.#settings.automations.positions, [map]: { enabled: enabled.checked, message: textarea.value, mode: mode.value as "confirm" | "auto" | "prefill" } };
+      const positions = { ...this.#settings.automations.positions, [canonicalMap]: { enabled: enabled.checked, message: textarea.value, mode: mode.value as "confirm" | "auto" | "prefill" } };
       this.#settings = { ...this.#settings, automations: { ...this.#settings.automations, positions } };
       void this.callbacks.onSettingsChange(this.#settings);
     };
@@ -566,82 +563,10 @@ export class EloScopeOverlay {
     return card;
   }
 
-  openSettings(): void {
-    const modal = element("section", { className: "es-modal" });
-    const close = element("button", { className: "es-icon-button", text: "×", title: "Закрыть" });
-    close.type = "button";
-    close.addEventListener("click", () => { this.#modal.hidden = true; });
-    modal.append(this.#header("Настройки EloScope", close));
-    const form = element("div", { className: "es-settings" });
-    const statsSelect = createWindowSelect(this.#settings.statsWindow, (value) => { this.#settings = { ...this.#settings, statsWindow: value }; });
-    form.append(this.#setting("Окно статистики", "5–100 завершённых CS2 5v5", statsSelect));
-    form.append(this.#checkboxSetting("Расширенная шкала 1–20", "Официальный FACEIT level не изменяется", this.#settings.showExtendedTier, (checked) => { this.#settings = { ...this.#settings, showExtendedTier: checked }; }));
-
-    const automationRows: Array<[keyof Pick<AutomationSettings, "partyAccept" | "readyUp" | "autoConnect" | "copyServerData">, string, string]> = [
-      ["partyAccept", "Принимать party invites", "Только однозначная видимая кнопка"],
-      ["readyUp", "Ready-up", "Только в текущей комнате"],
-      ["autoConnect", "Connect to server", "Запускает только видимую steam:// ссылку"],
-      ["copyServerData", "Копировать connect", "Нажимает только видимую кнопку FACEIT"]
-    ];
-    for (const [key, title, description] of automationRows) {
-      form.append(this.#checkboxSetting(title, description, this.#settings.automations[key], (checked) => {
-        this.#settings = { ...this.#settings, automations: { ...this.#settings.automations, [key]: checked } };
-      }));
-    }
-    form.append(this.#checkboxSetting("Авто veto карт", "Проверяет ход капитана и видимую фазу ban/pick", this.#settings.automations.mapVeto.enabled, (checked) => {
-      this.#settings = { ...this.#settings, automations: { ...this.#settings.automations, mapVeto: { ...this.#settings.automations.mapVeto, enabled: checked } } };
-    }));
-    form.append(this.#orderSetting("Порядок ban карт", this.#settings.automations.mapVeto.banOrder, (order) => {
-      this.#settings = { ...this.#settings, automations: { ...this.#settings.automations, mapVeto: { ...this.#settings.automations.mapVeto, banOrder: order } } };
-    }));
-    form.append(this.#orderSetting("Порядок pick карт", this.#settings.automations.mapVeto.pickOrder, (order) => {
-      this.#settings = { ...this.#settings, automations: { ...this.#settings.automations, mapVeto: { ...this.#settings.automations.mapVeto, pickOrder: order } } };
-    }));
-    form.append(this.#checkboxSetting("Авто veto серверов", "Проверяет ход капитана", this.#settings.automations.serverVeto.enabled, (checked) => {
-      this.#settings = { ...this.#settings, automations: { ...this.#settings.automations, serverVeto: { ...this.#settings.automations.serverVeto, enabled: checked } } };
-    }));
-    form.append(this.#orderSetting("Порядок серверов", this.#settings.automations.serverVeto.order, (order) => {
-      this.#settings = { ...this.#settings, automations: { ...this.#settings.automations, serverVeto: { ...this.#settings.automations.serverVeto, order } } };
-    }));
-    const save = element("button", { className: "es-primary", text: "Сохранить" });
-    save.type = "button";
-    save.addEventListener("click", async () => {
-      await this.callbacks.onSettingsChange(this.#settings);
-      this.#modal.hidden = true;
-    });
-    append(form, element("div", { className: "es-disclaimer", text: `Compatibility: ${this.#compatibilityStatus}. Все автоматизации по умолчанию выключены. EloScope — независимый продукт, не аффилированный с FACEIT.` }), save);
-    modal.append(form);
-    this.#modal.replaceChildren(modal);
-    this.#modal.hidden = false;
-  }
-
   #header(title: string, customAction?: HTMLElement): HTMLElement {
     const head = element("header", { className: "es-head" });
     append(head, element("span", { className: "es-title", text: title }), element("span", { className: "es-badge", text: "EloScope" }), element("span", { className: "es-spacer" }), customAction);
     return head;
   }
 
-  #setting(title: string, description: string, control: HTMLElement): HTMLElement {
-    const row = element("div", { className: "es-setting" });
-    const label = element("div");
-    append(label, element("strong", { text: title }), element("small", { text: description }));
-    append(row, label, control);
-    return row;
-  }
-
-  #checkboxSetting(title: string, description: string, checked: boolean, onChange: (checked: boolean) => void): HTMLElement {
-    const input = element("input") as HTMLInputElement;
-    input.type = "checkbox";
-    input.checked = checked;
-    input.addEventListener("change", () => onChange(input.checked));
-    return this.#setting(title, description, input);
-  }
-
-  #orderSetting(title: string, current: string[], onChange: (values: string[]) => void): HTMLElement {
-    const input = element("input", { className: "es-text" }) as HTMLInputElement;
-    input.value = current.join(", ");
-    input.placeholder = "mirage, ancient, nuke";
-    input.addEventListener("change", () => onChange(input.value.split(",").map((value) => value.trim()).filter(Boolean).slice(0, 32)));
-    return this.#setting(title, "Через запятую, первое доступное значение", input);
-  }
 }

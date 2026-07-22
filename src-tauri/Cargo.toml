@@ -1,6 +1,6 @@
 [package]
 name = "eloscope"
-version = "0.1.0-beta.1"
+version = "0.1.0-beta.2"
 description = "A lightweight, independent FACEIT enhancement client"
 authors = ["EloScope contributors"]
 edition = "2021"
@@ -30,6 +30,13 @@ tauri-plugin-dialog = "2.7.2"
 tauri-plugin-updater = "2.10.1"
 tokio = { version = "1.49.0", features = ["time"] }
 url = "2.5.8"
+
+[target.'cfg(windows)'.dependencies]
+# Keep these versions aligned with Tauri/Wry. We use the native WebView2
+# profile API so the first FACEIT navigation only starts after the bundled
+# MV3 extension has actually been installed.
+webview2-com = "=0.38.2"
+windows = "=0.61.3"
 
 [profile.release]
 codegen-units = 1

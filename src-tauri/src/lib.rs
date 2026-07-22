@@ -10,10 +10,11 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::menu::MenuBuilder;
 use tauri::webview::{DownloadEvent, NewWindowFeatures, NewWindowResponse, WebviewWindowBuilder};
-use tauri::{AppHandle, Manager, WebviewUrl, Wry};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, Wry};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 const FACEIT_HOME: &str = "https://www.faceit.com/";
+const EXTENSION_BOOTSTRAP_URL: &str = "about:blank";
 const ABOUT_TEXT: &str = "EloScope is an independent enhancement client. It is not affiliated with, sponsored by, or endorsed by FACEIT Ltd. FACEIT and Counter-Strike are trademarks of their respective owners. EloScope does not interact with FACEIT Anti-Cheat, CS2 memory, or game processes. No telemetry or remote crash reporting is enabled.";
 static POPUP_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -52,15 +53,18 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let popup_app = app.handle().clone();
     let popup_init_script = init_script.clone();
 
-    let faceit_url = FACEIT_HOME.parse()?;
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(faceit_url))
+    // WebView2 installs browser extensions asynchronously. Starting at FACEIT
+    // here would race the extension installation and leave the initial SPA
+    // document without content scripts. Stay on about:blank until the native
+    // completion callback confirms that the extension is running.
+    let bootstrap_url = EXTENSION_BOOTSTRAP_URL.parse()?;
+    let main_window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(bootstrap_url))
         .title("EloScope")
         .inner_size(1440.0, 900.0)
         .min_inner_size(1024.0, 700.0)
         .resizable(true)
         .data_directory(profile_path)
         .browser_extensions_enabled(true)
-        .extensions_path(extension_path.clone())
         .initialization_script(init_script)
         .devtools(cfg!(debug_assertions))
         .zoom_hotkeys_enabled(true)
@@ -79,6 +83,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
             _ => false,
         })
         .build()?;
+
+    install_extension_then_navigate(
+        &main_window,
+        app.handle().clone(),
+        extension_path.clone(),
+        FACEIT_HOME,
+    )?;
 
     let extension_manifest_present = extension_path.join("manifest.json").is_file();
     let app_handle = app.handle().clone();
@@ -127,6 +138,88 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
 
     updater::start_periodic_checks(app.handle().clone());
     Ok(())
+}
+
+#[cfg(windows)]
+fn install_extension_then_navigate(
+    window: &WebviewWindow<Wry>,
+    app: AppHandle<Wry>,
+    extension_root: PathBuf,
+    target_url: &str,
+) -> tauri::Result<()> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2Profile7, ICoreWebView2_13};
+    use webview2_com::ProfileAddBrowserExtensionCompletedHandler;
+    use windows::core::{Interface, HSTRING};
+
+    let target_url = target_url.to_owned();
+    window.with_webview(move |platform_webview| {
+        let install = (|| -> windows::core::Result<()> {
+            let controller = platform_webview.controller();
+            let webview = unsafe { controller.CoreWebView2()? };
+            let webview_13 = webview.cast::<ICoreWebView2_13>()?;
+            let profile = unsafe { webview_13.Profile()? }.cast::<ICoreWebView2Profile7>()?;
+
+            let callback_webview = webview.clone();
+            let callback_app = app.clone();
+            let callback_target = target_url.clone();
+            let handler = ProfileAddBrowserExtensionCompletedHandler::create(Box::new(
+                move |result, extension| {
+                    if result.is_ok() && extension.is_some() {
+                        if let Err(error) = unsafe {
+                            callback_webview.Navigate(&HSTRING::from(callback_target.as_str()))
+                        } {
+                            show_extension_load_error(
+                                &callback_app,
+                                format!(
+                                    "The extension was installed, but FACEIT navigation failed ({error})."
+                                ),
+                            );
+                        }
+                    } else {
+                        show_extension_load_error(
+                            &callback_app,
+                            format!("WebView2 rejected the bundled extension ({result:?})."),
+                        );
+                    }
+                    Ok(())
+                },
+            ));
+
+            // AddBrowserExtension expects the exact top-level unpacked
+            // extension folder containing manifest.json (not its parent).
+            unsafe {
+                profile.AddBrowserExtension(&HSTRING::from(extension_root.as_path()), &handler)?;
+            }
+            Ok(())
+        })();
+
+        if let Err(error) = install {
+            show_extension_load_error(
+                &app,
+                format!("The WebView2 extension API is unavailable ({error})."),
+            );
+        }
+    })
+}
+
+#[cfg(not(windows))]
+fn install_extension_then_navigate(
+    window: &WebviewWindow<Wry>,
+    _app: AppHandle<Wry>,
+    _extension_root: PathBuf,
+    target_url: &str,
+) -> tauri::Result<()> {
+    window.navigate(target_url.parse().map_err(tauri::Error::InvalidUrl)?)
+}
+
+fn show_extension_load_error(app: &AppHandle<Wry>, detail: String) {
+    app.dialog()
+        .message(format!(
+            "EloScope could not load its FACEIT enhancements. FACEIT was not opened to avoid running an unmodified client.\n\n{detail}\n\nInstall the latest Microsoft Edge WebView2 Runtime and restart EloScope."
+        ))
+        .title("EloScope extension failed to load")
+        .kind(MessageDialogKind::Error)
+        .show(|_| {});
 }
 
 fn handle_navigation(decision: NavigationDecision, original_url: &str) -> bool {
@@ -291,6 +384,12 @@ mod tests {
         assert!(script.contains("event.isTrusted"));
         assert!(script.contains("eloscopeAutoConnect"));
         assert!(script.contains("steam://connect/"));
+    }
+
+    #[test]
+    fn extension_bootstrap_does_not_navigate_to_faceit_early() {
+        assert_eq!(EXTENSION_BOOTSTRAP_URL, "about:blank");
+        assert_ne!(EXTENSION_BOOTSTRAP_URL, FACEIT_HOME);
     }
 
     #[test]

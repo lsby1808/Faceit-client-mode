@@ -1,0 +1,36 @@
+{
+  "lifetime": {},
+  "segments": [
+    {
+      "_id": {
+        "game": "cs2",
+        "gameMode": "5v5",
+        "segmentId": "competitions",
+        "playerId": "11111111-2222-3333-4444-555555555555"
+      },
+      "segments": {
+        "queue-id": { "m1": "100", "m2": "55" }
+      }
+    },
+    {
+      "_id": {
+        "game": "cs2",
+        "gameMode": "5v5",
+        "segmentId": "csgo_map",
+        "playerId": "11111111-2222-3333-4444-555555555555"
+      },
+      "segments": {
+        "de_dust2": {
+          "m1": "28",
+          "m2": "17",
+          "m3": "504",
+          "m4": "420",
+          "m5": "126",
+          "m8": "640",
+          "m9": "251",
+          "m19": "54400"
+        }
+      }
+    }
+  ]
+}

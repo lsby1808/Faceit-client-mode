@@ -89,7 +89,10 @@ function normalizePlayer(value: unknown): (Player & { premadeId?: string }) | nu
   const country = text(prop(object, "country", "country_code", "countryCode"));
   const avatarUrl = text(prop(object, "avatar", "avatar_url", "avatarUrl"));
   const elo = number(prop(object, "elo", "faceit_elo", "faceitElo"), prop(cs2, "faceit_elo", "elo"));
-  const level = number(prop(object, "skill_level", "skillLevel", "level"), prop(cs2, "skill_level", "level"));
+  const level = number(
+    prop(object, "skill_level", "skillLevel", "game_skill_level", "gameSkillLevel", "level"),
+    prop(cs2, "skill_level", "skillLevel", "game_skill_level", "gameSkillLevel", "level")
+  );
   const premadeId = text(prop(object, "party_id", "partyId", "premade_id", "premadeId"));
   if (country) result.country = country.toUpperCase();
   if (avatarUrl) result.avatarUrl = avatarUrl;
@@ -110,7 +113,10 @@ export function normalizePlayerResponse(value: unknown): Player | null {
 }
 
 function normalizeResult(value: unknown, stats: RecordValue | undefined): "win" | "loss" | undefined {
-  const direct = text(prop(record(value), "result", "match_result"), prop(stats, "Result", "result"))?.toLowerCase();
+  const direct = text(
+    prop(record(value), "result", "match_result", "i10"),
+    prop(stats, "Result", "result", "i10")
+  )?.toLowerCase();
   if (direct === "win" || direct === "w" || direct === "1" || direct === "true") return "win";
   if (direct === "loss" || direct === "lose" || direct === "l" || direct === "0" || direct === "false") {
     return "loss";
@@ -120,29 +126,29 @@ function normalizeResult(value: unknown, stats: RecordValue | undefined): "win" 
 
 function normalizePlayerMatch(value: unknown, playerId: string): PlayerMatch | null {
   const object = record(value);
-  const stats = statsRecord(prop(object, "player_stats", "playerStats", "stats"));
-  if (!object || !stats) return null;
+  if (!object) return null;
+  const stats = statsRecord(prop(object, "player_stats", "playerStats", "stats")) ?? object;
 
-  const id = text(prop(object, "match_id", "matchId", "id"));
+  const id = text(prop(object, "match_id", "matchId", "id", "_id"));
   const result = normalizeResult(object, stats);
   const finishedAt = prop(object, "finished_at", "finishedAt", "ended_at", "date");
-  const kills = numericStat(stats, "Kills", "kills");
-  const assists = numericStat(stats, "Assists", "assists");
-  const deaths = numericStat(stats, "Deaths", "deaths");
-  const damage = numericStat(stats, "Damage", "damage", "Total Damage", "total_damage");
-  const rounds = numericStat(stats, "Rounds", "rounds", "Rounds Played", "rounds_played");
+  const kills = numericStat(stats, "Kills", "kills", "i6");
+  const assists = numericStat(stats, "Assists", "assists", "i7");
+  const deaths = numericStat(stats, "Deaths", "deaths", "i8");
+  const damage = numericStat(stats, "Damage", "damage", "Total Damage", "total_damage", "i20");
+  const rounds = numericStat(stats, "Rounds", "rounds", "Rounds Played", "rounds_played", "i12");
   if (!id || !result || finishedAt === undefined || [kills, assists, deaths, damage, rounds].some((item) => item === undefined)) {
     return null;
   }
 
   const statusRaw = text(prop(object, "status", "state"))?.toLowerCase();
-  const modeRaw = text(prop(object, "mode", "match_type", "competition_type"))?.toLowerCase();
+  const modeRaw = text(prop(object, "mode", "gameMode", "game_mode", "match_type", "competition_type"))?.toLowerCase();
   const resultValue: PlayerMatch = {
     id,
     playerId,
     game: text(prop(object, "game", "game_id"))?.toLowerCase() ?? "cs2",
     mode: modeRaw === "5v5" || modeRaw === "matchmaking" ? "5v5" : modeRaw ?? "unknown",
-    status: statusRaw === "finished" || statusRaw === "completed" ? "finished" : statusRaw ?? "unknown",
+    status: statusRaw === "finished" || statusRaw === "completed" || statusRaw === "applied" ? "finished" : statusRaw ?? "unknown",
     finishedAt: finishedAt as string | number,
     result,
     roundsPlayed: rounds as number,
@@ -152,13 +158,16 @@ function normalizePlayerMatch(value: unknown, playerId: string): PlayerMatch | n
     damage: damage as number
   };
 
-  const map = text(prop(object, "map", "map_name"), prop(stats, "Map", "map"));
+  const rawMap = text(prop(object, "map", "map_name", "i1"), prop(stats, "Map", "map", "i1"));
+  const map = rawMap?.replace(/^de_/iu, "").toLowerCase();
   const teamId = text(prop(object, "team_id", "teamId", "faction"));
-  const headshots = numericStat(stats, "Headshots", "headshots");
-  const firstKills = numericStat(stats, "First Kills", "first_kills", "firstKills");
+  const headshots = numericStat(stats, "Headshots", "headshots", "i13");
+  const firstKills = numericStat(stats, "First Kills", "first_kills", "firstKills", "i35");
   const survivedRounds = numericStat(stats, "Survived Rounds", "survived_rounds", "survivedRounds");
-  const eloBefore = number(prop(object, "elo_before", "eloBefore"));
+  const eloDelta = number(prop(object, "elo_delta", "eloDelta"));
   const eloAfter = number(prop(object, "elo_after", "eloAfter", "elo"));
+  const eloBefore = number(prop(object, "elo_before", "eloBefore")) ??
+    (eloAfter !== undefined && eloDelta !== undefined ? eloAfter - eloDelta : undefined);
   const teamAverageElo = number(prop(object, "team_average_elo", "teamAverageElo"));
   const opponentAverageElo = number(prop(object, "opponent_average_elo", "opponentAverageElo"));
   const fcr = number(prop(stats, "FCR", "fcr"));
@@ -167,6 +176,7 @@ function normalizePlayerMatch(value: unknown, playerId: string): PlayerMatch | n
   if (headshots !== undefined) resultValue.headshots = headshots;
   if (firstKills !== undefined) resultValue.firstKills = firstKills;
   if (survivedRounds !== undefined) resultValue.survivedRounds = survivedRounds;
+  else if (rounds !== undefined && deaths !== undefined) resultValue.survivedRounds = Math.max(0, rounds - deaths);
   if (eloBefore !== undefined) resultValue.eloBefore = eloBefore;
   if (eloAfter !== undefined) resultValue.eloAfter = eloAfter;
   if (teamAverageElo !== undefined) resultValue.teamAverageElo = teamAverageElo;
@@ -189,19 +199,33 @@ export function normalizeMapStats(value: unknown): PlayerMapStats[] | null {
   if (!root) return null;
   const declared = prop(root, "segments", "maps", "items");
   if (declared === undefined) return null;
-  const segments = array(declared);
+  const segments: Array<{ value: unknown; mapHint?: string }> = [];
+  for (const rawSegment of array(declared)) {
+    const segment = record(rawSegment);
+    const segmentIdentity = record(prop(segment, "_id"));
+    const segmentId = text(prop(segmentIdentity, "segmentId", "segment_id"))?.toLowerCase();
+    const gameMode = text(prop(segmentIdentity, "gameMode", "game_mode"))?.toLowerCase();
+    if (gameMode && gameMode !== "5v5") continue;
+    const nested = record(prop(segment, "segments"));
+    if ((segmentId === "csgo_map" || segmentId === "map") && nested) {
+      for (const [map, stats] of Object.entries(nested)) segments.push({ value: stats, mapHint: map });
+    } else {
+      segments.push({ value: rawSegment });
+    }
+  }
   const result: PlayerMapStats[] = [];
   for (const segment of segments) {
-    const object = record(segment);
-    const stats = statsRecord(segment);
-    const map = text(prop(object, "label", "map", "name"), prop(stats, "Map", "map"));
-    const matches = numericStat(stats, "Matches", "matches");
-    const wins = numericStat(stats, "Wins", "wins");
-    const kills = numericStat(stats, "Kills", "kills");
-    const assists = numericStat(stats, "Assists", "assists");
-    const deaths = numericStat(stats, "Deaths", "deaths");
-    const roundsPlayed = numericStat(stats, "Rounds", "rounds", "Rounds Played", "rounds_played");
-    const damage = numericStat(stats, "Damage", "damage", "Total Damage", "total_damage");
+    const object = record(segment.value);
+    const stats = statsRecord(segment.value);
+    const rawMap = text(segment.mapHint, prop(object, "label", "map", "name"), prop(stats, "Map", "map"));
+    const map = rawMap?.replace(/^de_/iu, "").toLowerCase();
+    const matches = numericStat(stats, "Matches", "matches", "m1");
+    const wins = numericStat(stats, "Wins", "wins", "m2");
+    const kills = numericStat(stats, "Kills", "kills", "m3");
+    const assists = numericStat(stats, "Assists", "assists", "m5");
+    const deaths = numericStat(stats, "Deaths", "deaths", "m4");
+    const roundsPlayed = numericStat(stats, "Rounds", "rounds", "Rounds Played", "rounds_played", "m8");
+    const damage = numericStat(stats, "Damage", "damage", "Total Damage", "total_damage", "m19");
     if (!map || [matches, wins, kills, assists, deaths, roundsPlayed, damage].some((item) => item === undefined)) continue;
     const row: PlayerMapStats = {
       map,
@@ -213,7 +237,7 @@ export function normalizeMapStats(value: unknown): PlayerMapStats[] | null {
       roundsPlayed: roundsPlayed as number,
       damage: damage as number
     };
-    const headshots = numericStat(stats, "Headshots", "headshots");
+    const headshots = numericStat(stats, "Headshots", "headshots", "m9");
     const firstKills = numericStat(stats, "First Kills", "first_kills", "firstKills");
     if (headshots !== undefined) row.headshots = headshots;
     if (firstKills !== undefined) row.firstKills = firstKills;
@@ -265,10 +289,14 @@ export function normalizeMatch(value: unknown): MatchContext | null {
   const mapVoting = record(prop(voting, "map", "maps"));
   const mapEntities = array(prop(mapVoting, "entities", "available", "pool"));
   const mapPool = mapEntities
-    .map((entry) => text(prop(record(entry), "name", "id", "value"), entry))
+    .map((entry) => text(prop(record(entry), "name", "id", "value"), entry)?.replace(/^de_/iu, "").toLowerCase())
     .filter((entry): entry is string => Boolean(entry));
   const picked = array(prop(mapVoting, "pick", "picked", "selected"))[0];
-  const selectedMap = text(prop(root, "map", "selected_map", "selectedMap"), prop(record(picked), "name", "value"), picked);
+  const selectedMap = text(
+    prop(root, "map", "selected_map", "selectedMap"),
+    prop(record(picked), "name", "value"),
+    picked
+  )?.replace(/^de_/iu, "").toLowerCase();
   const status = text(prop(root, "status", "state"))?.toLowerCase();
   const game = text(prop(root, "game", "game_id"))?.toLowerCase();
   if (!status || (game !== undefined && game !== "cs2")) return null;
