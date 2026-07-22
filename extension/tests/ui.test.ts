@@ -108,6 +108,7 @@ describe("Shadow DOM overlays", () => {
       teams: [
         {
           id: "team-a",
+          name: "Alpha",
           players: [
             { id: "alpha-ace", nickname: "ace", game: "cs2", elo: 2_511, officialLevel: 10 },
             { id: "alpha-two", nickname: "alpha-two", game: "cs2", elo: 2_401, officialLevel: 10 },
@@ -118,6 +119,7 @@ describe("Shadow DOM overlays", () => {
         },
         {
           id: "team-b",
+          name: "Bravo",
           players: [
             { id: "bravo-one", nickname: "bravo-one", game: "cs2", elo: 2_100, officialLevel: 10 },
             { id: "bravo-two", nickname: "ace2", game: "cs2", elo: 2_050, officialLevel: 10 },
@@ -140,6 +142,9 @@ describe("Shadow DOM overlays", () => {
     expect(panel?.hidden).toBe(true);
     expect(overlay.shadow.querySelector(".es-teams")).toBeNull();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(10);
+    expect(document.querySelectorAll("[data-eloscope-inline-team]")).toHaveLength(2);
+    expect(document.querySelector('[data-eloscope-inline-team="team-a"]')?.getAttribute("data-eloscope-team-side")).toBe("right");
+    expect(document.querySelector('[data-eloscope-inline-team="team-b"]')?.getAttribute("data-eloscope-team-side")).toBe("left");
     expect(host?.previousElementSibling?.matches('[class*="ListContentPlayer__Background"]')).toBe(true);
     expect(host?.shadowRoot?.textContent).toContain("416");
     expect(host?.shadowRoot?.textContent).toContain("AVG KILLS");
@@ -155,7 +160,7 @@ describe("Shadow DOM overlays", () => {
     expect(positionButton?.textContent).toBe("Подготовить");
     overlay.hideRoutePanels();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
-    expect(document.querySelectorAll("[data-eloscope-inline-tier], [data-eloscope-inline-battery]")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-eloscope-inline-team], [data-eloscope-inline-tier], [data-eloscope-inline-battery]")).toHaveLength(0);
     overlay.destroy();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
   });

@@ -8,6 +8,15 @@
       html, body { min-height: 100%; margin: 0; background: radial-gradient(circle at 70% 0, #242a32, #08090b 58%); color: #fff; font-family: Segoe UI, sans-serif; }
       header { height: 56px; display: flex; align-items: center; padding: 0 22px; background: #101216; border-bottom: 1px solid #ffffff13; }
       main { max-width: 1260px; margin: 18px auto; padding: 14px; }
+      [class*="styles__HeaderWrapper-sc-fixture"] { margin-bottom: 18px; }
+      [class*="styles__Container-sc-fixture-match-header"] { position: relative; height: 160px; overflow: hidden; border: 1px solid #ff6b2155; border-radius: 16px; background: linear-gradient(110deg, #24292f, #15181d 52%, #2c211d); }
+      .match-meta { padding: 14px 18px; color: #aeb4bc; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+      [class*="styles__Container-sc-fixture-factions"] { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; height: 96px; padding: 0 42px; }
+      [class*="styles__Faction-sc-fixture"] { min-width: 0; }
+      [class*="styles__Faction-sc-fixture-left"] { text-align: right; }
+      [class*="styles__Faction-sc-fixture-right"] { text-align: left; }
+      [class*="styles__StyledFactionName-sc-fixture"] { display: block; overflow: hidden; font-size: 28px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+      [class*="styles__Versus-sc-fixture"] { padding: 0 34px; color: #aeb4bc; font-size: 13px; font-weight: 800; }
       .room { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, 400px) minmax(280px, 1fr); gap: 20px; align-items: start; }
       [class*="Roster__Group-sc-"] { min-width: 0; }
       [class*="Roster__Group-sc-"] > h2 { margin: 0 0 8px; color: #afb4bc; font-size: 13px; }
@@ -34,6 +43,24 @@
   <body>
     <header>FACEIT fixture · native page stays interactive</header>
     <main data-match-id="11111111-2222-3333-4444-555555555555">
+      <div class="styles__HeaderWrapper-sc-fixture-1">
+        <div class="styles__Container-sc-fixture-match-header">
+          <div class="match-meta">Matchmaking · EU · Mirage</div>
+          <div class="styles__Container-sc-fixture-factions">
+            <div class="styles__Faction-sc-fixture-left">
+              <div class="styles__FactionInfo-sc-fixture-left">
+                <span class="styles__StyledFactionName-sc-fixture-left">TEAM ALPHA</span>
+              </div>
+            </div>
+            <span class="styles__Versus-sc-fixture-1">VS</span>
+            <div class="styles__Faction-sc-fixture-right">
+              <div class="styles__FactionInfo-sc-fixture-right">
+                <span class="styles__StyledFactionName-sc-fixture-right">TEAM FOXTROT</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="room">
         <section class="Roster__Group-sc-fixture-left">
           <h2>Игроки</h2>

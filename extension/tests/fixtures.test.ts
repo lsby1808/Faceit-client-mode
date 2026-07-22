@@ -16,4 +16,17 @@ describe("DOM contract fixtures", () => {
       expect(result.clicked).toBe(false);
     }
   );
+
+  it("models the verified two-sided FACEIT match header contract", () => {
+    loadFixture("active-room");
+    const wrapper = document.querySelector<HTMLElement>('[class*="styles__HeaderWrapper-sc-"]');
+    const factions = wrapper?.querySelectorAll('[class*="styles__Faction-sc-"]');
+    const names = wrapper?.querySelectorAll('[class*="styles__StyledFactionName-sc-"]');
+
+    expect(wrapper).not.toBeNull();
+    expect(factions).toHaveLength(2);
+    expect(names).toHaveLength(2);
+    expect(factions?.[0]?.parentElement).toBe(factions?.[1]?.parentElement);
+    expect(factions?.[0]?.parentElement?.parentElement).toBe(wrapper?.firstElementChild);
+  });
 });

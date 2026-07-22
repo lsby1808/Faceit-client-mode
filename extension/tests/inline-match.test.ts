@@ -55,9 +55,40 @@ function nativePlayer(nickname: string): string {
   `;
 }
 
-function mountNativeRoom(left: readonly string[], right: readonly string[]): void {
+function nativeMatchHeader(leftName = "Alpha", rightName = "Bravo"): string {
+  return `
+    <div class="styles__HeaderWrapper-sc-fixture-1">
+      <div
+        class="styles__Container-sc-fixture-match-header"
+        style="position: relative; width: 1090px; height: 180px;"
+      >
+        <div class="styles__HeaderMeta-sc-fixture-1">Match header</div>
+        <div class="styles__Container-sc-fixture-factions">
+          <div class="styles__Faction-sc-fixture-left">
+            <div class="styles__FactionInfo-sc-fixture-left">
+              <span class="styles__StyledFactionName-sc-fixture-left">${leftName}</span>
+            </div>
+          </div>
+          <span class="styles__Versus-sc-fixture-1">vs</span>
+          <div class="styles__Faction-sc-fixture-right">
+            <div class="styles__FactionInfo-sc-fixture-right">
+              <span class="styles__StyledFactionName-sc-fixture-right">${rightName}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function mountNativeRoom(
+  left: readonly string[],
+  right: readonly string[],
+  headerNames: readonly [string, string] = ["Alpha", "Bravo"],
+): void {
   document.body.innerHTML = `
     <main>
+      ${nativeMatchHeader(...headerNames)}
       <section class="Roster__Group-sc-left"><div class="team-list">${left.map(nativePlayer).join("")}</div></section>
       <aside>server and map</aside>
       <section class="Roster__Group-sc-right"><div class="team-list">${right.map(nativePlayer).join("")}</div></section>
@@ -210,12 +241,132 @@ describe("InlineMatchRenderer", () => {
     expect(tierHost?.shadowRoot?.querySelector("[data-es-tier]")?.getAttribute("role")).toBe("img");
     expect(document.querySelector(`[${INLINE_TIER_ATTRIBUTE}="alpha-three"]`)).toBeNull();
 
-    const leftRoster = document.querySelector<HTMLElement>('[class*="Roster__Group-sc-left"]');
-    const leftTeamHost = leftRoster?.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-alpha"]`);
-    const firstHolder = leftRoster?.querySelector<HTMLElement>('[class*="styles__Holder-sc-"]');
-    expect(leftTeamHost?.nextElementSibling).toBe(firstHolder);
-    expect(leftTeamHost?.shadowRoot?.textContent).toContain("AVG 2223");
-    expect(leftTeamHost?.shadowRoot?.textContent).toContain("2000–2511");
+    const headerContainer = document.querySelector<HTMLElement>('[class*="styles__Container-sc-fixture-match-header"]');
+    const leftTeamHost = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-alpha"]`);
+    const rightTeamHost = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-bravo"]`);
+    expect(leftTeamHost?.parentElement).toBe(headerContainer);
+    expect(rightTeamHost?.parentElement).toBe(headerContainer);
+    expect(leftTeamHost?.getAttribute("data-eloscope-team-side")).toBe("left");
+    expect(rightTeamHost?.getAttribute("data-eloscope-team-side")).toBe("right");
+    expect(leftTeamHost?.shadowRoot?.textContent).toContain("AVG ELO 2223 · 5");
+    expect(rightTeamHost?.shadowRoot?.textContent).toContain("AVG ELO 1866 · 5");
+    expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("Alpha");
+    expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("coverage");
+    expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("2000–2511");
+    expect(document.querySelectorAll(`[class*="Roster__Group-sc-"] [${INLINE_TEAM_ATTRIBUTE}]`)).toHaveLength(0);
+  });
+
+  it("maps compact header metrics by exact team name even when native sides are reversed", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS, ["Bravo", "Alpha"]);
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, matchRows(match), playerMapRows(match), settings);
+
+    const alpha = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-alpha"]`);
+    const bravo = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-bravo"]`);
+    expect(alpha?.getAttribute("data-eloscope-team-side")).toBe("right");
+    expect(bravo?.getAttribute("data-eloscope-team-side")).toBe("left");
+    expect(alpha?.shadowRoot?.textContent).toContain("AVG ELO 2223 · 5");
+    expect(bravo?.shadowRoot?.textContent).toContain("AVG ELO 1866 · 5");
+  });
+
+  it("shows the known-player count for partial ELO and never invents a zero average", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const base = matchContext();
+    const alpha = base.teams[0] as MatchContext["teams"][number];
+    const partialPlayers = alpha.players.map((player, index) => {
+      if (index < 3) return player;
+      const { elo: _elo, ...withoutElo } = player;
+      return withoutElo;
+    });
+    const match = matchContext({
+      teams: [
+        { ...alpha, players: partialPlayers },
+        base.teams[1] as MatchContext["teams"][number],
+      ],
+    });
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, matchRows(match), playerMapRows(match), settings);
+
+    const alphaMetric = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-alpha"]`);
+    expect(alphaMetric?.shadowRoot?.textContent).toContain("AVG ELO 2339 · 3");
+    expect(alphaMetric?.shadowRoot?.textContent).not.toContain("AVG ELO 0");
+  });
+
+  it("omits a team metric when every player ELO is unavailable", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const base = matchContext();
+    const alpha = base.teams[0] as MatchContext["teams"][number];
+    const playersWithoutElo = alpha.players.map((player) => {
+      const { elo: _elo, ...withoutElo } = player;
+      return withoutElo;
+    });
+    const match = matchContext({
+      teams: [
+        { ...alpha, players: playersWithoutElo },
+        base.teams[1] as MatchContext["teams"][number],
+      ],
+    });
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, matchRows(match), playerMapRows(match), settings);
+
+    expect(document.querySelector(`[${INLINE_TEAM_ATTRIBUTE}="team-alpha"]`)).toBeNull();
+    expect(document.querySelector(`[${INLINE_TEAM_ATTRIBUTE}="team-bravo"]`)).not.toBeNull();
+    expect(teamHosts().some((host) => host.shadowRoot?.textContent?.includes("AVG ELO 0"))).toBe(false);
+    expect(playerHosts()).toHaveLength(10);
+  });
+
+  it("reattaches both metrics after a native React header replacement", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = matchRows(match);
+    const maps = playerMapRows(match);
+    const renderer = new InlineMatchRenderer();
+    renderer.render(match, rows, maps, settings);
+    const oldHeader = document.querySelector<HTMLElement>('[class*="styles__HeaderWrapper-sc-"]') as HTMLElement;
+    const oldAlphaMetric = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-alpha"]`) as HTMLElement;
+    const oldBravoMetric = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-bravo"]`) as HTMLElement;
+    const alphaPlayer = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`) as HTMLElement;
+    const alphaBattery = document.querySelector<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}="alpha-one"]`) as HTMLElement;
+    const alphaTier = document.querySelector<HTMLElement>(`[${INLINE_TIER_ATTRIBUTE}="alpha-one"]`) as HTMLElement;
+    const alphaRole = document.querySelector<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`) as HTMLElement;
+    const template = document.createElement("template");
+    template.innerHTML = nativeMatchHeader();
+    oldHeader.replaceWith(template.content.firstElementChild as HTMLElement);
+
+    expect(renderer.render(match, rows, maps, settings)).toMatchObject({ status: "rendered", updated: 2 });
+    expect(oldAlphaMetric.isConnected).toBe(false);
+    expect(oldBravoMetric.isConnected).toBe(false);
+    expect(teamHosts()).toHaveLength(2);
+    expect(document.querySelector(`[${INLINE_TEAM_ATTRIBUTE}="team-alpha"]`)).not.toBe(oldAlphaMetric);
+    expect(document.querySelector(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)).toBe(alphaPlayer);
+    expect(document.querySelector(`[${INLINE_BATTERY_ATTRIBUTE}="alpha-one"]`)).toBe(alphaBattery);
+    expect(document.querySelector(`[${INLINE_TIER_ATTRIBUTE}="alpha-one"]`)).toBe(alphaTier);
+    expect(document.querySelector(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`)).toBe(alphaRole);
+  });
+
+  it("removes only header metrics when the native header contract is ambiguous", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = matchRows(match);
+    const maps = playerMapRows(match);
+    const renderer = new InlineMatchRenderer();
+    renderer.render(match, rows, maps, settings);
+    expect(teamHosts()).toHaveLength(2);
+    const header = document.querySelector<HTMLElement>('[class*="styles__HeaderWrapper-sc-"]') as HTMLElement;
+    const duplicate = header.cloneNode(true) as HTMLElement;
+    duplicate.querySelectorAll(`[${INLINE_TEAM_ATTRIBUTE}]`).forEach((host) => host.remove());
+    document.body.append(duplicate);
+
+    expect(renderer.render(match, rows, maps, settings)).toMatchObject({ status: "rendered", players: 10 });
+    expect(teamHosts()).toHaveLength(0);
+    expect(playerHosts()).toHaveLength(10);
+    expect(batteryHosts()).toHaveLength(10);
+    expect(tierHosts()).toHaveLength(2);
+    expect(roleHosts()).toHaveLength(10);
   });
 
   it("keeps unchanged hosts intact and only rerenders signatures that changed", () => {

@@ -24,6 +24,9 @@ const PLAYER_LEVEL_SELECTOR = '[class*="SkillIcon__StyledSvg-sc-"]';
 const AVATAR_HOLDER_SELECTOR = '[class*="Avatar__AvatarHolder-sc-"]';
 const AVATAR_IMAGE_SELECTOR =
   'img[class*="Avatar__Image-sc-"][aria-label="avatar"], i[class*="Avatar__AvatarIcon-sc-"][aria-label="avatar"]';
+const MATCH_HEADER_WRAPPER_SELECTOR = '[class*="styles__HeaderWrapper-sc-"]';
+const MATCH_HEADER_FACTION_SELECTOR = '[class*="styles__Faction-sc-"]';
+const MATCH_HEADER_FACTION_NAME_SELECTOR = '[class*="styles__StyledFactionName-sc-"]';
 
 export const INLINE_PLAYER_ATTRIBUTE = "data-eloscope-inline-player";
 export const INLINE_TEAM_ATTRIBUTE = "data-eloscope-inline-team";
@@ -209,32 +212,31 @@ const ROLE_STYLES = `
 const TEAM_STYLES = `
   :host {
     color-scheme: dark;
-    display: block !important;
+    position: absolute !important;
+    bottom: 9px !important;
+    z-index: 2;
+    display: inline-flex !important;
     box-sizing: border-box;
-    width: 100%;
-    min-width: 0;
-    flex: 0 0 100%;
-    grid-column: 1 / -1;
+    max-width: calc(50% - 24px);
+    align-items: center;
+    pointer-events: none !important;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
+  :host([data-eloscope-team-side="left"]) { left: 16px !important; }
+  :host([data-eloscope-team-side="right"]) { right: 16px !important; }
   *, *::before, *::after { box-sizing: border-box; }
-  .summary {
-    display: flex;
+  .metric {
+    display: inline-flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    width: 100%;
-    margin: 0 0 7px;
-    padding: 6px 9px;
-    border: 1px solid rgba(255, 107, 33, .28);
-    border-radius: 5px;
-    background: rgba(12, 14, 17, .95);
-    color: #aeb4bc;
-    font-size: 10px;
+    color: #f3f4f6;
+    font-size: 11px;
+    font-weight: 800;
     font-variant-numeric: tabular-nums;
+    letter-spacing: .025em;
+    line-height: 16px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+    white-space: nowrap;
   }
-  strong { overflow: hidden; color: #f4f5f6; text-overflow: ellipsis; white-space: nowrap; }
-  span { text-align: right; }
 `;
 
 export type InlineMatchSettings = Readonly<{
@@ -269,9 +271,15 @@ type PlayerAnchor = Readonly<{
 type TeamAnchor = Readonly<{
   team: MatchTeam;
   roster: HTMLElement;
-  parent: HTMLElement;
-  firstHolder: HTMLElement;
   players: readonly PlayerAnchor[];
+}>;
+
+type TeamHeaderSide = "left" | "right";
+
+type TeamHeaderAnchor = Readonly<{
+  team: MatchTeam;
+  container: HTMLElement;
+  side: TeamHeaderSide;
 }>;
 
 type Mount = {
@@ -327,6 +335,10 @@ function isSafeAvatarOverlayHolder(element: HTMLElement): boolean {
 
 function format(value: number | undefined, digits = 1): string {
   return value === undefined || !Number.isFinite(value) ? "—" : value.toFixed(digits);
+}
+
+function isPositiveFiniteNumber(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function percent(value: number | undefined): string {
@@ -621,29 +633,53 @@ function renderPlayer(
   shadow.replaceChildren(style, card);
 }
 
-function teamSummary(team: MatchTeam): { text: string; signature: string } {
-  const elos = team.players.map((player) => player.elo).filter((elo): elo is number => elo !== undefined);
-  const average = team.averageElo ?? (elos.length
-    ? Math.round(elos.reduce((sum, elo) => sum + elo, 0) / elos.length)
-    : undefined);
-  const minimum = team.minElo ?? (elos.length ? Math.min(...elos) : undefined);
-  const maximum = team.maxElo ?? (elos.length ? Math.max(...elos) : undefined);
-  const known = team.eloKnown ?? elos.length;
-  const total = team.eloTotal ?? team.players.length;
-  const range = minimum === undefined || maximum === undefined ? "—" : `${minimum}–${maximum}`;
-  const text = `AVG ${average ?? "—"} · ${range} · coverage ${known}/${total}${known < total ? " partial" : ""}`;
-  return { text, signature: JSON.stringify([team.id, team.name, average, minimum, maximum, known, total]) };
+function teamHeaderMetric(
+  team: MatchTeam,
+  side: TeamHeaderSide,
+): { average: number; known: number; text: string; signature: string } | undefined {
+  const elos = team.players
+    .map((player) => player.elo)
+    .filter(isPositiveFiniteNumber);
+  const declaredKnown = team.eloKnown;
+  const known = typeof declaredKnown === "number"
+    && Number.isInteger(declaredKnown)
+    && declaredKnown > 0
+    && declaredKnown <= team.players.length
+    ? declaredKnown
+    : elos.length;
+  const declaredAverage = team.averageElo;
+  const average = isPositiveFiniteNumber(declaredAverage)
+    ? Math.round(declaredAverage)
+    : elos.length
+      ? Math.round(elos.reduce((sum, elo) => sum + elo, 0) / elos.length)
+      : undefined;
+  if (average === undefined || known === 0) return undefined;
+  const text = `AVG ELO ${average} · ${known}`;
+  return {
+    average,
+    known,
+    text,
+    signature: JSON.stringify([team.id, average, known, side]),
+  };
 }
 
-function renderTeam(shadow: ShadowRoot, team: MatchTeam): void {
+function renderTeam(
+  shadow: ShadowRoot,
+  team: MatchTeam,
+  side: TeamHeaderSide,
+  metric: NonNullable<ReturnType<typeof teamHeaderMetric>>,
+): void {
   const style = document.createElement("style");
   style.textContent = TEAM_STYLES;
-  const summary = document.createElement("div");
-  summary.className = "summary";
-  summary.setAttribute("aria-label", `Сводка команды ${team.name ?? team.id}`);
-  appendTextNode(summary, "strong", "", team.name ?? team.id);
-  appendTextNode(summary, "span", "", teamSummary(team).text);
-  shadow.replaceChildren(style, summary);
+  const value = document.createElement("span");
+  value.className = "metric";
+  value.dataset.esTeamMetric = side;
+  value.textContent = metric.text;
+  value.setAttribute(
+    "aria-label",
+    `Средний ELO команды ${team.name ?? team.id}: ${metric.average}, игроков учтено ${metric.known}`,
+  );
+  shadow.replaceChildren(style, value);
 }
 
 function exactNicknameNodes(roster: HTMLElement, nickname: string): HTMLElement[] {
@@ -683,36 +719,43 @@ export class InlineMatchRenderer {
 
     const expectedPlayerIds = new Set(discovery.teams.flatMap((team) => team.players.map(({ player }) => player.id)));
     const expectedTeamIds = new Set(discovery.teams.map(({ team }) => team.id));
+    const headerMetrics = this.#discoverHeaderTeams(match).flatMap((anchor) => {
+      const metric = teamHeaderMetric(anchor.team, anchor.side);
+      return metric ? [{ anchor, metric }] : [];
+    });
+    const expectedHeaderTeamIds = new Set(headerMetrics.map(({ anchor }) => anchor.team.id));
     this.#removeStale(this.#playerMounts, expectedPlayerIds);
-    this.#removeStale(this.#teamMounts, expectedTeamIds);
+    this.#removeStale(this.#teamMounts, expectedHeaderTeamIds);
     this.#removeStale(this.#batteryMounts, expectedPlayerIds);
     this.#removeStaleTiers(expectedPlayerIds);
     this.#removeStaleRoles(expectedPlayerIds);
-    this.#removeOrphans(expectedPlayerIds, expectedTeamIds);
+    this.#removeOrphans(expectedPlayerIds, expectedHeaderTeamIds);
 
     let updated = 0;
-    for (const teamAnchor of discovery.teams) {
-      const summary = teamSummary(teamAnchor.team);
-      let teamMount = this.#teamMounts.get(teamAnchor.team.id);
-      if (!teamMount || !teamMount.host.isConnected || teamMount.host.parentElement !== teamAnchor.parent) {
+    for (const { anchor, metric } of headerMetrics) {
+      let teamMount = this.#teamMounts.get(anchor.team.id);
+      const sideChanged = teamMount?.host.getAttribute("data-eloscope-team-side") !== anchor.side;
+      if (!teamMount || !teamMount.host.isConnected || teamMount.host.parentElement !== anchor.container) {
         teamMount?.host.remove();
         const host = this.#document.createElement("div");
-        host.setAttribute(INLINE_TEAM_ATTRIBUTE, teamAnchor.team.id);
+        host.setAttribute(INLINE_TEAM_ATTRIBUTE, anchor.team.id);
+        host.setAttribute("data-eloscope-team-side", anchor.side);
         const shadow = host.attachShadow({ mode: "open" });
         teamMount = { host, signature: "" };
-        this.#teamMounts.set(teamAnchor.team.id, teamMount);
-        renderTeam(shadow, teamAnchor.team);
-        teamMount.signature = summary.signature;
+        this.#teamMounts.set(anchor.team.id, teamMount);
+        renderTeam(shadow, anchor.team, anchor.side, metric);
+        teamMount.signature = metric.signature;
+        anchor.container.append(host);
         updated += 1;
-      } else if (teamMount.signature !== summary.signature) {
-        renderTeam(teamMount.host.shadowRoot as ShadowRoot, teamAnchor.team);
-        teamMount.signature = summary.signature;
+      } else if (teamMount.signature !== metric.signature || sideChanged) {
+        teamMount.host.setAttribute("data-eloscope-team-side", anchor.side);
+        renderTeam(teamMount.host.shadowRoot as ShadowRoot, anchor.team, anchor.side, metric);
+        teamMount.signature = metric.signature;
         updated += 1;
       }
-      if (teamAnchor.firstHolder.previousElementSibling !== teamMount.host) {
-        teamAnchor.parent.insertBefore(teamMount.host, teamAnchor.firstHolder);
-      }
+    }
 
+    for (const teamAnchor of discovery.teams) {
       for (const anchor of teamAnchor.players) {
         const rows = eligibleMatches(playerMatches.get(anchor.player.id) ?? []);
         const totalMatches = lifetimeMatchCount(playerMapStats.get(anchor.player.id));
@@ -1062,10 +1105,62 @@ export class InlineMatchRenderer {
       const firstHolder = Array.from(parent.children).find((child): child is HTMLElement =>
         child instanceof HTMLElement && playerHolders.has(child));
       if (!firstHolder) return { status: "incompatible", reason: "player-holder-contract" };
-      teams.push({ team, roster, parent, firstHolder, players });
+      teams.push({ team, roster, players });
     }
 
     return { status: "ready", teams };
+  }
+
+  #discoverHeaderTeams(match: MatchContext): readonly TeamHeaderAnchor[] {
+    const namedTeams = match.teams.flatMap((team) => {
+      const name = team.name ? normalizedNickname(team.name) : "";
+      return name ? [{ team, name }] : [];
+    });
+    if (namedTeams.length !== 2 || new Set(namedTeams.map(({ name }) => name)).size !== 2) return [];
+
+    const candidates: TeamHeaderAnchor[][] = [];
+    for (const wrapper of Array.from(this.#document.querySelectorAll<HTMLElement>(MATCH_HEADER_WRAPPER_SELECTOR))
+      .filter(isRendered)) {
+      const factions = Array.from(wrapper.querySelectorAll<HTMLElement>(MATCH_HEADER_FACTION_SELECTOR))
+        .filter(isRendered);
+      if (factions.length !== 2 || factions[0]?.parentElement !== factions[1]?.parentElement) continue;
+      const factionContainer = factions[0]?.parentElement;
+      const overlayContainer = factionContainer?.parentElement;
+      if (!factionContainer || !overlayContainer || !wrapper.contains(overlayContainer)) continue;
+      if (!this.#isSafeHeaderOverlayContainer(overlayContainer)) continue;
+
+      const factionNames = factions.map((faction) => {
+        const nodes = Array.from(faction.querySelectorAll<HTMLElement>(MATCH_HEADER_FACTION_NAME_SELECTOR))
+          .filter(isRendered);
+        return nodes.length === 1 ? normalizedNickname(nodes[0]?.textContent ?? "") : "";
+      });
+      if (factionNames.some((name) => !name) || new Set(factionNames).size !== 2) continue;
+      const byName = new Map(namedTeams.map(({ team, name }) => [name, team] as const));
+      if (factionNames.some((name) => !byName.has(name))) continue;
+
+      candidates.push(factions.map((_, index): TeamHeaderAnchor => ({
+        team: byName.get(factionNames[index] as string) as MatchTeam,
+        container: overlayContainer,
+        side: index === 0 ? "left" : "right",
+      })));
+    }
+
+    return candidates.length === 1 ? candidates[0] as readonly TeamHeaderAnchor[] : [];
+  }
+
+  #isSafeHeaderOverlayContainer(container: HTMLElement): boolean {
+    if (!isRendered(container)) return false;
+    const style = this.#document.defaultView?.getComputedStyle(container);
+    if (!style || style.position === "static") return false;
+    const rect = container.getBoundingClientRect();
+    const width = rect.width > 0 ? rect.width : Number.parseFloat(style.width);
+    const height = rect.height > 0 ? rect.height : Number.parseFloat(style.height);
+    return Number.isFinite(width)
+      && Number.isFinite(height)
+      && width >= 420
+      && width <= 3_000
+      && height >= 96
+      && height <= 480;
   }
 
   #removeStale(mounts: Map<string, Mount>, expectedIds: ReadonlySet<string>): void {
