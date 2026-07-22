@@ -127,17 +127,25 @@ describe("Shadow DOM overlays", () => {
           ],
         },
       ],
-    }, new Map([["alpha-ace", [{ ...validMatch, playerId: "alpha-ace", map: "dust2" }]]]));
+    }, new Map([["alpha-ace", [{ ...validMatch, playerId: "alpha-ace", map: "dust2" }]]]), new Map([[
+      "alpha-ace",
+      [{ map: "dust2", matches: 416, wins: 220, kills: 7_900, assists: 1_800, deaths: 6_700, roundsPlayed: 9_800, damage: 820_000 }],
+    ]]));
 
     const panel = overlay.shadow.querySelector<HTMLElement>(".es-panel");
     const host = document.querySelector<HTMLElement>('[data-eloscope-inline-player="alpha-ace"]');
-    const extended = host?.shadowRoot?.querySelector<HTMLElement>("[data-es-tier]");
+    const tierHost = document.querySelector<HTMLElement>('[data-eloscope-inline-tier="alpha-ace"]');
+    const extended = tierHost?.shadowRoot?.querySelector<HTMLElement>("[data-es-tier]");
+    const batteryHost = document.querySelector<HTMLElement>('[data-eloscope-inline-battery="alpha-ace"]');
     expect(panel?.hidden).toBe(true);
     expect(overlay.shadow.querySelector(".es-teams")).toBeNull();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(10);
     expect(host?.previousElementSibling?.matches('[class*="ListContentPlayer__Background"]')).toBe(true);
+    expect(host?.shadowRoot?.textContent).toContain("416");
+    expect(host?.shadowRoot?.textContent).toContain("AVG KILLS");
     expect(extended?.textContent).toBe("12");
     expect(extended?.title).toContain("официальный FACEIT level 10");
+    expect(batteryHost?.previousElementSibling?.matches('[class*="Nickname__Container-sc-"]')).toBe(true);
     const positionMode = overlay.shadow.querySelector<HTMLSelectElement>(".es-position-card .es-select");
     const positionButton = overlay.shadow.querySelector<HTMLButtonElement>(".es-position-card .es-primary");
     if (positionMode) {
@@ -147,6 +155,7 @@ describe("Shadow DOM overlays", () => {
     expect(positionButton?.textContent).toBe("Подготовить");
     overlay.hideRoutePanels();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
+    expect(document.querySelectorAll("[data-eloscope-inline-tier], [data-eloscope-inline-battery]")).toHaveLength(0);
     overlay.destroy();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
   });

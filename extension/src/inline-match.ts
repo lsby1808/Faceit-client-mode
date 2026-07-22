@@ -7,17 +7,23 @@ import {
   type MatchContext,
   type MatchTeam,
   type Player,
+  type PlayerMapStats,
   type PlayerMatch,
   type StatsWindow,
 } from "@eloscope/core";
 
 const ROSTER_SELECTOR = '[class*="Roster__Group-sc-"]';
 const NICKNAME_SELECTOR = '[class*="Nickname__Name-sc-"]';
+const NICKNAME_CONTAINER_SELECTOR = '[class*="Nickname__Container-sc-"]';
+const NICKNAME_SLOT_SELECTOR = '[class*="styles__NicknameContainer-sc-"]';
 const PLAYER_CARD_SELECTOR = '[class*="ListContentPlayer__Background-sc-"]';
 const PLAYER_HOLDER_SELECTOR = '[class*="styles__Holder-sc-"]';
+const PLAYER_LEVEL_SELECTOR = '[class*="SkillIcon__StyledSvg-sc-"]';
 
 export const INLINE_PLAYER_ATTRIBUTE = "data-eloscope-inline-player";
 export const INLINE_TEAM_ATTRIBUTE = "data-eloscope-inline-team";
+export const INLINE_BATTERY_ATTRIBUTE = "data-eloscope-inline-battery";
+export const INLINE_TIER_ATTRIBUTE = "data-eloscope-inline-tier";
 
 const PLAYER_STYLES = `
   :host {
@@ -55,16 +61,6 @@ const PLAYER_STYLES = `
   .map .metric { color: #f1f3f5; white-space: nowrap; }
   .map .empty { color: #8a9099; }
   .spacer { flex: 1 1 auto; min-width: 3px; }
-  .tier {
-    flex: 0 0 auto;
-    border: 1px solid #35c9ef;
-    border-radius: 999px;
-    padding: 1px 5px;
-    color: #5ddcff;
-    font-size: 10px;
-    font-weight: 800;
-    line-height: 1.25;
-  }
   .country {
     color: #d8dde5;
     font-size: 9px;
@@ -74,30 +70,6 @@ const PLAYER_STYLES = `
   }
   .premade { color: #ff9d5a; font-size: 11px; line-height: 1; }
   .elo { color: #aeb4bc; white-space: nowrap; }
-  .battery {
-    display: inline-flex;
-    align-items: flex-end;
-    gap: 2px;
-    height: 17px;
-    min-width: 49px;
-    border: 1px solid currentColor;
-    border-radius: 4px;
-    padding: 2px 4px;
-    outline: none;
-  }
-  .battery::after {
-    content: "";
-    align-self: center;
-    width: 2px;
-    height: 7px;
-    margin-right: -7px;
-    border-radius: 0 2px 2px 0;
-    background: currentColor;
-  }
-  .battery i { width: 4px; height: 9px; border-radius: 1px; background: rgba(255, 255, 255, .13); }
-  .battery i[data-on="true"] { background: currentColor; }
-  .battery b { min-width: 17px; margin-left: 2px; line-height: 10px; text-align: right; }
-  .battery:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   .overall { justify-content: space-between; gap: 4px; padding-block: 7px; }
   .stat { min-width: 0; padding: 0 5px; text-align: center; border-left: 1px solid rgba(255, 255, 255, .1); }
   .stat:first-child { border-left: 0; }
@@ -112,6 +84,73 @@ const PLAYER_STYLES = `
   @container (max-width: 340px) {
     .country, .elo { display: none; }
   }
+`;
+
+const BATTERY_STYLES = `
+  :host {
+    color-scheme: dark;
+    display: inline-flex !important;
+    flex: 0 0 auto;
+    align-items: center;
+    align-self: center;
+    margin-left: 6px;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  .battery {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 1px;
+    width: 27px;
+    height: 13px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    padding: 2px 3px;
+    outline: none;
+  }
+  .battery::after {
+    content: "";
+    align-self: center;
+    width: 2px;
+    height: 5px;
+    margin-right: -6px;
+    border-radius: 0 2px 2px 0;
+    background: currentColor;
+  }
+  .battery i { width: 3px; height: 7px; border-radius: 1px; background: rgba(255, 255, 255, .13); }
+  .battery i[data-on="true"] { background: currentColor; }
+  .battery:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+`;
+
+const TIER_STYLES = `
+  :host {
+    color-scheme: dark;
+    display: inline-flex !important;
+    flex: 0 0 var(--es-tier-size, 30px);
+    width: var(--es-tier-size, 30px);
+    height: var(--es-tier-size, 30px);
+    align-items: center;
+    justify-content: center;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  .tier {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+    border: 2px solid #35c9ef;
+    border-radius: 50%;
+    background: #0b1115;
+    color: #5ddcff;
+    box-shadow: inset 0 0 0 2px rgba(53, 201, 239, .1), 0 0 8px rgba(53, 201, 239, .18);
+    font-size: 11px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    outline: none;
+  }
+  .tier:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 `;
 
 const TEAM_STYLES = `
@@ -166,6 +205,9 @@ type PlayerAnchor = Readonly<{
   player: Player;
   card: HTMLElement;
   holder: HTMLElement;
+  nicknameContainer?: HTMLElement;
+  nicknameSlot?: HTMLElement;
+  nativeLevel?: SVGSVGElement;
 }>;
 
 type TeamAnchor = Readonly<{
@@ -181,15 +223,23 @@ type Mount = {
   signature: string;
 };
 
+type TierMount = Mount & {
+  nativeLevel: SVGSVGElement;
+  tierSize: number;
+  previousDisplay: string;
+  previousDisplayPriority: string;
+  previousAriaHidden: string | null;
+};
+
 function normalizedNickname(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
 }
 
-function isRendered(element: HTMLElement): boolean {
+function isRendered(element: Element): boolean {
   if (!element.isConnected) return false;
   const view = element.ownerDocument.defaultView;
-  for (let current: HTMLElement | null = element; current; current = current.parentElement) {
-    if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+  for (let current: Element | null = element; current; current = current.parentElement) {
+    if ((current instanceof HTMLElement && current.hidden) || current.getAttribute("aria-hidden") === "true") return false;
     const style = view?.getComputedStyle(current);
     if (style?.display === "none" || style?.visibility === "hidden") return false;
   }
@@ -206,6 +256,34 @@ function percent(value: number | undefined): string {
 
 function canonicalMap(value: string | undefined): string | undefined {
   return value?.trim().replace(/^de_/iu, "").toLocaleLowerCase("en-US");
+}
+
+function nativeLevelSize(element: SVGSVGElement): number {
+  const clamp = (value: number): number => Math.min(40, Math.max(24, Math.round(value)));
+  const rect = element.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) return clamp(Math.min(rect.width, rect.height));
+
+  const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+  const computedWidth = Number.parseFloat(style?.width ?? "");
+  const computedHeight = Number.parseFloat(style?.height ?? "");
+  if (computedWidth > 0 && computedHeight > 0) return clamp(Math.min(computedWidth, computedHeight));
+
+  const viewBox = element.getAttribute("viewBox")?.trim().split(/[ ,]+/u).map(Number);
+  if (viewBox?.length === 4 && (viewBox[2] ?? 0) > 0 && (viewBox[3] ?? 0) > 0) {
+    return clamp(Math.min(viewBox[2] as number, viewBox[3] as number));
+  }
+  return 30;
+}
+
+function lifetimeMatchCount(rows: readonly PlayerMapStats[] | undefined): number | undefined {
+  if (!rows) return undefined;
+  const matchesByMap = new Map<string, number>();
+  for (const row of rows) {
+    const map = canonicalMap(row.map);
+    if (!map || !Number.isFinite(row.matches) || row.matches < 0) continue;
+    matchesByMap.set(map, Math.max(matchesByMap.get(map) ?? 0, Math.round(row.matches)));
+  }
+  return [...matchesByMap.values()].reduce((sum, matches) => sum + matches, 0);
 }
 
 function batteryTitle(battery: FormBattery): string {
@@ -240,9 +318,11 @@ function appendMetric(parent: ParentNode, value: string, label: string): void {
   parent.append(stat);
 }
 
-function appendBattery(parent: ParentNode, matches: readonly PlayerMatch[]): void {
+function renderBattery(shadow: ShadowRoot, matches: readonly PlayerMatch[]): void {
   const battery = calculateFormBattery(matches);
   const title = batteryTitle(battery);
+  const style = document.createElement("style");
+  style.textContent = BATTERY_STYLES;
   const node = document.createElement("span");
   node.className = "battery";
   node.dataset.esFormBattery = "";
@@ -257,16 +337,47 @@ function appendBattery(parent: ParentNode, matches: readonly PlayerMatch[]): voi
     bar.dataset.on = String(index < active);
     node.append(bar);
   }
-  const score = document.createElement("b");
-  score.textContent = battery.score === null ? "?" : String(battery.score);
-  node.append(score);
-  parent.append(node);
+  shadow.replaceChildren(style, node);
+}
+
+function renderTier(shadow: ShadowRoot, player: Player, level: number): void {
+  const style = document.createElement("style");
+  style.textContent = TIER_STYLES;
+  const tier = document.createElement("span");
+  tier.className = "tier";
+  tier.dataset.esTier = "";
+  tier.textContent = String(level);
+  tier.title = `Шкала EloScope 1–20 · официальный FACEIT level ${player.officialLevel ?? "—"}`;
+  tier.tabIndex = 0;
+  tier.setAttribute("role", "img");
+  tier.setAttribute(
+    "aria-label",
+    `EloScope level ${level}, официальный FACEIT level ${player.officialLevel ?? "неизвестен"}`,
+  );
+  shadow.replaceChildren(style, tier);
+}
+
+function matchRowsSignature(rows: readonly PlayerMatch[]): readonly unknown[] {
+  return rows.map((row) => [
+    row.id,
+    row.finishedAt instanceof Date ? row.finishedAt.toISOString() : row.finishedAt,
+    row.result,
+    row.map,
+    row.roundsPlayed,
+    row.kills,
+    row.assists,
+    row.deaths,
+    row.damage,
+    row.headshots,
+    row.fcr,
+  ]);
 }
 
 function playerSignature(
   match: MatchContext,
   player: Player,
   rows: readonly PlayerMatch[],
+  totalMatches: number | undefined,
   settings: InlineMatchSettings,
 ): string {
   return JSON.stringify({
@@ -278,20 +389,8 @@ function playerSignature(
     officialLevel: player.officialLevel,
     selectedMap: match.selectedMap,
     statsWindow: settings.statsWindow,
-    showExtendedTier: settings.showExtendedTier,
-    rows: rows.map((row) => [
-      row.id,
-      row.finishedAt instanceof Date ? row.finishedAt.toISOString() : row.finishedAt,
-      row.result,
-      row.map,
-      row.roundsPlayed,
-      row.kills,
-      row.assists,
-      row.deaths,
-      row.damage,
-      row.headshots,
-      row.fcr,
-    ]),
+    totalMatches,
+    rows: matchRowsSignature(rows),
   });
 }
 
@@ -300,6 +399,7 @@ function renderPlayer(
   match: MatchContext,
   player: Player,
   rows: readonly PlayerMatch[],
+  totalMatches: number | undefined,
   settings: InlineMatchSettings,
 ): void {
   const style = document.createElement("style");
@@ -341,43 +441,18 @@ function renderPlayer(
     premade.title = `Premade ${premadeId}`;
   }
 
-  const displayedLevel = player.elo === undefined
-    ? player.officialLevel
-    : getEloTier(player.elo, settings.showExtendedTier);
-  if (displayedLevel !== undefined) {
-    const tier = appendTextNode(mapLine, "span", "tier", String(displayedLevel));
-    tier.dataset.esTier = "";
-    tier.title = settings.showExtendedTier
-      ? `Шкала EloScope 1–20 · официальный FACEIT level ${player.officialLevel ?? "—"}`
-      : "Официальный FACEIT level";
-    tier.setAttribute(
-      "aria-label",
-      settings.showExtendedTier
-        ? `EloScope level ${displayedLevel}, официальный FACEIT level ${player.officialLevel ?? "неизвестен"}`
-        : `Официальный FACEIT level ${displayedLevel}`,
-    );
-  }
   appendTextNode(mapLine, "span", "elo", player.elo === undefined ? "ELO —" : `ELO ${Math.round(player.elo)}`);
-  appendBattery(mapLine, validRows);
   card.append(mapLine);
 
   const overall = document.createElement("div");
   overall.className = "overall";
   overall.dataset.esStat = "overall";
-  if (!aggregate || aggregate.matches === 0) {
-    appendTextNode(overall, "span", "no-data", "Нет достоверных завершённых CS2 5v5 матчей");
-  } else {
-    appendMetric(overall, String(aggregate.matches), "матчи");
-    appendMetric(overall, percent(aggregate.winRate), "победы");
-    appendMetric(
-      overall,
-      `${format(aggregate.kills / aggregate.matches, 1)}/${format(aggregate.assists / aggregate.matches, 1)}/${format(aggregate.deaths / aggregate.matches, 1)}`,
-      "K/A/D",
-    );
-    appendMetric(overall, format(aggregate.kd, 2), "K/D");
-    appendMetric(overall, format(aggregate.kr, 2), "K/R");
-    appendMetric(overall, format(aggregate.adr, 0), "ADR");
-  }
+  appendMetric(overall, totalMatches === undefined ? "—" : String(totalMatches), "матчи");
+  appendMetric(overall, aggregate ? percent(aggregate.winRate) : "—", "победы");
+  appendMetric(overall, aggregate ? format(aggregate.kills / aggregate.matches, 1) : "—", "AVG KILLS");
+  appendMetric(overall, aggregate ? format(aggregate.kd, 2) : "—", "K/D");
+  appendMetric(overall, aggregate ? format(aggregate.kr, 2) : "—", "K/R");
+  appendMetric(overall, aggregate ? format(aggregate.adr, 0) : "—", "ADR");
   card.append(overall);
   shadow.replaceChildren(style, card);
 }
@@ -422,6 +497,8 @@ export class InlineMatchRenderer {
   readonly #document: Document;
   readonly #playerMounts = new Map<string, Mount>();
   readonly #teamMounts = new Map<string, Mount>();
+  readonly #batteryMounts = new Map<string, Mount>();
+  readonly #tierMounts = new Map<string, TierMount>();
 
   constructor(ownerDocument: Document = document) {
     this.#document = ownerDocument;
@@ -430,6 +507,7 @@ export class InlineMatchRenderer {
   render(
     match: MatchContext,
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
+    playerMapStats: ReadonlyMap<string, PlayerMapStats[]>,
     settings: InlineMatchSettings,
   ): InlineMatchRenderResult {
     const discovery = this.#discover(match);
@@ -442,6 +520,8 @@ export class InlineMatchRenderer {
     const expectedTeamIds = new Set(discovery.teams.map(({ team }) => team.id));
     this.#removeStale(this.#playerMounts, expectedPlayerIds);
     this.#removeStale(this.#teamMounts, expectedTeamIds);
+    this.#removeStale(this.#batteryMounts, expectedPlayerIds);
+    this.#removeStaleTiers(expectedPlayerIds);
     this.#removeOrphans(expectedPlayerIds, expectedTeamIds);
 
     let updated = 0;
@@ -469,7 +549,8 @@ export class InlineMatchRenderer {
 
       for (const anchor of teamAnchor.players) {
         const rows = eligibleMatches(playerMatches.get(anchor.player.id) ?? []);
-        const signature = playerSignature(match, anchor.player, rows, settings);
+        const totalMatches = lifetimeMatchCount(playerMapStats.get(anchor.player.id));
+        const signature = playerSignature(match, anchor.player, rows, totalMatches, settings);
         let mount = this.#playerMounts.get(anchor.player.id);
         if (!mount || !mount.host.isConnected || mount.host.parentElement !== anchor.holder) {
           mount?.host.remove();
@@ -478,17 +559,19 @@ export class InlineMatchRenderer {
           const shadow = host.attachShadow({ mode: "open" });
           mount = { host, signature: "" };
           this.#playerMounts.set(anchor.player.id, mount);
-          renderPlayer(shadow, match, anchor.player, rows, settings);
+          renderPlayer(shadow, match, anchor.player, rows, totalMatches, settings);
           mount.signature = signature;
           updated += 1;
         } else if (mount.signature !== signature) {
-          renderPlayer(mount.host.shadowRoot as ShadowRoot, match, anchor.player, rows, settings);
+          renderPlayer(mount.host.shadowRoot as ShadowRoot, match, anchor.player, rows, totalMatches, settings);
           mount.signature = signature;
           updated += 1;
         }
         if (anchor.card.nextElementSibling !== mount.host) {
           anchor.card.insertAdjacentElement("afterend", mount.host);
         }
+        updated += this.#syncBattery(anchor, rows);
+        updated += this.#syncTier(anchor, settings);
       }
     }
 
@@ -503,14 +586,136 @@ export class InlineMatchRenderer {
   cleanup(): void {
     for (const mount of this.#playerMounts.values()) mount.host.remove();
     for (const mount of this.#teamMounts.values()) mount.host.remove();
+    for (const mount of this.#batteryMounts.values()) mount.host.remove();
+    for (const mount of this.#tierMounts.values()) this.#removeTierMount(mount);
     this.#playerMounts.clear();
     this.#teamMounts.clear();
-    this.#document.querySelectorAll(`[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}]`)
+    this.#batteryMounts.clear();
+    this.#tierMounts.clear();
+    this.#document.querySelectorAll(
+      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}]`,
+    )
       .forEach((host) => host.remove());
   }
 
   destroy(): void {
     this.cleanup();
+  }
+
+  #syncBattery(anchor: PlayerAnchor, rows: readonly PlayerMatch[]): number {
+    const id = anchor.player.id;
+    if (!anchor.nicknameContainer || !anchor.nicknameSlot) {
+      const existing = this.#batteryMounts.get(id);
+      if (!existing) return 0;
+      existing.host.remove();
+      this.#batteryMounts.delete(id);
+      return 1;
+    }
+
+    const signature = JSON.stringify(matchRowsSignature(rows));
+    let mount = this.#batteryMounts.get(id);
+    let updated = 0;
+    if (!mount || !mount.host.isConnected || mount.host.parentElement !== anchor.nicknameSlot) {
+      mount?.host.remove();
+      const host = this.#document.createElement("span");
+      host.setAttribute(INLINE_BATTERY_ATTRIBUTE, id);
+      const shadow = host.attachShadow({ mode: "open" });
+      mount = { host, signature: "" };
+      this.#batteryMounts.set(id, mount);
+      renderBattery(shadow, rows);
+      mount.signature = signature;
+      updated = 1;
+    } else if (mount.signature !== signature) {
+      renderBattery(mount.host.shadowRoot as ShadowRoot, rows);
+      mount.signature = signature;
+      updated = 1;
+    }
+    if (anchor.nicknameContainer.nextElementSibling !== mount.host) {
+      anchor.nicknameContainer.insertAdjacentElement("afterend", mount.host);
+    }
+    return updated;
+  }
+
+  #syncTier(anchor: PlayerAnchor, settings: InlineMatchSettings): number {
+    const id = anchor.player.id;
+    const level = settings.showExtendedTier && anchor.player.elo !== undefined
+      ? getEloTier(anchor.player.elo, true)
+      : undefined;
+    if (level === undefined || level <= 10 || !anchor.nativeLevel || !anchor.nativeLevel.parentElement) {
+      const existing = this.#tierMounts.get(id);
+      if (!existing) return 0;
+      this.#removeTierMount(existing);
+      this.#tierMounts.delete(id);
+      return 1;
+    }
+
+    const signature = JSON.stringify([level, anchor.player.officialLevel]);
+    let mount = this.#tierMounts.get(id);
+    let updated = 0;
+    if (
+      !mount
+      || !mount.host.isConnected
+      || mount.host.parentElement !== anchor.nativeLevel.parentElement
+      || mount.nativeLevel !== anchor.nativeLevel
+    ) {
+      if (mount) this.#removeTierMount(mount);
+      const host = this.#document.createElement("span");
+      host.setAttribute(INLINE_TIER_ATTRIBUTE, id);
+      const shadow = host.attachShadow({ mode: "open" });
+      mount = {
+        host,
+        signature: "",
+        nativeLevel: anchor.nativeLevel,
+        tierSize: nativeLevelSize(anchor.nativeLevel),
+        previousDisplay: anchor.nativeLevel.style.getPropertyValue("display"),
+        previousDisplayPriority: anchor.nativeLevel.style.getPropertyPriority("display"),
+        previousAriaHidden: anchor.nativeLevel.getAttribute("aria-hidden"),
+      };
+      this.#tierMounts.set(id, mount);
+      renderTier(shadow, anchor.player, level);
+      mount.signature = signature;
+      updated = 1;
+    } else if (mount.signature !== signature) {
+      renderTier(mount.host.shadowRoot as ShadowRoot, anchor.player, level);
+      mount.signature = signature;
+      updated = 1;
+    }
+    mount.host.style.setProperty("--es-tier-size", `${mount.tierSize}px`);
+    if (mount.nativeLevel.style.getPropertyValue("display") !== "none"
+      || mount.nativeLevel.style.getPropertyPriority("display") !== "important") {
+      mount.nativeLevel.style.setProperty("display", "none", "important");
+    }
+    if (mount.nativeLevel.getAttribute("aria-hidden") !== "true") {
+      mount.nativeLevel.setAttribute("aria-hidden", "true");
+    }
+    if (mount.nativeLevel.previousElementSibling !== mount.host) {
+      mount.nativeLevel.parentElement?.insertBefore(mount.host, mount.nativeLevel);
+    }
+    return updated;
+  }
+
+  #removeTierMount(mount: TierMount): void {
+    if (mount.previousDisplay) {
+      mount.nativeLevel.style.setProperty("display", mount.previousDisplay, mount.previousDisplayPriority);
+    } else {
+      mount.nativeLevel.style.removeProperty("display");
+    }
+    if (mount.previousAriaHidden === null) mount.nativeLevel.removeAttribute("aria-hidden");
+    else mount.nativeLevel.setAttribute("aria-hidden", mount.previousAriaHidden);
+    mount.host.remove();
+  }
+
+  #nativeLevelMatchesPlayer(nativeLevel: SVGSVGElement, player: Player): boolean {
+    const expectedLevel = player.officialLevel
+      ?? (player.elo === undefined ? undefined : getEloTier(player.elo, false));
+    if (expectedLevel === undefined) return false;
+    const label = [
+      nativeLevel.getAttribute("aria-label"),
+      nativeLevel.getAttribute("title"),
+      nativeLevel.querySelector("title")?.textContent,
+    ].filter((value): value is string => Boolean(value)).join(" ");
+    const parsed = /skill\s*level\s*(\d{1,2})/iu.exec(label)?.[1];
+    return parsed !== undefined && Number(parsed) === expectedLevel;
   }
 
   #discover(match: MatchContext):
@@ -563,7 +768,28 @@ export class InlineMatchRenderer {
         }
         usedCards.add(card);
         usedHolders.add(holder);
-        players.push({ player, card, holder });
+        const nicknameContainers = Array.from(card.querySelectorAll<HTMLElement>(NICKNAME_CONTAINER_SELECTOR))
+          .filter((container) => container.contains(nickname));
+        const nicknameContainer = nicknameContainers.length === 1 ? nicknameContainers[0] : undefined;
+        const nicknameSlot = nicknameContainer?.parentElement
+          && nicknameContainer.parentElement.matches(NICKNAME_SLOT_SELECTOR)
+          && card.contains(nicknameContainer.parentElement)
+          ? nicknameContainer.parentElement
+          : undefined;
+        const mountedNativeLevel = this.#tierMounts.get(player.id)?.nativeLevel;
+        const nativeLevels = Array.from(card.querySelectorAll<SVGSVGElement>(PLAYER_LEVEL_SELECTOR))
+          .filter((level) => level === mountedNativeLevel || isRendered(level));
+        const nativeLevel = nativeLevels.length === 1 && this.#nativeLevelMatchesPlayer(nativeLevels[0] as SVGSVGElement, player)
+          ? nativeLevels[0]
+          : undefined;
+        players.push({
+          player,
+          card,
+          holder,
+          ...(nicknameContainer ? { nicknameContainer } : {}),
+          ...(nicknameSlot ? { nicknameSlot } : {}),
+          ...(nativeLevel ? { nativeLevel } : {}),
+        });
       }
       const parent = players[0]?.holder.parentElement;
       if (!parent || !roster.contains(parent) || players.some(({ holder }) => holder.parentElement !== parent)) {
@@ -587,9 +813,19 @@ export class InlineMatchRenderer {
     }
   }
 
+  #removeStaleTiers(expectedIds: ReadonlySet<string>): void {
+    for (const [id, mount] of this.#tierMounts) {
+      if (expectedIds.has(id)) continue;
+      this.#removeTierMount(mount);
+      this.#tierMounts.delete(id);
+    }
+  }
+
   #removeOrphans(expectedPlayerIds: ReadonlySet<string>, expectedTeamIds: ReadonlySet<string>): void {
     const playerHosts = new Set(Array.from(this.#playerMounts.values(), ({ host }) => host));
     const teamHosts = new Set(Array.from(this.#teamMounts.values(), ({ host }) => host));
+    const batteryHosts = new Set(Array.from(this.#batteryMounts.values(), ({ host }) => host));
+    const tierHosts = new Set(Array.from(this.#tierMounts.values(), ({ host }) => host));
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_PLAYER_ATTRIBUTE);
       if (!id || !expectedPlayerIds.has(id) || !playerHosts.has(host)) host.remove();
@@ -597,6 +833,14 @@ export class InlineMatchRenderer {
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_TEAM_ATTRIBUTE);
       if (!id || !expectedTeamIds.has(id) || !teamHosts.has(host)) host.remove();
+    });
+    this.#document.querySelectorAll<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}]`).forEach((host) => {
+      const id = host.getAttribute(INLINE_BATTERY_ATTRIBUTE);
+      if (!id || !expectedPlayerIds.has(id) || !batteryHosts.has(host)) host.remove();
+    });
+    this.#document.querySelectorAll<HTMLElement>(`[${INLINE_TIER_ATTRIBUTE}]`).forEach((host) => {
+      const id = host.getAttribute(INLINE_TIER_ATTRIBUTE);
+      if (!id || !expectedPlayerIds.has(id) || !tierHosts.has(host)) host.remove();
     });
   }
 }

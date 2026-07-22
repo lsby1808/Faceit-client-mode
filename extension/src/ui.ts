@@ -418,15 +418,23 @@ export class EloScopeOverlay {
     return container;
   }
 
-  showMatch(match: MatchContext, playerMatches: ReadonlyMap<string, PlayerMatch[]>): void {
+  showMatch(
+    match: MatchContext,
+    playerMatches: ReadonlyMap<string, PlayerMatch[]>,
+    playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
+  ): void {
     this.#panel.hidden = true;
     this.#panel.replaceChildren();
-    this.syncMatchInline(match, playerMatches);
+    this.syncMatchInline(match, playerMatches, playerMapStats);
     this.showPositions(match);
   }
 
-  syncMatchInline(match: MatchContext, playerMatches: ReadonlyMap<string, PlayerMatch[]>): void {
-    this.#inlineMatch.render(match, playerMatches, {
+  syncMatchInline(
+    match: MatchContext,
+    playerMatches: ReadonlyMap<string, PlayerMatch[]>,
+    playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
+  ): void {
+    this.#inlineMatch.render(match, playerMatches, playerMapStats, {
       statsWindow: this.#settings.statsWindow,
       showExtendedTier: this.#settings.showExtendedTier,
     });

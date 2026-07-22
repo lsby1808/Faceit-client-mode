@@ -42,7 +42,8 @@ export const getOfficialEloProgress = (elo: number): OfficialEloProgress => {
 };
 
 /**
- * The optional EloScope scale never changes the official FACEIT level.
+ * The optional EloScope scale is calculated separately from the official
+ * FACEIT level; UI surfaces may display it while retaining the official value.
  * Tier 11 begins at 2251 and each further tier adds 250 ELO; tier 20 begins
  * at 4501 and has no upper bound.
  */

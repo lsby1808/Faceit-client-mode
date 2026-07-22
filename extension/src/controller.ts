@@ -57,6 +57,7 @@ export class EloScopeController {
   #routeIdentity = "other";
   #currentMatch: MatchContext | undefined;
   #currentPlayerMatches = new Map<string, PlayerMatch[]>();
+  #currentPlayerMapStats = new Map<string, PlayerMapStats[]>();
   #routeRevision = 0;
   #stopObserver: (() => void) | undefined;
   #destroyed = false;
@@ -142,12 +143,14 @@ export class EloScopeController {
       if (nextRoute.kind === "match") {
         this.#currentMatch = undefined;
         this.#currentPlayerMatches.clear();
+        this.#currentPlayerMapStats.clear();
         this.#publishMapPool([]);
       }
     }
     if (nextRoute.kind !== "match") {
       this.#currentMatch = undefined;
       this.#currentPlayerMatches.clear();
+      this.#currentPlayerMapStats.clear();
       this.#publishMapPool([]);
     }
 
@@ -249,33 +252,93 @@ export class EloScopeController {
     const players = match.teams.flatMap((team) => team.players);
     await Promise.all(players.map((player) => this.#snapshots.recordPlayer(player)));
     if (!this.#isCurrent(revision)) return;
-    const states = await Promise.all(
-      players.map(async (player) => [
-        player.id,
-        await this.#cached<PlayerMatch[]>(
-          `matches:${player.id}:${limit}`,
-          () => this.#adapter.getRecentMatches(player.id, limit),
-          CACHE_TTLS.playerStats
-        )
-      ] as const)
-    );
+    if (!renderOverlay) {
+      this.#currentPlayerMatches.clear();
+      this.#currentPlayerMapStats.clear();
+      await this.#maybeSendAutomaticPosition();
+      return;
+    }
+
+    const states = await Promise.all(players.map(async (player) => [
+      player.id,
+      await this.#cached<PlayerMatch[]>(
+        `matches:${player.id}:${limit}`,
+        () => this.#adapter.getRecentMatches(player.id, limit),
+        CACHE_TTLS.playerStats,
+      ),
+    ] as const));
     if (!this.#isCurrent(revision)) return;
     const matches = new Map<string, PlayerMatch[]>();
-    for (const [playerId, state] of states) {
-      if (state.status !== "ready") {
+    for (const [playerId, matchesState] of states) {
+      if (matchesState.status !== "ready") {
         matches.set(playerId, []);
         continue;
       }
-      const hydrated = await this.#snapshots.hydrateMatchElos(playerId, state.data);
+      const hydrated = await this.#snapshots.hydrateMatchElos(playerId, matchesState.data);
       if (!this.#isCurrent(revision)) return;
       await this.#snapshots.rememberMatchElos(playerId, hydrated);
       if (!this.#isCurrent(revision)) return;
       matches.set(playerId, hydrated);
     }
     if (!this.#isCurrent(revision)) return;
+    const mapStats = this.#cachedPlayerMapStats(players);
     this.#currentPlayerMatches = matches;
-    if (renderOverlay) this.#overlay.showMatch(match, matches);
+    this.#currentPlayerMapStats = mapStats;
+    this.#overlay.showMatch(match, matches, mapStats);
+    void this.#loadPlayerMapStats(match, players, revision).catch(() => undefined);
     await this.#maybeSendAutomaticPosition();
+  }
+
+  #cachedPlayerMapStats(players: readonly Player[]): Map<string, PlayerMapStats[]> {
+    const result = new Map<string, PlayerMapStats[]>();
+    for (const player of players) {
+      const state = this.#cache.peek(`maps:${player.id}`) as DataState<PlayerMapStats[]> | undefined;
+      if (state?.status === "ready") result.set(player.id, state.data);
+    }
+    return result;
+  }
+
+  async #loadPlayerMapStats(match: MatchContext, players: readonly Player[], revision: number): Promise<void> {
+    const states = await Promise.all(players.map(async (player) => [
+      player.id,
+      await this.#loadRoomPlayerMapStats(match.id, player.id, revision),
+    ] as const));
+    const currentMatch = this.#currentMatch;
+    if (!this.#isCurrent(revision) || currentMatch?.id !== match.id) return;
+
+    const mapStats = new Map<string, PlayerMapStats[]>();
+    for (const [playerId, state] of states) {
+      if (state.status === "ready") mapStats.set(playerId, state.data);
+    }
+    this.#currentPlayerMapStats = mapStats;
+    if (this.#settings.interfaceVisibility.matchRoom) {
+      this.#overlay.syncMatchInline(currentMatch, this.#currentPlayerMatches, mapStats);
+    }
+  }
+
+  async #loadRoomPlayerMapStats(
+    matchId: string,
+    playerId: string,
+    revision: number,
+  ): Promise<DataState<PlayerMapStats[]>> {
+    const cacheKey = `maps:${playerId}`;
+    const cached = this.#cache.peek(cacheKey) as DataState<PlayerMapStats[]> | undefined;
+    if (cached) return cached;
+
+    const requestKey = `room-maps:${matchId}:${revision}:${playerId}`;
+    return this.#cache.get(requestKey, async () => {
+      if (!this.#isCurrent(revision) || this.#currentMatch?.id !== matchId) {
+        return {
+          status: "error",
+          error: { code: "stale-route", message: "Route changed before the request started", retryable: false },
+        } satisfies DataState<PlayerMapStats[]>;
+      }
+      const state = await this.#adapter.getPlayerMapStats(playerId);
+      if (this.#isCurrent(revision) && this.#currentMatch?.id === matchId) {
+        this.#cache.set(cacheKey, state, CACHE_TTLS.playerStats);
+      }
+      return state;
+    }, { ttlMs: 0, cache: false }) as Promise<DataState<PlayerMapStats[]>>;
   }
 
   async #cached<T>(key: string, loader: () => Promise<DataState<T>>, ttlMs: number): Promise<DataState<T>> {
@@ -312,7 +375,7 @@ export class EloScopeController {
     this.#runAutomations();
     if (this.#route.kind !== "match" || !this.#currentMatch) return;
     if (this.#settings.interfaceVisibility.matchRoom) {
-      this.#overlay.syncMatchInline(this.#currentMatch, this.#currentPlayerMatches);
+      this.#overlay.syncMatchInline(this.#currentMatch, this.#currentPlayerMatches, this.#currentPlayerMapStats);
     }
     const selected = visibleSelectedMap(document);
     if (!selected) return;
@@ -329,7 +392,7 @@ export class EloScopeController {
     };
     this.#publishMapPool(this.#currentMatch.mapPool);
     if (this.#settings.interfaceVisibility.matchRoom) {
-      this.#overlay.showMatch(this.#currentMatch, this.#currentPlayerMatches);
+      this.#overlay.showMatch(this.#currentMatch, this.#currentPlayerMatches, this.#currentPlayerMapStats);
     }
     await this.#maybeSendAutomaticPosition();
   }

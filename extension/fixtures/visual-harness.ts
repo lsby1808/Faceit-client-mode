@@ -1,6 +1,6 @@
 import { createDefaultSettings } from "../src/settings";
 import { EloScopeOverlay } from "../src/ui";
-import type { MatchContext, PlayerMatch } from "@eloscope/core";
+import type { MatchContext, PlayerMapStats, PlayerMatch } from "@eloscope/core";
 
 const settings = createDefaultSettings();
 settings.showExtendedTier = true;
@@ -24,7 +24,7 @@ overlay.setCompatibility("applied");
 const players = [
   { id: "player-1", nickname: "alpha", country: "PL", elo: 2451, officialLevel: 10, game: "cs2", premadeId: "party-a" },
   { id: "player-2", nickname: "bravo", country: "DE", elo: 2180, officialLevel: 10, game: "cs2", premadeId: "party-a" },
-  { id: "player-3", nickname: "charlie", country: "UA", elo: 2024, officialLevel: 10, game: "cs2" },
+  { id: "player-3", nickname: "charlie_the_longest", country: "UA", elo: 2024, officialLevel: 10, game: "cs2" },
   { id: "player-4", nickname: "delta", country: "SE", elo: 2350, officialLevel: 10, game: "cs2" },
   { id: "player-5", nickname: "echo", country: "FI", elo: 2288, officialLevel: 10, game: "cs2" },
   { id: "player-6", nickname: "foxtrot", country: "FR", elo: 2511, officialLevel: 10, game: "cs2", premadeId: "party-b" },
@@ -47,6 +47,7 @@ const match: MatchContext = {
 
 const now = Date.now();
 const rows = new Map<string, PlayerMatch[]>();
+const mapStats = new Map<string, PlayerMapStats[]>();
 for (const [playerIndex, player] of players.entries()) {
   rows.set(player.id, Array.from({ length: 12 }, (_, index) => ({
     id: `${player.id}-${index}`,
@@ -64,5 +65,27 @@ for (const [playerIndex, player] of players.entries()) {
     damage: 1_760 + playerIndex * 80,
     headshots: 8
   })));
+  mapStats.set(player.id, [
+    {
+      map: "mirage",
+      matches: 240 + playerIndex * 11,
+      wins: 130 + playerIndex * 4,
+      kills: 4_500 + playerIndex * 120,
+      assists: 1_100,
+      deaths: 3_900,
+      roundsPlayed: 5_600,
+      damage: 475_000,
+    },
+    {
+      map: "nuke",
+      matches: 176,
+      wins: 92,
+      kills: 3_200,
+      assists: 760,
+      deaths: 2_900,
+      roundsPlayed: 4_100,
+      damage: 345_000,
+    },
+  ]);
 }
-overlay.showMatch(match, rows);
+overlay.showMatch(match, rows, mapStats);
