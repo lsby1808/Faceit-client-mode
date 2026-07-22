@@ -27,7 +27,7 @@ jobs:
               [string]::IsNullOrWhiteSpace($env:ELOSCOPE_COMPAT_PUBLIC_KEY)) {
             throw "Signed compatibility URL and Ed25519 public key are required"
           }
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.9.0
       - uses: actions/setup-node@v4
