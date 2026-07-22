@@ -1,0 +1,81 @@
+name: Release stable (code-signing gated)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stable:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      ELOSCOPE_COMPAT_URL: ${{ secrets.ELOSCOPE_COMPAT_URL }}
+      ELOSCOPE_COMPAT_PUBLIC_KEY: ${{ secrets.ELOSCOPE_COMPAT_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce stable release gates
+        shell: pwsh
+        run: |
+          $required = @(
+            "TAURI_SIGNING_PRIVATE_KEY",
+            "WINDOWS_CERTIFICATE",
+            "WINDOWS_CERTIFICATE_PASSWORD",
+            "ELOSCOPE_COMPAT_URL",
+            "ELOSCOPE_COMPAT_PUBLIC_KEY"
+          )
+          foreach ($name in $required) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "env:$name").Value)) {
+              throw "$name is required; stable publishing remains blocked"
+            }
+          }
+      - name: Install Authenticode certificate
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "eloscope-code-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Apply signing configuration
+        shell: pwsh
+        run: |
+          $path = "src-tauri/tauri.conf.json"
+          $config = Get-Content $path -Raw | ConvertFrom-Json
+          $config.bundle.windows.certificateThumbprint = $env:WINDOWS_CERT_THUMBPRINT
+          $config.bundle.windows.digestAlgorithm = "sha256"
+          $config.bundle.windows.timestampUrl = "http://timestamp.digicert.com"
+          $config | ConvertTo-Json -Depth 32 | Set-Content $path -Encoding utf8
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm build:extension
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: EloScope v__VERSION__
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          updaterJsonPreferNsis: true
+          args: --target x86_64-pc-windows-msvc

@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "EloScope",
+  "description": "Independent FACEIT overlays for player form, match context and opt-in helpers.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "109",
+  "permissions": ["storage", "clipboardWrite"],
+  "host_permissions": [
+    "https://www.faceit.com/*",
+    "https://api.faceit.com/*",
+    "https://raw.githubusercontent.com/lsby1808/Faceit-client-mode/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.faceit.com/*"],
+      "js": ["main-bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.faceit.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ]
+}

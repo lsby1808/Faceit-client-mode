@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "issuedAt": "2026-07-22T00:00:00.000Z",
+  "expiresAt": "2027-07-22T00:00:00.000Z",
+  "capabilities": {
+    "profile": true,
+    "history": true,
+    "matchRoom": true,
+    "quickPositions": true,
+    "partyAccept": true,
+    "readyUp": true,
+    "mapVeto": true,
+    "serverVeto": true,
+    "connect": true,
+    "copyServerData": true
+  }
+}

@@ -1,0 +1,9 @@
+packages:
+  - "packages/*"
+  - "extension"
+
+allowBuilds:
+  esbuild: true
+
+onlyBuiltDependencies:
+  - esbuild

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "EloScope",
+  "version": "0.1.0-beta.1",
+  "identifier": "app.eloscope.client",
+  "build": {
+    "removeUnusedCommands": true
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": {
+      "capabilities": [],
+      "assetProtocol": {
+        "enable": false,
+        "scope": []
+      },
+      "dangerousDisableAssetCspModification": false,
+      "freezePrototype": false
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "category": "Utility",
+    "publisher": "EloScope",
+    "shortDescription": "Lightweight FACEIT enhancement client",
+    "longDescription": "EloScope is an independent FACEIT enhancement client. It is not affiliated with or endorsed by FACEIT Ltd.",
+    "resources": {
+      "../extension/build/": "extension/"
+    },
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "installerIcon": null
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUzRDIzNjIyMTg4RTE3MjMKUldRakY0NFlJamJTNHdwSkc2ZlN2a0ZYYjVOQ3c4cmZoWUFXVzlUdm1zcDRDRVJDdTFkMm1sWlIK",
+      "endpoints": [
+        "https://github.com/lsby1808/Faceit-client-mode/releases/latest/download/latest.json"
+      ],
+      "dangerousInsecureTransportProtocol": false,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

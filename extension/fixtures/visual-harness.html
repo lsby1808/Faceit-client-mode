@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EloScope visual fixture</title>
+    <style>
+      html, body { min-height: 100%; margin: 0; background: radial-gradient(circle at 70% 0, #242a32, #08090b 58%); color: #fff; font-family: Segoe UI, sans-serif; }
+      header { height: 56px; display: flex; align-items: center; padding: 0 22px; background: #101216; border-bottom: 1px solid #ffffff13; }
+      main { max-width: 1100px; margin: 30px auto; padding: 22px; }
+      .native { height: 500px; border: 1px solid #ffffff12; border-radius: 12px; background: #111419; padding: 18px; color: #929aa5; }
+    </style>
+  </head>
+  <body>
+    <header>FACEIT fixture · native page stays interactive</header>
+    <main data-match-id="11111111-2222-3333-4444-555555555555">
+      <div class="native">Native match-room placeholder</div>
+      <div data-testid="selected-map" data-map-id="mirage" data-eloscope-visible="true">Mirage selected</div>
+      <textarea data-testid="chat-input" data-eloscope-visible="true" aria-label="Chat"></textarea>
+      <button data-testid="chat-send" data-eloscope-visible="true">Send</button>
+    </main>
+    <script src="../build/visual-harness.js"></script>
+  </body>
+</html>

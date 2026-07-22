@@ -1,0 +1,4 @@
+EloScope is an independent product and is not affiliated with, endorsed by, or sponsored by FACEIT.
+FACEIT and Counter-Strike are trademarks of their respective owners.
+
+This extension does not contain FACEIT, Repeek, FACEIT Forecast, Mappio, or FACEIT Ego assets or source code.

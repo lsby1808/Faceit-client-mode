@@ -1,0 +1,33 @@
+{
+  "name": "eloscope",
+  "version": "0.1.0-beta.1",
+  "private": true,
+  "description": "Lightweight FACEIT enhancement client for Windows",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm run build:core && pnpm run build:extension && pnpm run build:tauri",
+    "build:core": "pnpm --filter @eloscope/core build",
+    "build:extension": "pnpm --filter @eloscope/extension build",
+    "build:tauri": "tauri build --config src-tauri/tauri.conf.json --target x86_64-pc-windows-msvc",
+    "build:native": "cargo build --manifest-path src-tauri/Cargo.toml --release",
+    "dev": "pnpm run build:extension && tauri dev --config src-tauri/tauri.conf.json",
+    "test": "pnpm run test:web && pnpm run build:extension && cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:web": "pnpm run build:core && pnpm -r --if-present test",
+    "typecheck": "pnpm run build:core && pnpm -r --if-present typecheck",
+    "security:audit": "node scripts/security-audit.mjs",
+    "updater:keygen": "node scripts/generate-updater-key.mjs",
+    "compat:keygen": "node scripts/generate-compatibility-key.mjs",
+    "compat:sign": "node scripts/sign-compatibility.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
+    "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings && cargo test --manifest-path src-tauri/Cargo.toml",
+    "check": "pnpm run typecheck && pnpm run test:web && pnpm run build:extension && pnpm run security:audit && pnpm run verify:release && pnpm run check:rust",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
