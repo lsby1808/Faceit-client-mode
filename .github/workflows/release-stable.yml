@@ -51,7 +51,7 @@ jobs:
           $config.bundle.windows.digestAlgorithm = "sha256"
           $config.bundle.windows.timestampUrl = "http://timestamp.digicert.com"
           $config | ConvertTo-Json -Depth 32 | Set-Content $path -Encoding utf8
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.9.0
       - uses: actions/setup-node@v4
