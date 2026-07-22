@@ -24,6 +24,22 @@ button:disabled { cursor:not-allowed; opacity:.48; }
   overflow: auto; overscroll-behavior: contain; background: var(--es-bg); border: 1px solid var(--es-line); border-radius: 14px;
   box-shadow: 0 18px 60px #000c; backdrop-filter: blur(16px);
 }
+:host([data-layout="profile-inline"]) {
+  display:block; width:100%; min-width:0; flex:0 0 auto;
+}
+:host([data-layout="profile-inline"]) .es-shell {
+  position:relative; inset:auto; z-index:auto; width:100%; pointer-events:auto;
+}
+:host([data-layout="profile-inline"]) .es-panel {
+  position:relative; inset:auto; width:100%; max-height:none; overflow:visible; overscroll-behavior:auto;
+  background:#101216; border-radius:7px; box-shadow:none; backdrop-filter:none;
+}
+:host([data-layout="profile-inline"]) .es-head {
+  position:static; padding:12px 14px; background:#101216;
+}
+:host([data-layout="profile-inline"]) .es-content { padding:14px; }
+:host([data-layout="profile-inline"]) .es-state { min-height:92px; }
+:host([data-layout="profile-inline"]) .es-table-wrap { overflow-x:auto; overflow-y:visible; }
 .es-panel[hidden], .es-positions[hidden] { display: none; }
 .es-head { position:sticky; top:0; z-index:2; display:flex; gap:12px; align-items:center; padding:14px 16px; background:#101216f2; border-bottom:1px solid var(--es-line); }
 .es-title { font-size:15px; font-weight:800; letter-spacing:.01em; }

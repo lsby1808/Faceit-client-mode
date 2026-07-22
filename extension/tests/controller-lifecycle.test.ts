@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   positionSend: vi.fn(),
   overlayShowMatch: vi.fn(),
   overlayInlineSync: vi.fn(),
+  overlayProfileInlineSync: vi.fn(),
   domMutation: undefined as (() => void) | undefined,
   visibleMap: null as string | null,
   match: {
@@ -171,6 +172,7 @@ vi.mock("../src/ui", () => ({
     showHistory(): void {}
     showMatch(...args: unknown[]): void { state.overlayShowMatch(...args); }
     syncMatchInline(...args: unknown[]): void { state.overlayInlineSync(...args); }
+    syncProfileInline(...args: unknown[]): void { state.overlayProfileInlineSync(...args); }
     destroy(): void {}
   }
 }));
@@ -194,6 +196,7 @@ describe("controller lifecycle", () => {
     state.positionSend.mockClear();
     state.overlayShowMatch.mockClear();
     state.overlayInlineSync.mockClear();
+    state.overlayProfileInlineSync.mockClear();
     state.domMutation = undefined;
     state.visibleMap = null;
     state.match.status = "voting";
@@ -378,6 +381,22 @@ describe("controller lifecycle", () => {
     state.domMutation?.();
 
     await vi.waitFor(() => expect(state.overlayInlineSync).toHaveBeenCalledOnce());
+    controller.destroy();
+  });
+
+  it.each([
+    ["profile", "/ru/players/FixturePlayer/cs2/stats"],
+    ["history", "/ru/players/FixturePlayer/cs2/history"],
+  ])("resyncs the inline %s panel when FACEIT replaces the profile DOM", async (_kind, path) => {
+    const controller = new EloScopeController();
+
+    await controller.start();
+    await controller.navigate(path);
+    state.overlayProfileInlineSync.mockClear();
+
+    state.domMutation?.();
+
+    await vi.waitFor(() => expect(state.overlayProfileInlineSync).toHaveBeenCalledOnce());
     controller.destroy();
   });
 

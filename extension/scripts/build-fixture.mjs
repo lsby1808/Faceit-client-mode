@@ -25,4 +25,9 @@ await Promise.all([
     entryPoints: [resolve(projectRoot, "fixtures/settings-harness.ts")],
     outfile: resolve(projectRoot, "build/settings-harness.js"),
   }),
+  build({
+    ...shared,
+    entryPoints: [resolve(projectRoot, "fixtures/profile-visual-harness.ts")],
+    outfile: resolve(projectRoot, "build/profile-visual-harness.js"),
+  }),
 ]);

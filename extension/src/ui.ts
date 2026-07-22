@@ -114,6 +114,26 @@ export type HistoryDetailData = {
   stats: MatchStats;
 };
 
+export type ProfileInlineMode = "profile" | "history";
+
+const PROFILE_MAIN_SELECTOR = '[class*="styles__MainSection-sc-"]';
+const PROFILE_PRIMARY_SELECTOR = '[class*="styles__PrimaryContent-sc-"]';
+const PROFILE_CARD_STACK_SELECTOR = '[class*="styles__CardStack-sc-"]';
+const PROFILE_MATCH_TABLE_SELECTOR = '[class*="styles__MatchTable-sc-"]';
+
+function isRenderedElement(node: Element): node is HTMLElement {
+  if (!(node instanceof HTMLElement) || !node.isConnected || node.hidden) return false;
+  if (node.closest('[hidden], [aria-hidden="true"]')) return false;
+  const style = getComputedStyle(node);
+  return style.display !== "none" && style.visibility !== "hidden";
+}
+
+function directChildWithin(container: HTMLElement, descendant: HTMLElement): HTMLElement | undefined {
+  let current: HTMLElement | null = descendant;
+  while (current?.parentElement && current.parentElement !== container) current = current.parentElement;
+  return current?.parentElement === container ? current : undefined;
+}
+
 export class EloScopeOverlay {
   readonly host: HTMLElement;
   readonly shadow: ShadowRoot;
@@ -122,6 +142,9 @@ export class EloScopeOverlay {
   readonly #positions: HTMLElement;
   readonly #inlineMatch = new InlineMatchRenderer();
   #settings: ExtensionSettings;
+  #profileInlineMode: ProfileInlineMode | undefined;
+  #profilePanelRequested = false;
+  #profileRenderGeneration = 0;
 
   constructor(settings: ExtensionSettings, private readonly callbacks: OverlayCallbacks) {
     this.#settings = settings;
@@ -144,6 +167,7 @@ export class EloScopeOverlay {
   }
 
   destroy(): void {
+    this.#profileRenderGeneration += 1;
     this.#inlineMatch.destroy();
     this.host.remove();
   }
@@ -158,36 +182,38 @@ export class EloScopeOverlay {
 
   hideRoutePanels(): void {
     this.#inlineMatch.cleanup();
+    this.#resetProfileInline();
     this.#panel.hidden = true;
     this.#positions.hidden = true;
     this.#panel.replaceChildren();
     this.#positions.replaceChildren();
   }
 
-  showLoading(title: string): void {
-    this.#inlineMatch.cleanup();
-    this.#positions.hidden = true;
-    this.#panel.hidden = false;
-    this.#panel.replaceChildren(this.#header(title), element("div", { className: "es-state", text: "Загружаю разрешённые данные FACEIT…" }));
+  showLoading(title: string, mode: ProfileInlineMode = title === "Расширенная история" ? "history" : "profile"): void {
+    this.#renderProfileInline(
+      mode,
+      this.#header(title),
+      element("div", { className: "es-state", text: "Загружаю разрешённые данные FACEIT…" }),
+    );
   }
 
-  showState(title: string, state: "restricted" | "error" | "empty"): void {
-    this.#inlineMatch.cleanup();
+  showState(
+    title: string,
+    state: "restricted" | "error" | "empty",
+    mode: ProfileInlineMode = title === "Расширенная история" ? "history" : "profile",
+  ): void {
     const messages = {
       restricted: "Данные недоступны для текущей сессии или профиля.",
       error: "Не удалось прочитать данные. Нативная страница FACEIT продолжает работать.",
       empty: "Достоверных завершённых CS2 5v5 матчей пока нет."
     };
-    this.#positions.hidden = true;
-    this.#panel.hidden = false;
-    this.#panel.replaceChildren(this.#header(title), element("div", { className: "es-state", text: messages[state] }));
+    this.#renderProfileInline(mode, this.#header(title), element("div", { className: "es-state", text: messages[state] }));
   }
 
   showProfile(player: Player, matches: PlayerMatch[], maps: PlayerMapStats[]): void {
     this.#inlineMatch.cleanup();
     const validMatches = eligibleMatches(matches);
     this.#positions.hidden = true;
-    this.#panel.hidden = false;
     const content = element("div", { className: "es-content" });
     const identity = element("div", { className: "es-profile-line" });
     const level = player.elo === undefined ? player.officialLevel : getEloTier(player.elo, this.#settings.showExtendedTier);
@@ -225,7 +251,7 @@ export class EloScopeOverlay {
     }
     if (validMatches.length === 0) {
       content.append(element("div", { className: "es-state", text: "Нет достоверных завершённых CS2 5v5 матчей — нули не подставляются." }));
-      this.#panel.replaceChildren(this.#header("Профиль"), content);
+      this.#renderProfileInline("profile", this.#header("Профиль"), content);
       return;
     }
 
@@ -280,21 +306,96 @@ export class EloScopeOverlay {
       mapList.append(card);
     }
     content.append(mapList);
-    this.#panel.replaceChildren(this.#header("Профиль"), content);
+    this.#renderProfileInline("profile", this.#header("Профиль"), content);
   }
 
   showHistory(player: Player, matches: PlayerMatch[]): void {
     this.#inlineMatch.cleanup();
     const validMatches = eligibleMatches(matches);
     this.#positions.hidden = true;
-    this.#panel.hidden = false;
     const content = element("div", { className: "es-content" });
     const line = element("div", { className: "es-profile-line" });
     append(line, element("div", { className: "es-title", text: player.nickname }), element("span", { className: "es-spacer" }), batteryNode(validMatches), createWindowSelect(this.#settings.statsWindow, this.callbacks.onStatsWindow));
     content.append(line);
     if (!validMatches.length) content.append(element("div", { className: "es-state", text: "История не содержит достоверных строк. Исторический ELO не угадывается." }));
     else content.append(this.#historyTable(validMatches));
-    this.#panel.replaceChildren(this.#header("Расширенная история"), content);
+    this.#renderProfileInline("history", this.#header("Расширенная история"), content);
+  }
+
+  syncProfileInline(mode: ProfileInlineMode): boolean {
+    if (!this.#profilePanelRequested || this.#profileInlineMode !== mode) return false;
+    const target = this.#profileInlineTarget(mode);
+    if (!target) {
+      this.#detachProfileInline();
+      return false;
+    }
+
+    this.host.dataset.layout = "profile-inline";
+    this.host.dataset.profileMode = mode;
+    if (target.position === "after") {
+      if (target.anchor.nextElementSibling !== this.host) target.anchor.after(this.host);
+    } else if (target.position === "before") {
+      if (target.anchor.previousElementSibling !== this.host) target.anchor.before(this.host);
+    } else if (target.main.firstElementChild !== this.host) {
+      target.main.prepend(this.host);
+    }
+    this.#panel.hidden = false;
+    return true;
+  }
+
+  #renderProfileInline(mode: ProfileInlineMode, ...children: Node[]): void {
+    this.#inlineMatch.cleanup();
+    this.#positions.hidden = true;
+    this.#profileRenderGeneration += 1;
+    this.#profileInlineMode = mode;
+    this.#profilePanelRequested = true;
+    this.#panel.replaceChildren(...children);
+    this.syncProfileInline(mode);
+  }
+
+  #profileInlineTarget(mode: ProfileInlineMode):
+    | { main: HTMLElement; anchor: HTMLElement; position: "before" | "after" }
+    | { main: HTMLElement; position: "prepend" }
+    | undefined {
+    const mains = Array.from(document.querySelectorAll(PROFILE_MAIN_SELECTOR)).filter(isRenderedElement);
+    if (mains.length !== 1) return undefined;
+    const [main] = mains;
+    if (!main) return undefined;
+    if (!main.closest(PROFILE_PRIMARY_SELECTOR)) return undefined;
+
+    if (mode === "history") {
+      const tables = Array.from(main.querySelectorAll(PROFILE_MATCH_TABLE_SELECTOR)).filter(isRenderedElement);
+      if (tables.length !== 1) return undefined;
+      const [table] = tables;
+      if (!table) return undefined;
+      const anchor = directChildWithin(main, table);
+      return anchor ? { main, anchor, position: "before" } : undefined;
+    }
+
+    const cards = Array.from(main.querySelectorAll(PROFILE_CARD_STACK_SELECTOR)).filter(isRenderedElement);
+    if (cards.length > 1) return undefined;
+    if (cards.length === 1) {
+      const [card] = cards;
+      if (!card) return undefined;
+      const anchor = directChildWithin(main, card);
+      return anchor ? { main, anchor, position: "after" } : undefined;
+    }
+    return { main, position: "prepend" };
+  }
+
+  #detachProfileInline(): void {
+    delete this.host.dataset.layout;
+    delete this.host.dataset.profileMode;
+    const root = document.documentElement ?? document;
+    if (this.host.parentNode !== root) root.append(this.host);
+    this.#panel.hidden = true;
+  }
+
+  #resetProfileInline(): void {
+    this.#profileRenderGeneration += 1;
+    this.#profilePanelRequested = false;
+    this.#profileInlineMode = undefined;
+    this.#detachProfileInline();
   }
 
   #historyTable(matches: PlayerMatch[]): HTMLElement {
@@ -342,8 +443,10 @@ export class EloScopeOverlay {
         detail.hidden = false;
         if (loaded || loading) return;
         loading = true;
+        const generation = this.#profileRenderGeneration;
         cell.textContent = "Загружаю достоверную статистику матча…";
         const state = await this.callbacks.onHistoryDetail(match.id);
+        if (generation !== this.#profileRenderGeneration || !cell.isConnected) return;
         if (state.status === "ready") {
           cell.replaceChildren(this.#historyDetail(state.data, match));
           loaded = true;
@@ -423,6 +526,7 @@ export class EloScopeOverlay {
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
   ): void {
+    this.#resetProfileInline();
     this.#panel.hidden = true;
     this.#panel.replaceChildren();
     this.syncMatchInline(match, playerMatches, playerMapStats);

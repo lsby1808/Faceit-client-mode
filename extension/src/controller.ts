@@ -180,7 +180,8 @@ export class EloScopeController {
   }
 
   async #loadProfile(nickname: string, history: boolean, revision: number): Promise<void> {
-    this.#overlay.showLoading(history ? "Расширенная история" : "Профиль");
+    const mode = history ? "history" : "profile";
+    this.#overlay.showLoading(history ? "Расширенная история" : "Профиль", mode);
     const playerState = await this.#cached<Player>(
       `player:${nickname.toLowerCase()}`,
       () => this.#adapter.getPlayer(nickname),
@@ -188,7 +189,7 @@ export class EloScopeController {
     );
     if (!this.#isCurrent(revision)) return;
     if (playerState.status !== "ready" || !playerState.data) {
-      this.#overlay.showState(history ? "Расширенная история" : "Профиль", playerState.status === "restricted" ? "restricted" : "error");
+      this.#overlay.showState(history ? "Расширенная история" : "Профиль", playerState.status === "restricted" ? "restricted" : "error", mode);
       return;
     }
     await this.#snapshots.recordPlayer(playerState.data);
@@ -211,7 +212,7 @@ export class EloScopeController {
     ]);
     if (!this.#isCurrent(revision)) return;
     if (matchesState.status !== "ready") {
-      this.#overlay.showState(history ? "Расширенная история" : "Профиль", matchesState.status === "restricted" ? "restricted" : "error");
+      this.#overlay.showState(history ? "Расширенная история" : "Профиль", matchesState.status === "restricted" ? "restricted" : "error", mode);
       return;
     }
     const matches = await this.#snapshots.hydrateMatchElos(playerState.data.id, matchesState.data);
@@ -373,6 +374,18 @@ export class EloScopeController {
   async #handleDomMutation(): Promise<void> {
     if (this.#destroyed) return;
     this.#runAutomations();
+    if (this.#route.kind === "profile") {
+      if (this.#capabilities.profile && this.#settings.interfaceVisibility.profile) {
+        this.#overlay.syncProfileInline("profile");
+      }
+      return;
+    }
+    if (this.#route.kind === "history") {
+      if (this.#capabilities.history && this.#settings.interfaceVisibility.history) {
+        this.#overlay.syncProfileInline("history");
+      }
+      return;
+    }
     if (this.#route.kind !== "match" || !this.#currentMatch) return;
     if (this.#settings.interfaceVisibility.matchRoom) {
       this.#overlay.syncMatchInline(this.#currentMatch, this.#currentPlayerMatches, this.#currentPlayerMapStats);

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>EloScope profile fixture</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { min-height:100%; margin:0; background:#050607; color:#f2f2f2; font:13px Inter,"Segoe UI",sans-serif; }
+      header { height:56px; display:flex; align-items:center; padding:0 24px; background:#101113; border-bottom:1px solid #ffffff12; font-weight:800; }
+      .page { display:grid; grid-template-columns:300px 734px; gap:28px; width:1090px; margin:28px auto; }
+      aside { min-height:690px; overflow:hidden; border:1px solid #ffffff18; border-radius:12px; background:#0c0e11; }
+      .cover { height:360px; display:grid; place-items:end center; padding:32px; background:linear-gradient(145deg,#e30080 0 33%,#145bd1 34% 57%,#240018 58%); font-size:32px; font-weight:900; }
+      .aside-body { padding:18px; color:#a9afb8; line-height:2.2; }
+      [class*="styles__PrimaryContent-sc-"] { min-width:0; }
+      [class*="styles__TopSection-sc-"] { display:flex; gap:28px; height:48px; align-items:center; padding:0 14px; border-bottom:1px solid #ffffff16; background:#090a0c; }
+      [class*="styles__TopSection-sc-"] a { color:#aeb3ba; text-decoration:none; font-weight:750; }
+      [class*="styles__TopSection-sc-"] a:first-child { color:#ff5a19; }
+      [class*="styles__MainSection-sc-"] { display:flex; flex-direction:column; gap:16px; padding-top:16px; }
+      [class*="styles__CardStack-sc-"] { min-height:178px; padding:20px; border:1px solid #ffffff1a; border-radius:8px; background:linear-gradient(110deg,#10191e,#101315); }
+      .native-level { display:flex; align-items:center; justify-content:center; gap:38px; height:105px; font-size:30px; font-weight:900; }
+      .native-copy { color:#9da4ad; font-size:11px; text-transform:uppercase; }
+      .native-card { min-height:92px; padding:16px; border:1px solid #ffffff14; border-radius:8px; background:#0d0f12; color:#aeb4bc; }
+      .native-section-title { margin-bottom:10px; color:#e7e9ec; font-weight:800; }
+      .native-history { padding:14px; border:1px solid #ffffff14; border-radius:8px; background:#0d0f12; }
+      .native-history table { width:100%; border-collapse:collapse; color:#aeb4bc; }
+      .native-history td { padding:10px; border-top:1px solid #ffffff10; }
+      .native-history button { margin-top:12px; padding:8px 12px; color:#fff; border:0; border-radius:5px; background:#f45113; }
+    </style>
+  </head>
+  <body>
+    <header>FACEIT · профиль игрока</header>
+    <div class="page">
+      <aside><div class="cover">Horrssee</div><div class="aside-body">🇺🇦 Украина<br>Counter-Strike 2<br>Недавняя активность</div></aside>
+      <div class="styles__PrimaryContent-sc-cd4a8e07-2">
+        <nav class="styles__TopSection-sc-cd4a8e07-6"><a href="#">Итоги</a><a href="?view=history">История матчей</a><a href="#">Статистика</a><a href="#">Лиги</a></nav>
+        <main class="styles__MainSection-sc-cd4a8e07-7">
+          <section class="styles__CardStack-sc-c712ebfd-1"><div class="native-copy">Прогресс уровня</div><div class="native-level"><span>10</span><span>2 407 ELO</span><span>94 до level 12</span></div></section>
+          <section class="native-card"><div class="native-section-title">Недавняя эффективность FACEIT</div>Нативный блок остаётся на месте и доступен.</section>
+          <section class="native-card"><div class="native-section-title">Последние матчи FACEIT</div>Нативная история не заменяется модулем EloScope.</section>
+        </main>
+      </div>
+    </div>
+    <script src="../build/profile-visual-harness.js"></script>
+  </body>
+</html>

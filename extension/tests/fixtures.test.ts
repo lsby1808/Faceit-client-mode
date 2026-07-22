@@ -29,4 +29,34 @@ describe("DOM contract fixtures", () => {
     expect(factions?.[0]?.parentElement).toBe(factions?.[1]?.parentElement);
     expect(factions?.[0]?.parentElement?.parentElement).toBe(wrapper?.firstElementChild);
   });
+
+  it("models the unique visible FACEIT profile mount and summary-card anchor", () => {
+    loadFixture("profile");
+    const primary = document.querySelector<HTMLElement>('[class*="styles__PrimaryContent-sc-"]');
+    const main = primary?.querySelectorAll<HTMLElement>('[class*="styles__MainSection-sc-"]');
+    const cards = main?.[0]?.querySelectorAll<HTMLElement>('[class*="styles__CardStack-sc-"]');
+
+    expect(primary).not.toBeNull();
+    expect(primary?.querySelectorAll('[class*="styles__TopSection-sc-"]')).toHaveLength(1);
+    expect(main).toHaveLength(1);
+    expect(main?.[0]?.dataset.eloscopeVisible).toBe("true");
+    expect(cards).toHaveLength(1);
+    expect(cards?.[0]?.nextElementSibling?.getAttribute("data-testid")).toBe("native-profile-survey");
+  });
+
+  it("models the unique visible FACEIT history mount and preserves its native table wrapper", () => {
+    loadFixture("history");
+    const primary = document.querySelector<HTMLElement>('[class*="styles__PrimaryContent-sc-"]');
+    const main = primary?.querySelectorAll<HTMLElement>('[class*="styles__MainSection-sc-"]');
+    const nativeWrapper = main?.[0]?.querySelector<HTMLElement>('[data-testid="native-history-wrapper"]');
+    const tables = main?.[0]?.querySelectorAll<HTMLElement>('[class*="styles__MatchTable-sc-"]');
+
+    expect(primary).not.toBeNull();
+    expect(primary?.querySelectorAll('[class*="styles__TopSection-sc-"]')).toHaveLength(1);
+    expect(main).toHaveLength(1);
+    expect(main?.[0]?.dataset.eloscopeVisible).toBe("true");
+    expect(tables).toHaveLength(1);
+    expect(nativeWrapper?.contains(tables?.[0] ?? null)).toBe(true);
+    expect(nativeWrapper?.querySelector("button")?.textContent).toContain("Show more");
+  });
 });
