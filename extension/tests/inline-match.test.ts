@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   INLINE_BATTERY_ATTRIBUTE,
+  INLINE_MAP_WINRATE_ATTRIBUTE,
   INLINE_PLAYER_ATTRIBUTE,
   INLINE_ROLE_ATTRIBUTE,
   INLINE_TEAM_ATTRIBUTE,
@@ -733,7 +734,7 @@ describe("InlineMatchRenderer", () => {
     expect(overall?.textContent).not.toContain("4матчи");
   });
 
-  it("ignores a hidden responsive roster but fails closed when a third roster becomes rendered", () => {
+  it("ignores hidden responsive and visible empty or foreign third rosters", () => {
     mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
     const match = matchContext();
     const renderer = new InlineMatchRenderer();
@@ -746,10 +747,35 @@ describe("InlineMatchRenderer", () => {
 
     expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({ status: "rendered", players: 10 });
     responsiveShell.hidden = false;
+    responsiveCopy.innerHTML = '<div class="unrelated-widget">Server and map details</div>';
+
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(playerHosts()).toHaveLength(10);
+    expect(batteryHosts()).toHaveLength(10);
+    expect(roleHosts()).toHaveLength(10);
+  });
+
+  it("fails closed and removes stale stats when a full visible team roster is duplicated", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+    renderer.render(match, matchRows(match), playerMapRows(match), settings);
+    expect(playerHosts()).toHaveLength(10);
+
+    const alphaRoster = document.querySelector<HTMLElement>('[class*="Roster__Group-sc-left"]') as HTMLElement;
+    const duplicate = alphaRoster.cloneNode(true) as HTMLElement;
+    duplicate.className = "Roster__Group-sc-visible-copy";
+    duplicate.querySelectorAll(
+      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}]`,
+    ).forEach((host) => host.remove());
+    document.body.append(duplicate);
 
     expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toEqual({
       status: "incompatible",
-      reason: "roster-contract",
+      reason: "team-roster-ambiguous",
     });
     expect(playerHosts()).toHaveLength(0);
     expect(teamHosts()).toHaveLength(0);
@@ -761,30 +787,181 @@ describe("InlineMatchRenderer", () => {
     expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
   });
 
-  it("fails closed and removes stale stats when a nickname becomes ambiguous", () => {
+  it("ignores a hidden duplicate nickname inside a verified player card", () => {
     mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
     const match = matchContext();
-    const renderer = new InlineMatchRenderer();
-    renderer.render(match, matchRows(match), playerMapRows(match), settings);
-    expect(playerHosts()).toHaveLength(10);
-
     const duplicate = document.createElement("span");
-    duplicate.className = "Nickname__Name-sc-duplicate";
+    duplicate.className = "Nickname__Name-sc-hidden-copy";
+    duplicate.hidden = true;
     duplicate.textContent = "AlphaOne";
-    document.querySelector('[class*="Roster__Group-sc-left"]')?.append(duplicate);
+    document.querySelector('[data-avatar-for="AlphaOne"]')
+      ?.closest('[class*="ListContentPlayer__Background"]')
+      ?.append(duplicate);
+    const renderer = new InlineMatchRenderer();
 
-    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toEqual({
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(playerHosts()).toHaveLength(10);
+    expect(document.querySelectorAll(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)).toHaveLength(1);
+  });
+
+  it("supports a profile-link wrapper and structural player rows after holder class drift", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    for (const holder of Array.from(document.querySelectorAll<HTMLElement>('[class*="styles__Holder"]'))) {
+      const card = Array.from(holder.children).find((child): child is HTMLElement =>
+        child instanceof HTMLElement && child.matches('[class*="ListContentPlayer__Background"]'));
+      const nicknameLink = card?.querySelector<HTMLAnchorElement>('a[href*="/players/"]');
+      if (!card || !nicknameLink) throw new Error("fixture player card is incomplete");
+      const wrapper = document.createElement("a");
+      wrapper.className = "PlayerCardLink__Wrapper-sc-drift";
+      wrapper.href = nicknameLink.href;
+      card.replaceWith(wrapper);
+      wrapper.append(card);
+      holder.className = "PlayerRow__Shell-drift";
+    }
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(playerHosts()).toHaveLength(10);
+    const alphaHost = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`) as HTMLElement;
+    const wrapper = alphaHost.previousElementSibling as HTMLElement;
+    expect(wrapper.matches("a.PlayerCardLink__Wrapper-sc-drift")).toBe(true);
+    expect(wrapper.querySelector('[class*="ListContentPlayer__Background"]')).not.toBeNull();
+    expect(alphaHost.parentElement?.matches(".PlayerRow__Shell-drift")).toBe(true);
+  });
+
+  it("uses the verified profile href when the displayed nickname is stale", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const nicknameLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/players/"]'));
+    nicknameLinks.forEach((link, index) => {
+      link.textContent = `stale-player-${index + 1}`;
+    });
+    (nicknameLinks[0] as HTMLAnchorElement).href = "https://www.faceit.com/en-US/players/AlphaOne/cs2";
+    (nicknameLinks[1] as HTMLAnchorElement).href = "https://faceit.com/ru/players/AlphaTwo/";
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(playerHosts()).toHaveLength(10);
+    expect(document.querySelector(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)).not.toBeNull();
+    expect(document.querySelector(`[${INLINE_PLAYER_ATTRIBUTE}="bravo-five"]`)).not.toBeNull();
+  });
+
+  it.each([
+    "https://evil.faceit.com/en/players/AlphaOne",
+    "https://www.faceit.com:444/en/players/AlphaOne",
+    "//evil.test/en/players/AlphaOne",
+  ])("rejects an unverified profile origin instead of guessing the player: %s", (href) => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const link = document.querySelector<HTMLAnchorElement>('a[href="/en/players/AlphaOne"]') as HTMLAnchorElement;
+    link.href = href;
+    link.textContent = "stale-alpha";
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
       status: "incompatible",
-      reason: "roster-contract",
     });
     expect(playerHosts()).toHaveLength(0);
-    expect(teamHosts()).toHaveLength(0);
-    expect(batteryHosts()).toHaveLength(0);
-    expect(tierHosts()).toHaveLength(0);
-    expect(roleHosts()).toHaveLength(0);
-    const nativeAvatar = document.querySelector<HTMLImageElement>('[data-avatar-for="AlphaOne"]') as HTMLImageElement;
-    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
-    expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
+  });
+
+  it("discovers semantic roster1 and roster2 anchors after roster class drift", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const rosters = Array.from(document.querySelectorAll<HTMLElement>('[class*="Roster__Group"]'));
+    expect(rosters).toHaveLength(2);
+    (rosters[0] as HTMLElement).className = "FaceitTeamColumn-sc-drift-left";
+    (rosters[0] as HTMLElement).setAttribute("name", "roster1");
+    (rosters[1] as HTMLElement).className = "FaceitTeamColumn-sc-drift-right";
+    (rosters[1] as HTMLElement).setAttribute("name", "roster2");
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(playerHosts()).toHaveLength(10);
+    expect(document.querySelectorAll('[name="roster1"] [data-eloscope-inline-player]')).toHaveLength(5);
+    expect(document.querySelectorAll('[name="roster2"] [data-eloscope-inline-player]')).toHaveLength(5);
+  });
+
+  it("deduplicates nested semantic and class roster roots by their five verified player rows", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const rosters = Array.from(document.querySelectorAll<HTMLElement>('[class*="Roster__Group"]'));
+    rosters.forEach((roster, index) => {
+      const semantic = document.createElement("div");
+      semantic.setAttribute("name", index === 0 ? "roster1" : "roster2");
+      roster.replaceWith(semantic);
+      semantic.append(roster);
+    });
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(playerHosts()).toHaveLength(10);
+  });
+
+  it("keeps complete class rosters when unrelated semantic roster markers are partial", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const partialLeft = document.createElement("div");
+    partialLeft.setAttribute("name", "roster1");
+    partialLeft.innerHTML = nativePlayer("UnrelatedOne");
+    const partialRight = document.createElement("div");
+    partialRight.setAttribute("name", "roster2");
+    partialRight.innerHTML = nativePlayer("UnrelatedTwo");
+    document.body.append(partialLeft, partialRight);
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(playerHosts()).toHaveLength(10);
+  });
+
+  it("renders the ten visible cards when an API team also contains a reserve player", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const mapAnchor = document.createElement("div");
+    mapAnchor.innerHTML = '<span data-testid="selected-map" data-map-id="dust2" data-eloscope-visible="true">dust2</span>';
+    document.body.prepend(mapAnchor);
+    const base = matchContext();
+    const alpha = base.teams[0] as MatchContext["teams"][number];
+    const match = matchContext({
+      teams: [
+        {
+          ...alpha,
+          players: [
+            ...alpha.players,
+            { id: "alpha-reserve", nickname: "AlphaReserve", game: "cs2", elo: 2_275, officialLevel: 10 },
+          ],
+        },
+        base.teams[1] as MatchContext["teams"][number],
+      ],
+    });
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(playerHosts()).toHaveLength(10);
+    expect(document.querySelector(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-reserve"]`)).toBeNull();
+    const chart = document.querySelector<HTMLElement>(`[${INLINE_MAP_WINRATE_ATTRIBUTE}]`)?.shadowRoot;
+    expect(chart?.querySelector('[data-es-team-id="team-alpha"]')?.textContent).toContain("5/5");
+    expect(chart?.textContent).not.toContain("6/6");
   });
 
   it("does not mount on an incomplete native roster contract", () => {

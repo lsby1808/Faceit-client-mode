@@ -19,16 +19,18 @@ import { MatchMapWinRateChartRenderer } from "./map-winrate-chart";
 
 export { INLINE_MAP_WINRATE_ATTRIBUTE } from "./map-winrate-chart";
 
-const ROSTER_SELECTOR = '[class*="Roster__Group-sc-"]';
-const NICKNAME_SELECTOR = '[class*="Nickname__Name-sc-"]';
-const NICKNAME_CONTAINER_SELECTOR = '[class*="Nickname__Container-sc-"]';
-const NICKNAME_SLOT_SELECTOR = '[class*="styles__NicknameContainer-sc-"]';
-const PLAYER_CARD_SELECTOR = '[class*="ListContentPlayer__Background-sc-"]';
-const PLAYER_HOLDER_SELECTOR = '[class*="styles__Holder-sc-"]';
-const PLAYER_LEVEL_SELECTOR = '[class*="SkillIcon__StyledSvg-sc-"]';
-const AVATAR_HOLDER_SELECTOR = '[class*="Avatar__AvatarHolder-sc-"]';
+const NAMED_ROSTER_SELECTOR = '[name="roster1"], [name="roster2"]';
+const ROSTER_SELECTOR = '[class*="Roster__Group"]';
+const NICKNAME_SELECTOR = '[class*="Nickname__Name"]';
+const PLAYER_PROFILE_LINK_SELECTOR = 'a[href*="/players/"]';
+const NICKNAME_CONTAINER_SELECTOR = '[class*="Nickname__Container"]';
+const NICKNAME_SLOT_SELECTOR = '[class*="styles__NicknameContainer"]';
+const PLAYER_CARD_SELECTOR = '[class*="ListContentPlayer__Background"]';
+const PLAYER_HOLDER_SELECTOR = '[class*="styles__Holder"]';
+const PLAYER_LEVEL_SELECTOR = '[class*="SkillIcon__StyledSvg"]';
+const AVATAR_HOLDER_SELECTOR = '[class*="Avatar__AvatarHolder"]';
 const AVATAR_IMAGE_SELECTOR =
-  'img[class*="Avatar__Image-sc-"][aria-label="avatar"], i[class*="Avatar__AvatarIcon-sc-"][aria-label="avatar"]';
+  'img[class*="Avatar__Image"][aria-label="avatar"], i[class*="Avatar__AvatarIcon"][aria-label="avatar"]';
 const MATCH_HEADER_WRAPPER_SELECTOR = '[class*="styles__HeaderWrapper-sc-"]';
 const MATCH_HEADER_FACTION_SELECTOR = '[class*="styles__Faction-sc-"]';
 const MATCH_HEADER_FACTION_NAME_SELECTOR = '[class*="styles__StyledFactionName-sc-"]';
@@ -249,6 +251,7 @@ type PlayerAnchor = Readonly<{
   player: Player;
   card: HTMLElement;
   holder: HTMLElement;
+  mountAfter: HTMLElement;
   nicknameContainer?: HTMLElement;
   nicknameSlot?: HTMLElement;
   nativeLevel?: SVGSVGElement;
@@ -613,6 +616,24 @@ function teamHeaderMetric(
   };
 }
 
+function teamForVisiblePlayers(team: MatchTeam, players: readonly Player[]): MatchTeam {
+  const elos = players.map((player) => player.elo).filter(isPositiveFiniteNumber);
+  return {
+    id: team.id,
+    ...(team.name ? { name: team.name } : {}),
+    players: [...players],
+    eloKnown: elos.length,
+    eloTotal: players.length,
+    ...(elos.length
+      ? {
+          averageElo: Math.round(elos.reduce((sum, elo) => sum + elo, 0) / elos.length),
+          minElo: Math.min(...elos),
+          maxElo: Math.max(...elos),
+        }
+      : {}),
+  };
+}
+
 function renderTeam(
   shadow: ShadowRoot,
   team: MatchTeam,
@@ -634,8 +655,105 @@ function renderTeam(
 
 function exactNicknameNodes(roster: HTMLElement, nickname: string): HTMLElement[] {
   const expected = normalizedNickname(nickname);
-  return Array.from(roster.querySelectorAll<HTMLElement>(NICKNAME_SELECTOR))
-    .filter((node) => normalizedNickname(node.textContent ?? "") === expected);
+  const matches = new Set<HTMLElement>();
+  for (const node of Array.from(roster.querySelectorAll<HTMLElement>(NICKNAME_SELECTOR)).filter(isRendered)) {
+    if (normalizedNickname(node.textContent ?? "") === expected) matches.add(node);
+  }
+  for (const link of Array.from(roster.querySelectorAll<HTMLAnchorElement>(PLAYER_PROFILE_LINK_SELECTOR)).filter(isRendered)) {
+    if (profileNickname(link) === expected) matches.add(link);
+  }
+  return [...matches];
+}
+
+type PlayerStructure = Readonly<{
+  card: HTMLElement;
+  holder: HTMLElement;
+  mountAfter: HTMLElement;
+}>;
+
+function profileNickname(link: HTMLAnchorElement): string | undefined {
+  const href = link.getAttribute("href");
+  if (!href) return undefined;
+  try {
+    const url = new URL(href, link.ownerDocument.baseURI);
+    const pageUrl = new URL(link.ownerDocument.baseURI);
+    const isRootRelative = href.startsWith("/") && !href.startsWith("//") && url.origin === pageUrl.origin;
+    const canonicalOrigin = url.origin === "https://www.faceit.com" || url.origin === "https://faceit.com";
+    if (url.username || url.password || (!isRootRelative && !canonicalOrigin)) return undefined;
+    const segments = url.pathname.split("/").filter(Boolean);
+    const playersIndex = segments.findIndex((segment) => segment.toLocaleLowerCase("en-US") === "players");
+    if (
+      playersIndex < 0
+      || playersIndex > 1
+      || (playersIndex === 1 && !/^[a-z]{2}(?:-[a-z]{2})?$/iu.test(segments[0] ?? ""))
+    ) return undefined;
+    const encodedNickname = playersIndex >= 0 ? segments[playersIndex + 1] : undefined;
+    if (!encodedNickname) return undefined;
+    return normalizedNickname(decodeURIComponent(encodedNickname));
+  } catch {
+    return undefined;
+  }
+}
+
+function directChildContaining(parent: HTMLElement, descendant: HTMLElement): HTMLElement | undefined {
+  let current: HTMLElement | null = descendant;
+  while (current?.parentElement && current.parentElement !== parent) current = current.parentElement;
+  return current?.parentElement === parent ? current : undefined;
+}
+
+function playerStructure(roster: HTMLElement, identity: HTMLElement): PlayerStructure | undefined {
+  const closestCard = identity.closest<HTMLElement>(PLAYER_CARD_SELECTOR);
+  const nestedCards = closestCard
+    ? []
+    : Array.from(identity.querySelectorAll<HTMLElement>(PLAYER_CARD_SELECTOR)).filter(isRendered);
+  let card = closestCard ?? (nestedCards.length === 1 ? nestedCards[0] : undefined);
+  let holder = (card ?? identity).closest<HTMLElement>(PLAYER_HOLDER_SELECTOR);
+  if (!holder && card) {
+    let structuralHolder = card.parentElement;
+    if (structuralHolder?.tagName === "A") structuralHolder = structuralHolder.parentElement;
+    if (structuralHolder && structuralHolder !== roster && roster.contains(structuralHolder)) holder = structuralHolder;
+  }
+  if (!holder || holder === roster || !roster.contains(holder)) return undefined;
+  if (!card) {
+    const holderCards = Array.from(holder.querySelectorAll<HTMLElement>(PLAYER_CARD_SELECTOR)).filter(isRendered);
+    if (holderCards.length === 1) card = holderCards[0];
+  }
+  if (!card) return undefined;
+  const mountAfter = directChildContaining(holder, card);
+  if (!mountAfter) return undefined;
+  return { card, holder, mountAfter };
+}
+
+function uniquePlayerStructures(roster: HTMLElement, nickname: string): PlayerStructure[] {
+  const structures: PlayerStructure[] = [];
+  for (const identity of exactNicknameNodes(roster, nickname)) {
+    const structure = playerStructure(roster, identity);
+    if (structure && !structures.some((candidate) =>
+      candidate.card === structure.card
+      && candidate.holder === structure.holder
+      && candidate.mountAfter === structure.mountAfter)) {
+      structures.push(structure);
+    }
+  }
+  return structures;
+}
+
+function rosterPlayerStructures(roster: HTMLElement): PlayerStructure[] {
+  const identities = new Set<HTMLElement>([
+    ...Array.from(roster.querySelectorAll<HTMLElement>(NICKNAME_SELECTOR)).filter(isRendered),
+    ...Array.from(roster.querySelectorAll<HTMLAnchorElement>(PLAYER_PROFILE_LINK_SELECTOR)).filter(isRendered),
+  ]);
+  const structures: PlayerStructure[] = [];
+  for (const identity of identities) {
+    const structure = playerStructure(roster, identity);
+    if (structure && !structures.some((candidate) =>
+      candidate.card === structure.card
+      && candidate.holder === structure.holder
+      && candidate.mountAfter === structure.mountAfter)) {
+      structures.push(structure);
+    }
+  }
+  return structures;
 }
 
 /**
@@ -663,18 +781,24 @@ export class InlineMatchRenderer {
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]>,
     settings: InlineMatchSettings,
   ): InlineMatchRenderResult {
-    const chartUpdated = settings.showMapWinRates
-      ? this.#mapWinRateChart.render(match, playerMapStats).updated
-      : this.#mapWinRateChart.cleanup();
     const discovery = this.#discover(match);
     if (discovery.status === "incompatible") {
+      if (settings.showMapWinRates) this.#mapWinRateChart.render(match, playerMapStats);
+      else this.#mapWinRateChart.cleanup();
       this.#cleanupRosterEnhancements();
       return discovery;
     }
+    const visibleMatch: MatchContext = {
+      ...match,
+      teams: discovery.teams.map(({ team }) => team),
+    };
+    const chartUpdated = settings.showMapWinRates
+      ? this.#mapWinRateChart.render(visibleMatch, playerMapStats).updated
+      : this.#mapWinRateChart.cleanup();
 
     const expectedPlayerIds = new Set(discovery.teams.flatMap((team) => team.players.map(({ player }) => player.id)));
     const expectedTeamIds = new Set(discovery.teams.map(({ team }) => team.id));
-    const headerMetrics = this.#discoverHeaderTeams(match).flatMap((anchor) => {
+    const headerMetrics = this.#discoverHeaderTeams(discovery.teams.map(({ team }) => team)).flatMap((anchor) => {
       const metric = teamHeaderMetric(anchor.team, anchor.side);
       return metric ? [{ anchor, metric }] : [];
     });
@@ -731,8 +855,8 @@ export class InlineMatchRenderer {
           mount.signature = signature;
           updated += 1;
         }
-        if (anchor.card.nextElementSibling !== mount.host) {
-          anchor.card.insertAdjacentElement("afterend", mount.host);
+        if (anchor.mountAfter.nextElementSibling !== mount.host) {
+          anchor.mountAfter.insertAdjacentElement("afterend", mount.host);
         }
         updated += this.#syncBattery(anchor, rows);
         updated += this.#syncTier(anchor, settings);
@@ -973,56 +1097,117 @@ export class InlineMatchRenderer {
   #discover(match: MatchContext):
     | Readonly<{ status: "ready"; teams: readonly TeamAnchor[] }>
     | Readonly<{ status: "incompatible"; reason: InlineMatchFailure }> {
+    const eligibleTeams = match.teams.filter((team) => team.players.length >= 5);
     if (
-      match.teams.length !== 2
-      || match.teams.some((team) => team.players.length !== 5)
+      eligibleTeams.length < 2
       || new Set(match.teams.map((team) => team.id)).size !== match.teams.length
       || new Set(match.teams.flatMap((team) => team.players.map((player) => player.id))).size
         !== match.teams.reduce((sum, team) => sum + team.players.length, 0)
     ) {
       return { status: "incompatible", reason: "invalid-match-roster" };
     }
-    const expectedNicknames = match.teams.flatMap((team) => team.players.map((player) => normalizedNickname(player.nickname)));
-    if (new Set(expectedNicknames).size !== expectedNicknames.length) {
-      return { status: "incompatible", reason: "invalid-match-roster" };
+
+    const namedRosters = Array.from(this.#document.querySelectorAll<HTMLElement>(NAMED_ROSTER_SELECTOR)).filter(isRendered);
+    const namedRosterSet = new Set(namedRosters);
+    const rawRosters = [...new Set([
+      ...namedRosters,
+      ...Array.from(this.#document.querySelectorAll<HTMLElement>(ROSTER_SELECTOR)).filter(isRendered),
+    ])];
+    const rosterStructures = new Map(rawRosters.map((roster) => [roster, rosterPlayerStructures(roster)] as const));
+    const rosters: HTMLElement[] = [];
+    for (const candidate of rawRosters) {
+      const candidateHolders = new Set((rosterStructures.get(candidate) ?? []).map(({ holder }) => holder));
+      const equivalentIndex = candidateHolders.size === 5
+        ? rosters.findIndex((existing) => {
+            const existingHolders = new Set((rosterStructures.get(existing) ?? []).map(({ holder }) => holder));
+            return existingHolders.size === candidateHolders.size
+              && [...candidateHolders].every((holder) => existingHolders.has(holder));
+          })
+        : -1;
+      if (equivalentIndex < 0) {
+        rosters.push(candidate);
+      } else if (namedRosterSet.has(candidate) && !namedRosterSet.has(rosters[equivalentIndex] as HTMLElement)) {
+        rosters[equivalentIndex] = candidate;
+      }
+    }
+    if (rosters.length < 2) return { status: "incompatible", reason: "roster-contract" };
+
+    type TeamRosterCandidate = Readonly<{
+      team: MatchTeam;
+      roster: HTMLElement;
+      players: readonly Readonly<{ player: Player; structure: PlayerStructure }>[];
+    }>;
+    const candidates: TeamRosterCandidate[] = [];
+    for (const team of eligibleTeams) {
+      for (const roster of rosters) {
+        const structuresForRoster = rosterStructures.get(roster) ?? [];
+        if (structuresForRoster.length !== 5) continue;
+        const players: Array<Readonly<{ player: Player; structure: PlayerStructure }>> = [];
+        let ambiguous = false;
+        for (const player of team.players) {
+          const structures = uniquePlayerStructures(roster, player.nickname);
+          if (structures.length > 1) {
+            ambiguous = true;
+            break;
+          }
+          if (structures[0]) players.push({ player, structure: structures[0] });
+        }
+        if (ambiguous || players.length !== 5) continue;
+        const holders = new Set(players.map(({ structure }) => structure.holder));
+        if (holders.size !== 5 || structuresForRoster.some(({ holder }) => !holders.has(holder))) continue;
+        const parent = players[0]?.structure.holder.parentElement;
+        if (!parent || !roster.contains(parent) || players.some(({ structure }) => structure.holder.parentElement !== parent)) {
+          continue;
+        }
+        candidates.push({
+          team: teamForVisiblePlayers(team, players.map(({ player }) => player)),
+          roster,
+          players,
+        });
+      }
     }
 
-    const rosters = Array.from(this.#document.querySelectorAll<HTMLElement>(ROSTER_SELECTOR)).filter(isRendered);
-    if (rosters.length !== 2) return { status: "incompatible", reason: "roster-contract" };
-    if (rosters.some((roster) => roster.querySelectorAll(NICKNAME_SELECTOR).length !== 5)) {
-      return { status: "incompatible", reason: "roster-contract" };
+    const solutions: Array<readonly [TeamRosterCandidate, TeamRosterCandidate]> = [];
+    for (let left = 0; left < candidates.length; left += 1) {
+      for (let right = left + 1; right < candidates.length; right += 1) {
+        const first = candidates[left] as TeamRosterCandidate;
+        const second = candidates[right] as TeamRosterCandidate;
+        if (first.team.id !== second.team.id && first.roster !== second.roster) solutions.push([first, second]);
+      }
     }
+    if (solutions.length !== 1) return { status: "incompatible", reason: "team-roster-ambiguous" };
 
     const usedRosters = new Set<HTMLElement>();
     const usedCards = new Set<HTMLElement>();
     const usedHolders = new Set<HTMLElement>();
     const teams: TeamAnchor[] = [];
 
-    for (const team of match.teams) {
-      const candidates = rosters.filter((roster) => team.players.every((player) => exactNicknameNodes(roster, player.nickname).length === 1));
-      if (candidates.length !== 1 || usedRosters.has(candidates[0] as HTMLElement)) {
-        return { status: "incompatible", reason: "team-roster-ambiguous" };
-      }
-      const roster = candidates[0] as HTMLElement;
+    for (const assignment of solutions[0] as readonly TeamRosterCandidate[]) {
+      const { team, roster } = assignment;
+      if (usedRosters.has(roster)) return { status: "incompatible", reason: "team-roster-ambiguous" };
       usedRosters.add(roster);
       const players: PlayerAnchor[] = [];
-      for (const player of team.players) {
-        const nicknameNodes = exactNicknameNodes(roster, player.nickname);
-        if (nicknameNodes.length !== 1) return { status: "incompatible", reason: "nickname-ambiguous" };
-        const nickname = nicknameNodes[0] as HTMLElement;
-        const card = nickname.closest<HTMLElement>(PLAYER_CARD_SELECTOR);
-        if (!card || !roster.contains(card) || usedCards.has(card)) {
+      for (const { player, structure } of assignment.players) {
+        const { card, holder, mountAfter } = structure;
+        if (!roster.contains(card) || usedCards.has(card)) {
           return { status: "incompatible", reason: "player-card-contract" };
         }
-        const holder = card.parentElement;
-        if (!holder || !holder.matches(PLAYER_HOLDER_SELECTOR) || usedHolders.has(holder)) {
+        if (!roster.contains(holder) || usedHolders.has(holder)) {
           return { status: "incompatible", reason: "player-holder-contract" };
         }
         usedCards.add(card);
         usedHolders.add(holder);
+        const nicknameNodes = exactNicknameNodes(roster, player.nickname)
+          .filter((node) => playerStructure(roster, node)?.holder === holder);
         const nicknameContainers = Array.from(card.querySelectorAll<HTMLElement>(NICKNAME_CONTAINER_SELECTOR))
-          .filter((container) => container.contains(nickname));
-        const nicknameContainer = nicknameContainers.length === 1 ? nicknameContainers[0] : undefined;
+          .filter(isRendered);
+        const matchingNicknameContainers = nicknameContainers
+          .filter((container) => nicknameNodes.some((nickname) => container.contains(nickname)));
+        const nicknameContainer = matchingNicknameContainers.length === 1
+          ? matchingNicknameContainers[0]
+          : nicknameContainers.length === 1
+            ? nicknameContainers[0]
+            : undefined;
         const nicknameSlot = nicknameContainer?.parentElement
           && nicknameContainer.parentElement.matches(NICKNAME_SLOT_SELECTOR)
           && card.contains(nicknameContainer.parentElement)
@@ -1051,28 +1236,21 @@ export class InlineMatchRenderer {
           player,
           card,
           holder,
+          mountAfter,
           ...(nicknameContainer ? { nicknameContainer } : {}),
           ...(nicknameSlot ? { nicknameSlot } : {}),
           ...(nativeLevel ? { nativeLevel } : {}),
           ...(avatarPair ? avatarPair : {}),
         });
       }
-      const parent = players[0]?.holder.parentElement;
-      if (!parent || !roster.contains(parent) || players.some(({ holder }) => holder.parentElement !== parent)) {
-        return { status: "incompatible", reason: "player-holder-contract" };
-      }
-      const playerHolders = new Set(players.map(({ holder }) => holder));
-      const firstHolder = Array.from(parent.children).find((child): child is HTMLElement =>
-        child instanceof HTMLElement && playerHolders.has(child));
-      if (!firstHolder) return { status: "incompatible", reason: "player-holder-contract" };
       teams.push({ team, roster, players });
     }
 
     return { status: "ready", teams };
   }
 
-  #discoverHeaderTeams(match: MatchContext): readonly TeamHeaderAnchor[] {
-    const namedTeams = match.teams.flatMap((team) => {
+  #discoverHeaderTeams(teams: readonly MatchTeam[]): readonly TeamHeaderAnchor[] {
+    const namedTeams = teams.flatMap((team) => {
       const name = team.name ? normalizedNickname(team.name) : "";
       return name ? [{ team, name }] : [];
     });

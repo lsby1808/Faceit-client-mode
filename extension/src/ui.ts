@@ -6,7 +6,7 @@ import {
   type StatsWindow
 } from "@eloscope/core";
 import type { CompatibilityStatus } from "./compatibility";
-import { InlineMatchRenderer } from "./inline-match";
+import { InlineMatchRenderer, type InlineMatchRenderResult } from "./inline-match";
 import { NativeTierSurfaceRenderer } from "./native-tier-surfaces";
 import type { ExtensionSettings } from "./settings";
 import { canonicalPositionMapId, positionForMap, STATS_WINDOWS } from "./settings";
@@ -142,8 +142,8 @@ export class EloScopeOverlay {
     match: MatchContext,
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
-  ): void {
-    this.#inlineMatch.render(match, playerMatches, playerMapStats, {
+  ): InlineMatchRenderResult {
+    return this.#inlineMatch.render(match, playerMatches, playerMapStats, {
       statsWindow: this.#settings.statsWindow,
       showExtendedTier: this.#settings.showExtendedTier,
       showPlayerRoles: this.#settings.showPlayerRoles,
