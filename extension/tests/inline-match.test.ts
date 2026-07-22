@@ -303,8 +303,10 @@ describe("InlineMatchRenderer", () => {
     expect(rightTeamHost?.parentElement).toBe(headerContainer);
     expect(leftTeamHost?.getAttribute("data-eloscope-team-side")).toBe("left");
     expect(rightTeamHost?.getAttribute("data-eloscope-team-side")).toBe("right");
-    expect(leftTeamHost?.shadowRoot?.textContent).toContain("AVG ELO 2223 · 5");
-    expect(rightTeamHost?.shadowRoot?.textContent).toContain("AVG ELO 1866 · 5");
+    expect(leftTeamHost?.shadowRoot?.textContent).toContain("AVG ELO 2223");
+    expect(rightTeamHost?.shadowRoot?.textContent).toContain("AVG ELO 1866");
+    expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("·");
+    expect(leftTeamHost?.shadowRoot?.querySelector("style")?.textContent).toContain("font-size: 14px");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("Alpha");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("coverage");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("2000–2511");
@@ -391,8 +393,9 @@ describe("InlineMatchRenderer", () => {
     const bravo = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-bravo"]`);
     expect(alpha?.getAttribute("data-eloscope-team-side")).toBe("right");
     expect(bravo?.getAttribute("data-eloscope-team-side")).toBe("left");
-    expect(alpha?.shadowRoot?.textContent).toContain("AVG ELO 2223 · 5");
-    expect(bravo?.shadowRoot?.textContent).toContain("AVG ELO 1866 · 5");
+    expect(alpha?.shadowRoot?.textContent).toContain("AVG ELO 2223");
+    expect(bravo?.shadowRoot?.textContent).toContain("AVG ELO 1866");
+    expect(alpha?.shadowRoot?.textContent).not.toContain("·");
   });
 
   it("shows the known-player count for partial ELO and never invents a zero average", () => {
@@ -415,7 +418,8 @@ describe("InlineMatchRenderer", () => {
     renderer.render(match, matchRows(match), playerMapRows(match), settings);
 
     const alphaMetric = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-alpha"]`);
-    expect(alphaMetric?.shadowRoot?.textContent).toContain("AVG ELO 2339 · 3");
+    expect(alphaMetric?.shadowRoot?.textContent).toContain("AVG ELO 2339");
+    expect(alphaMetric?.shadowRoot?.textContent).not.toContain("·");
     expect(alphaMetric?.shadowRoot?.textContent).not.toContain("AVG ELO 0");
   });
 

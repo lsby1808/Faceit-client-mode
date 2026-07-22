@@ -218,11 +218,11 @@ const TEAM_STYLES = `
     display: inline-flex;
     align-items: center;
     color: #f3f4f6;
-    font-size: 11px;
-    font-weight: 800;
+    font-size: 14px;
+    font-weight: 900;
     font-variant-numeric: tabular-nums;
     letter-spacing: .025em;
-    line-height: 16px;
+    line-height: 20px;
     text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
     white-space: nowrap;
   }
@@ -607,7 +607,7 @@ function teamHeaderMetric(
       ? Math.round(elos.reduce((sum, elo) => sum + elo, 0) / elos.length)
       : undefined;
   if (average === undefined || known === 0) return undefined;
-  const text = `AVG ELO ${average} · ${known}`;
+  const text = `AVG ELO ${average}`;
   return {
     average,
     known,
