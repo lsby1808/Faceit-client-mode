@@ -4,6 +4,7 @@ export * from "./cache.js";
 export * from "./elo.js";
 export * from "./fcr.js";
 export * from "./matches.js";
+export * from "./map-winrates.js";
 export * from "./roles.js";
 export * from "./settings.js";
 export * from "./types.js";

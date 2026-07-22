@@ -542,6 +542,7 @@ export class EloScopeOverlay {
       statsWindow: this.#settings.statsWindow,
       showExtendedTier: this.#settings.showExtendedTier,
       showPlayerRoles: this.#settings.showPlayerRoles,
+      showMapWinRates: this.#settings.showMapWinRates,
     });
   }
 

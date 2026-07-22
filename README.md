@@ -7,6 +7,11 @@ The project is not affiliated with, endorsed by, or sponsored by FACEIT. FACEIT
 and its logos are trademarks of their respective owners. EloScope does not ship
 FACEIT assets, interact with FACEIT Anti-Cheat, or read game/process memory.
 
+Match rooms can show inline player metrics, inferred roles, form batteries,
+extended Elo tiers and a compact team win-rate comparison for every map in the
+current pool. Missing or restricted statistics are displayed as unavailable,
+never as a fabricated zero.
+
 ## Workspace
 
 - `packages/core` — shared types, statistics, 20-match role inference, form battery, settings, and cache.

@@ -13,6 +13,9 @@ import {
   type PlayerRole,
   type StatsWindow,
 } from "@eloscope/core";
+import { MatchMapWinRateChartRenderer } from "./map-winrate-chart";
+
+export { INLINE_MAP_WINRATE_ATTRIBUTE } from "./map-winrate-chart";
 
 const ROSTER_SELECTOR = '[class*="Roster__Group-sc-"]';
 const NICKNAME_SELECTOR = '[class*="Nickname__Name-sc-"]';
@@ -243,6 +246,7 @@ export type InlineMatchSettings = Readonly<{
   statsWindow: StatsWindow;
   showExtendedTier: boolean;
   showPlayerRoles: boolean;
+  showMapWinRates: boolean;
 }>;
 
 export type InlineMatchFailure =
@@ -700,9 +704,11 @@ export class InlineMatchRenderer {
   readonly #batteryMounts = new Map<string, Mount>();
   readonly #tierMounts = new Map<string, TierMount>();
   readonly #roleMounts = new Map<string, RoleMount>();
+  readonly #mapWinRateChart: MatchMapWinRateChartRenderer;
 
   constructor(ownerDocument: Document = document) {
     this.#document = ownerDocument;
+    this.#mapWinRateChart = new MatchMapWinRateChartRenderer(ownerDocument);
   }
 
   render(
@@ -711,9 +717,12 @@ export class InlineMatchRenderer {
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]>,
     settings: InlineMatchSettings,
   ): InlineMatchRenderResult {
+    const chartUpdated = settings.showMapWinRates
+      ? this.#mapWinRateChart.render(match, playerMapStats).updated
+      : this.#mapWinRateChart.cleanup();
     const discovery = this.#discover(match);
     if (discovery.status === "incompatible") {
-      this.cleanup();
+      this.#cleanupRosterEnhancements();
       return discovery;
     }
 
@@ -731,7 +740,7 @@ export class InlineMatchRenderer {
     this.#removeStaleRoles(expectedPlayerIds);
     this.#removeOrphans(expectedPlayerIds, expectedHeaderTeamIds);
 
-    let updated = 0;
+    let updated = chartUpdated;
     for (const { anchor, metric } of headerMetrics) {
       let teamMount = this.#teamMounts.get(anchor.team.id);
       const sideChanged = teamMount?.host.getAttribute("data-eloscope-team-side") !== anchor.side;
@@ -794,6 +803,11 @@ export class InlineMatchRenderer {
   }
 
   cleanup(): void {
+    this.#cleanupRosterEnhancements();
+    this.#mapWinRateChart.cleanup();
+  }
+
+  #cleanupRosterEnhancements(): void {
     for (const mount of this.#playerMounts.values()) mount.host.remove();
     for (const mount of this.#teamMounts.values()) mount.host.remove();
     for (const mount of this.#batteryMounts.values()) mount.host.remove();

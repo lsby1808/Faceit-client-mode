@@ -59,4 +59,45 @@ describe("DOM contract fixtures", () => {
     expect(nativeWrapper?.contains(tables?.[0] ?? null)).toBe(true);
     expect(nativeWrapper?.querySelector("button")?.textContent).toContain("Show more");
   });
+
+  it("models the unique finished-room map chart anchor before native actions", () => {
+    loadFixture("finished-room");
+    const containers = document.querySelectorAll<HTMLElement>('[class*="Finished__Container-sc-"]');
+    const sections = document.querySelectorAll<HTMLElement>('[class*="Finished__Section-sc-"]');
+    const preferenceContainers = document.querySelectorAll<HTMLElement>('[class*="Preferences__Container-sc-"]');
+    const container = containers[0];
+    const section = sections[0];
+    const preferences = preferenceContainers[0];
+    const preferenceCards = preferences?.querySelectorAll<HTMLElement>('[data-testid="matchPreference"]');
+    const mapCards = Array.from(preferenceCards ?? []).filter((card) =>
+      card.previousElementSibling?.querySelector('[data-testid="mapsVetoHistory"]')
+    );
+    const serverCards = Array.from(preferenceCards ?? []).filter((card) =>
+      card.previousElementSibling?.querySelector('[data-testid="serverVetoHistory"]')
+    );
+    const directChildren = Array.from(container?.children ?? []);
+    const demo = directChildren.find((child): child is HTMLElement =>
+      child instanceof HTMLElement && child.dataset.testid === "watch-demo"
+    );
+    const matchmaking = directChildren.find((child): child is HTMLElement =>
+      child instanceof HTMLElement && child.dataset.testid === "back-to-matchmaking"
+    );
+
+    expect(containers).toHaveLength(1);
+    expect(sections).toHaveLength(1);
+    expect(preferenceContainers).toHaveLength(1);
+    expect(section?.parentElement).toBe(container);
+    expect(preferences?.parentElement).toBe(section);
+    expect(section?.firstElementChild).toBe(preferences);
+    expect(preferenceCards).toHaveLength(2);
+    expect(serverCards).toHaveLength(1);
+    expect(serverCards[0]?.textContent).toBe("Germany");
+    expect(mapCards).toHaveLength(1);
+    expect(mapCards[0]?.textContent).toBe("Dust2");
+    expect(mapCards[0]?.parentElement).toBe(preferences);
+    expect(mapCards[0]?.previousElementSibling?.parentElement).toBe(preferences);
+    expect(demo?.previousElementSibling).toBe(section);
+    expect(matchmaking?.previousElementSibling).toBe(demo);
+    expect(container?.querySelectorAll('[class*="Finished__Action-sc-"]')).toHaveLength(2);
+  });
 });

@@ -457,6 +457,15 @@ export class EloScopeSettingsPanel {
         if (this.#draft) this.#draft = { ...this.#draft, showPlayerRoles: checked };
       }
     ));
+    grid.append(this.#switchRow(
+      "Сравнение карт",
+      "Винрейт обеих команд по картам в комнате матча",
+      settings.showMapWinRates,
+      "show-map-win-rates",
+      (checked) => {
+        if (this.#draft) this.#draft = { ...this.#draft, showMapWinRates: checked };
+      }
+    ));
     const visibilityRows: Array<{
       key: keyof ExtensionSettings["interfaceVisibility"];
       title: string;

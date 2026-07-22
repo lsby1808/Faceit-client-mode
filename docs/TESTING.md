@@ -20,6 +20,9 @@ available.
 
 Contract tests must prove that selector drift or ambiguity results in **zero
 clicks**. Quick positions must send at most once per `matchId + map + message`.
+The map-comparison fixture also verifies the exact finished-room hierarchy,
+selected-map agreement, placement before native actions, responsive clones,
+late statistics, React remounts and cleanup.
 
 ## Manual beta smoke test
 

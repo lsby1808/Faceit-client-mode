@@ -15,7 +15,10 @@ EloScope has three deliberately separate layers:
    local settings and visible-DOM automation. It has no native capability.
 
 `packages/core` is environment-independent and contains no browser or Tauri
-code. Calculations are deterministic and fixture-tested.
+code. Calculations are deterministic and fixture-tested. Match-room map
+comparisons aggregate only valid player map samples, weight win rate by sample
+size, expose roster coverage, and keep missing data unavailable instead of
+turning it into `0%`.
 
 ```mermaid
 flowchart LR

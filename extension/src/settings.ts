@@ -11,6 +11,7 @@ export type ExtensionSettings = {
   statsWindow: StatsWindow;
   showExtendedTier: boolean;
   showPlayerRoles: boolean;
+  showMapWinRates: boolean;
   interfaceVisibility: {
     profile: boolean;
     history: boolean;
@@ -108,6 +109,7 @@ export function createDefaultSettings(): ExtensionSettings {
     statsWindow: 30,
     showExtendedTier: false,
     showPlayerRoles: true,
+    showMapWinRates: true,
     interfaceVisibility: {
       profile: true,
       history: true,
@@ -135,6 +137,9 @@ export function parseSettings(value: unknown): ExtensionSettings {
     showPlayerRoles: typeof value.showPlayerRoles === "boolean"
       ? value.showPlayerRoles
       : defaults.showPlayerRoles,
+    showMapWinRates: typeof value.showMapWinRates === "boolean"
+      ? value.showMapWinRates
+      : defaults.showMapWinRates,
     interfaceVisibility: {
       profile: typeof interfaceVisibility.profile === "boolean"
         ? interfaceVisibility.profile

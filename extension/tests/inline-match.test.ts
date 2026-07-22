@@ -15,6 +15,7 @@ const settings: InlineMatchSettings = {
   statsWindow: 30,
   showExtendedTier: true,
   showPlayerRoles: true,
+  showMapWinRates: true,
 };
 
 function nativePlayer(nickname: string): string {
