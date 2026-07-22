@@ -37,6 +37,8 @@ export const INLINE_BATTERY_ATTRIBUTE = "data-eloscope-inline-battery";
 export const INLINE_TIER_ATTRIBUTE = "data-eloscope-inline-tier";
 export const INLINE_ROLE_ATTRIBUTE = "data-eloscope-inline-role";
 
+const WIN_RATE_WINDOW: StatsWindow = 20;
+
 const PLAYER_STYLES = `
   :host {
     color-scheme: dark;
@@ -61,40 +63,20 @@ const PLAYER_STYLES = `
     font-size: 10px;
     font-variant-numeric: tabular-nums;
   }
-  .map, .overall {
+  .overall {
     display: flex;
     align-items: center;
-    gap: 9px;
+    justify-content: space-between;
+    gap: 4px;
     min-width: 0;
-    padding: 6px 8px;
+    padding: 7px 8px;
   }
-  .map { border-bottom: 1px solid rgba(255, 255, 255, .1); }
-  .map strong { overflow: hidden; color: #ff6b21; letter-spacing: .035em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
-  .map .metric { color: #f1f3f5; white-space: nowrap; }
-  .map .empty { color: #8a9099; }
-  .spacer { flex: 1 1 auto; min-width: 3px; }
-  .country {
-    color: #d8dde5;
-    font-size: 9px;
-    font-weight: 800;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-  }
-  .premade { color: #ff9d5a; font-size: 11px; line-height: 1; }
-  .elo { color: #aeb4bc; white-space: nowrap; }
-  .overall { justify-content: space-between; gap: 4px; padding-block: 7px; }
   .stat { min-width: 0; padding: 0 5px; text-align: center; border-left: 1px solid rgba(255, 255, 255, .1); }
   .stat:first-child { border-left: 0; }
   .stat b { display: block; overflow: hidden; color: #e8eaed; font-size: 11px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
   .stat small { display: block; margin-top: 2px; color: #858b94; font-size: 9px; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; }
-  .no-data { width: 100%; padding: 2px 0; color: #858b94; text-align: center; }
   @container (max-width: 500px) {
-    .map { gap: 6px; }
-    .map .optional { display: none; }
     .stat { padding-inline: 2px; }
-  }
-  @container (max-width: 340px) {
-    .country, .elo { display: none; }
   }
 `;
 
@@ -394,15 +376,7 @@ function batteryTitle(battery: FormBattery): string {
   ].join("\n");
 }
 
-function appendTextNode(parent: ParentNode, tag: keyof HTMLElementTagNameMap, className: string, text: string): HTMLElement {
-  const node = document.createElement(tag);
-  node.className = className;
-  node.textContent = text;
-  parent.append(node);
-  return node;
-}
-
-function appendMetric(parent: ParentNode, value: string, label: string): void {
+function appendMetric(parent: ParentNode, value: string, label: string): HTMLElement {
   const stat = document.createElement("span");
   stat.className = "stat";
   const strong = document.createElement("b");
@@ -411,6 +385,7 @@ function appendMetric(parent: ParentNode, value: string, label: string): void {
   small.textContent = label;
   stat.append(strong, small);
   parent.append(stat);
+  return stat;
 }
 
 function renderBattery(shadow: ShadowRoot, matches: readonly PlayerMatch[]): void {
@@ -554,7 +529,6 @@ function matchRowsSignature(rows: readonly PlayerMatch[]): readonly unknown[] {
 }
 
 function playerSignature(
-  match: MatchContext,
   player: Player,
   rows: readonly PlayerMatch[],
   totalMatches: number | undefined,
@@ -563,11 +537,6 @@ function playerSignature(
   return JSON.stringify({
     id: player.id,
     nickname: player.nickname,
-    country: player.country,
-    premadeId: (player as Player & { premadeId?: string }).premadeId,
-    elo: player.elo,
-    officialLevel: player.officialLevel,
-    selectedMap: match.selectedMap,
     statsWindow: settings.statsWindow,
     totalMatches,
     rows: matchRowsSignature(rows),
@@ -576,7 +545,6 @@ function playerSignature(
 
 function renderPlayer(
   shadow: ShadowRoot,
-  match: MatchContext,
   player: Player,
   rows: readonly PlayerMatch[],
   totalMatches: number | undefined,
@@ -588,47 +556,19 @@ function renderPlayer(
   card.className = "card";
   card.setAttribute("aria-label", `Расширенная статистика ${player.nickname}`);
 
-  const mapLine = document.createElement("div");
-  mapLine.className = "map";
-  mapLine.dataset.esStat = "selected-map";
   const validRows = eligibleMatches(rows);
   const aggregate = validRows.length ? aggregatePlayerMatches(validRows, settings.statsWindow) : undefined;
-  const selectedMap = canonicalMap(match.selectedMap);
-  const selectedStats = selectedMap
-    ? aggregate?.maps.find((entry) => canonicalMap(entry.map) === selectedMap)
-    : undefined;
-
-  if (match.selectedMap) {
-    appendTextNode(mapLine, "strong", "", match.selectedMap);
-    if (selectedStats) {
-      appendTextNode(mapLine, "span", "metric", `${selectedStats.matches}m`);
-      appendTextNode(mapLine, "span", "metric", `${percent(selectedStats.winRate)} WR`);
-      appendTextNode(mapLine, "span", "metric", `${format(selectedStats.kd, 2)} KD`);
-      appendTextNode(mapLine, "span", "metric optional", `${format(selectedStats.kr, 2)} KR`);
-      appendTextNode(mapLine, "span", "metric optional", `${format(selectedStats.adr, 0)} ADR`);
-    } else {
-      appendTextNode(mapLine, "span", "empty", "нет матчей в выбранном окне");
-    }
-  } else {
-    appendTextNode(mapLine, "span", "empty", "Карта ещё не выбрана");
-  }
-  appendTextNode(mapLine, "span", "spacer", "");
-
-  if (player.country) appendTextNode(mapLine, "span", "country", player.country);
-  const premadeId = (player as Player & { premadeId?: string }).premadeId;
-  if (premadeId) {
-    const premade = appendTextNode(mapLine, "span", "premade", "●");
-    premade.title = `Premade ${premadeId}`;
-  }
-
-  appendTextNode(mapLine, "span", "elo", player.elo === undefined ? "ELO —" : `ELO ${Math.round(player.elo)}`);
-  card.append(mapLine);
+  const winRateAggregate = validRows.length ? aggregatePlayerMatches(validRows, WIN_RATE_WINDOW) : undefined;
 
   const overall = document.createElement("div");
   overall.className = "overall";
   overall.dataset.esStat = "overall";
   appendMetric(overall, totalMatches === undefined ? "—" : String(totalMatches), "матчи");
-  appendMetric(overall, aggregate ? percent(aggregate.winRate) : "—", "победы");
+  const wins = appendMetric(overall, winRateAggregate ? percent(winRateAggregate.winRate) : "—", "победы");
+  wins.dataset.esMetric = "win-rate-20";
+  wins.title = winRateAggregate
+    ? `Процент побед за последние ${winRateAggregate.matches} завершённых матчей CS2 5v5`
+    : "Нет завершённых матчей CS2 5v5";
   appendMetric(overall, aggregate ? format(aggregate.kills / aggregate.matches, 1) : "—", "AVG KILLS");
   appendMetric(overall, aggregate ? format(aggregate.kd, 2) : "—", "K/D");
   appendMetric(overall, aggregate ? format(aggregate.kr, 2) : "—", "K/R");
@@ -768,7 +708,7 @@ export class InlineMatchRenderer {
       for (const anchor of teamAnchor.players) {
         const rows = eligibleMatches(playerMatches.get(anchor.player.id) ?? []);
         const totalMatches = lifetimeMatchCount(playerMapStats.get(anchor.player.id));
-        const signature = playerSignature(match, anchor.player, rows, totalMatches, settings);
+        const signature = playerSignature(anchor.player, rows, totalMatches, settings);
         let mount = this.#playerMounts.get(anchor.player.id);
         if (!mount || !mount.host.isConnected || mount.host.parentElement !== anchor.holder) {
           mount?.host.remove();
@@ -777,11 +717,11 @@ export class InlineMatchRenderer {
           const shadow = host.attachShadow({ mode: "open" });
           mount = { host, signature: "" };
           this.#playerMounts.set(anchor.player.id, mount);
-          renderPlayer(shadow, match, anchor.player, rows, totalMatches, settings);
+          renderPlayer(shadow, anchor.player, rows, totalMatches, settings);
           mount.signature = signature;
           updated += 1;
         } else if (mount.signature !== signature) {
-          renderPlayer(mount.host.shadowRoot as ShadowRoot, match, anchor.player, rows, totalMatches, settings);
+          renderPlayer(mount.host.shadowRoot as ShadowRoot, anchor.player, rows, totalMatches, settings);
           mount.signature = signature;
           updated += 1;
         }

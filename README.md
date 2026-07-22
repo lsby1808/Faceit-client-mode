@@ -10,7 +10,9 @@ FACEIT assets, interact with FACEIT Anti-Cheat, or read game/process memory.
 Match rooms can show inline player metrics, inferred roles, form batteries,
 extended Elo tiers and a compact team win-rate comparison for every map in the
 current pool. Missing or restricted statistics are displayed as unavailable,
-never as a fabricated zero.
+never as a fabricated zero. The player-card win rate always uses the latest 20
+completed CS2 5v5 matches; AVG KILLS, K/D, K/R and ADR use the selected
+statistics window.
 
 ## Workspace
 

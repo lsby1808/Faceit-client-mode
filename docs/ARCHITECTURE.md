@@ -20,6 +20,11 @@ comparisons aggregate only valid player map samples, weight win rate by sample
 size, expose roster coverage, and keep missing data unavailable instead of
 turning it into `0%`.
 
+The inline match-room player card deliberately uses separate windows: win rate
+is fixed to the latest 20 eligible matches, while performance metrics follow the
+user-selected statistics window. Its lifetime match count comes from deduplicated
+map aggregates rather than the recent-match window.
+
 ```mermaid
 flowchart LR
     Page["FACEIT page"] -->|visible DOM| Content["Isolated MV3 content script"]

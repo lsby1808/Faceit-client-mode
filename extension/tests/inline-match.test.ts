@@ -161,6 +161,41 @@ function matchRows(match: MatchContext): ReadonlyMap<string, PlayerMatch[]> {
   return new Map(match.teams.flatMap((team) => team.players.map((player) => [player.id, playerMatches(player.id)] as const)));
 }
 
+function fiftyMatchesWithFixedRecentWinRate(playerId: string): PlayerMatch[] {
+  const now = Date.now();
+  const eligible = Array.from({ length: 50 }, (_, index): PlayerMatch => ({
+    id: `${playerId}-fixed-window-${index}`,
+    playerId,
+    game: "cs2",
+    mode: "5v5",
+    status: "finished",
+    finishedAt: now - index * 24 * 60 * 60 * 1_000,
+    // The latest 20 are 15 W / 5 L (75%). Every older match is a loss,
+    // making a settings-driven 30- or 50-match aggregate observably wrong.
+    result: index < 15 ? "win" : "loss",
+    map: index % 2 === 0 ? "dust2" : "mirage",
+    roundsPlayed: 24,
+    kills: 18,
+    assists: 5,
+    deaths: 14,
+    damage: 1_920,
+    headshots: 8,
+    firstKills: 3,
+    survivedRounds: 9,
+  }));
+  const newerButIneligible: PlayerMatch = {
+    ...eligible[0]!,
+    id: `${playerId}-ongoing-newer`,
+    status: "ongoing",
+    finishedAt: now + 60_000,
+    result: "win",
+  };
+
+  // Deliberately unsorted: the renderer must use the latest eligible rows,
+  // rather than trusting transport order or counting the ongoing match.
+  return [...eligible.slice(20).reverse(), newerButIneligible, ...eligible.slice(0, 20).reverse()];
+}
+
 function playerMapRows(match: MatchContext): ReadonlyMap<string, PlayerMapStats[]> {
   return new Map(match.teams.flatMap((team) => team.players.map((player) => [player.id, [
     { map: "dust2", matches: 300, wins: 165, kills: 5_700, assists: 1_200, deaths: 4_900, roundsPlayed: 7_200, damage: 612_000 },
@@ -189,7 +224,7 @@ function roleHosts(): HTMLElement[] {
 }
 
 describe("InlineMatchRenderer", () => {
-  it("mounts selected-map, aggregate, battery, role and extended-tier stats without removing native badges", () => {
+  it("mounts aggregate, battery, role and extended-tier stats without a selected-map strip or removing native badges", () => {
     mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
     const match = matchContext();
     const renderer = new InlineMatchRenderer();
@@ -207,7 +242,8 @@ describe("InlineMatchRenderer", () => {
     const nativeCard = alphaHost?.previousElementSibling;
     expect(nativeCard?.matches('[class*="ListContentPlayer__Background-sc-"]')).toBe(true);
     expect(alphaHost?.parentElement?.matches('[class*="styles__Holder-sc-"]')).toBe(true);
-    expect(alphaHost?.shadowRoot?.querySelector('[data-es-stat="selected-map"]')?.textContent).toContain("dust2");
+    expect(alphaHost?.shadowRoot?.querySelector('[data-es-stat="selected-map"]')).toBeNull();
+    expect(alphaHost?.shadowRoot?.querySelector(".map")).toBeNull();
     const overall = alphaHost?.shadowRoot?.querySelector('[data-es-stat="overall"]');
     expect(overall?.textContent).toContain("416матчи");
     expect(overall?.textContent).toContain("19.5AVG KILLS");
@@ -256,6 +292,28 @@ describe("InlineMatchRenderer", () => {
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("2000–2511");
     expect(document.querySelectorAll(`[class*="Roster__Group-sc-"] [${INLINE_TEAM_ATTRIBUTE}]`)).toHaveLength(0);
   });
+
+  it.each([30, 50] as const)(
+    "calculates WINS from exactly the latest 20 eligible matches when statsWindow is %i",
+    (statsWindow) => {
+      mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+      const match = matchContext();
+      const rows = new Map(matchRows(match));
+      rows.set("alpha-one", fiftyMatchesWithFixedRecentWinRate("alpha-one"));
+      const renderer = new InlineMatchRenderer();
+
+      renderer.render(match, rows, playerMapRows(match), { ...settings, statsWindow });
+
+      const overall = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)
+        ?.shadowRoot?.querySelector<HTMLElement>('[data-es-stat="overall"]');
+      const metrics = Array.from(overall?.querySelectorAll<HTMLElement>(".stat") ?? []);
+      const wins = overall?.querySelector<HTMLElement>('[data-es-metric="win-rate-20"]');
+      expect(metrics[0]?.querySelector("b")?.textContent).toBe("416");
+      expect(wins).toBe(metrics[1]);
+      expect(wins?.querySelector("b")?.textContent).toBe("75.0%");
+      expect(wins?.title).toContain("последние 20 завершённых матчей");
+    },
+  );
 
   it("maps compact header metrics by exact team name even when native sides are reversed", () => {
     mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS, ["Bravo", "Alpha"]);
@@ -385,9 +443,9 @@ describe("InlineMatchRenderer", () => {
     expect(host.shadowRoot?.querySelector(".card")).toBe(originalCard);
 
     const updatedMatch = { ...match, selectedMap: "mirage" };
-    expect(renderer.render(updatedMatch, rows, maps, settings)).toMatchObject({ status: "rendered", updated: 10 });
-    expect(host.shadowRoot?.querySelector('[data-es-stat="selected-map"]')?.textContent).toContain("mirage");
-    expect(host.shadowRoot?.querySelector('[data-es-stat="selected-map"]')?.textContent).toContain("нет матчей");
+    expect(renderer.render(updatedMatch, rows, maps, settings)).toMatchObject({ status: "rendered", updated: 0 });
+    expect(host.shadowRoot?.querySelector(".card")).toBe(originalCard);
+    expect(host.shadowRoot?.querySelector('[data-es-stat="selected-map"]')).toBeNull();
   });
 
   it("repairs a detached player host after a native React card rerender", () => {
