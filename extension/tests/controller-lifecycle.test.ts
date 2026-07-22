@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   automationReset: vi.fn(),
   positionSend: vi.fn(),
   overlayShowMatch: vi.fn(),
+  overlayInlineSync: vi.fn(),
   domMutation: undefined as (() => void) | undefined,
   visibleMap: null as string | null,
   match: {
@@ -16,6 +17,7 @@ const state = vi.hoisted(() => ({
     game: "cs2",
     status: "voting",
     mapPool: ["mirage", "nuke"],
+    selectedMap: "mirage",
     teams: [
       { id: "team-a", players: [] },
       { id: "team-b", players: [] }
@@ -156,11 +158,13 @@ vi.mock("../src/ui", () => ({
     showProfile(): void {}
     showHistory(): void {}
     showMatch(): void { state.overlayShowMatch(); }
+    syncMatchInline(): void { state.overlayInlineSync(); }
     destroy(): void {}
   }
 }));
 
 import { allowsAutomaticPosition, EloScopeController } from "../src/controller";
+import { MAIN_SOURCE, PROTOCOL_VERSION } from "../src/protocol";
 import { createDefaultSettings, saveSettings } from "../src/settings";
 
 describe("controller lifecycle", () => {
@@ -173,6 +177,7 @@ describe("controller lifecycle", () => {
     state.automationReset.mockClear();
     state.positionSend.mockClear();
     state.overlayShowMatch.mockClear();
+    state.overlayInlineSync.mockClear();
     state.domMutation = undefined;
     state.visibleMap = null;
     state.match.status = "voting";
@@ -244,7 +249,49 @@ describe("controller lifecycle", () => {
     state.domMutation?.();
     expect(state.automationRun).toHaveBeenCalledTimes(2);
     expect(state.overlayShowMatch).not.toHaveBeenCalled();
+    expect(state.overlayInlineSync).not.toHaveBeenCalled();
     controller.destroy();
+  });
+
+  it("resyncs inline placement after every DOM mutation even when the selected map is unchanged", async () => {
+    state.mode = "match";
+    state.visibleMap = "mirage";
+    const controller = new EloScopeController();
+
+    await controller.start();
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+    state.overlayInlineSync.mockClear();
+
+    state.domMutation?.();
+
+    await vi.waitFor(() => expect(state.overlayInlineSync).toHaveBeenCalledOnce());
+    controller.destroy();
+  });
+
+  it("ignores duplicate same-path route messages instead of remounting inline hosts", async () => {
+    state.mode = "match";
+    const roomPath = `/ru/cs2/room/${state.match.id}`;
+    history.replaceState(null, "", roomPath);
+    const controller = new EloScopeController();
+
+    try {
+      await controller.start();
+      state.matchRequested.mockClear();
+      state.overlayShowMatch.mockClear();
+
+      window.dispatchEvent(new MessageEvent("message", {
+        source: window,
+        origin: location.origin,
+        data: { source: MAIN_SOURCE, version: PROTOCOL_VERSION, type: "route", pathname: roomPath },
+      }));
+      await Promise.resolve();
+
+      expect(state.matchRequested).not.toHaveBeenCalled();
+      expect(state.overlayShowMatch).not.toHaveBeenCalled();
+    } finally {
+      controller.destroy();
+      history.replaceState(null, "", "/");
+    }
   });
 
   it("never auto-sends a configured position in a finished room", async () => {

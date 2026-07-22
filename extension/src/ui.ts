@@ -17,6 +17,7 @@ import {
   type StatsWindow
 } from "@eloscope/core";
 import type { CompatibilityStatus } from "./compatibility";
+import { InlineMatchRenderer } from "./inline-match";
 import type { ExtensionSettings } from "./settings";
 import { canonicalPositionMapId, positionForMap, STATS_WINDOWS } from "./settings";
 import { isSelectedMapVisible, type PositionSendResult } from "./positions";
@@ -119,6 +120,7 @@ export class EloScopeOverlay {
   readonly #shell: HTMLElement;
   readonly #panel: HTMLElement;
   readonly #positions: HTMLElement;
+  readonly #inlineMatch = new InlineMatchRenderer();
   #settings: ExtensionSettings;
 
   constructor(settings: ExtensionSettings, private readonly callbacks: OverlayCallbacks) {
@@ -142,6 +144,7 @@ export class EloScopeOverlay {
   }
 
   destroy(): void {
+    this.#inlineMatch.destroy();
     this.host.remove();
   }
 
@@ -154,6 +157,7 @@ export class EloScopeOverlay {
   }
 
   hideRoutePanels(): void {
+    this.#inlineMatch.cleanup();
     this.#panel.hidden = true;
     this.#positions.hidden = true;
     this.#panel.replaceChildren();
@@ -161,12 +165,14 @@ export class EloScopeOverlay {
   }
 
   showLoading(title: string): void {
+    this.#inlineMatch.cleanup();
     this.#positions.hidden = true;
     this.#panel.hidden = false;
     this.#panel.replaceChildren(this.#header(title), element("div", { className: "es-state", text: "Загружаю разрешённые данные FACEIT…" }));
   }
 
   showState(title: string, state: "restricted" | "error" | "empty"): void {
+    this.#inlineMatch.cleanup();
     const messages = {
       restricted: "Данные недоступны для текущей сессии или профиля.",
       error: "Не удалось прочитать данные. Нативная страница FACEIT продолжает работать.",
@@ -178,6 +184,7 @@ export class EloScopeOverlay {
   }
 
   showProfile(player: Player, matches: PlayerMatch[], maps: PlayerMapStats[]): void {
+    this.#inlineMatch.cleanup();
     const validMatches = eligibleMatches(matches);
     this.#positions.hidden = true;
     this.#panel.hidden = false;
@@ -277,6 +284,7 @@ export class EloScopeOverlay {
   }
 
   showHistory(player: Player, matches: PlayerMatch[]): void {
+    this.#inlineMatch.cleanup();
     const validMatches = eligibleMatches(matches);
     this.#positions.hidden = true;
     this.#panel.hidden = false;
@@ -411,79 +419,17 @@ export class EloScopeOverlay {
   }
 
   showMatch(match: MatchContext, playerMatches: ReadonlyMap<string, PlayerMatch[]>): void {
-    this.#panel.hidden = false;
-    const content = element("div", { className: "es-content" });
-    const teams = element("div", { className: "es-teams" });
-    for (const team of match.teams) {
-      const teamNode = element("section", { className: "es-team" });
-      const head = element("div", { className: "es-team-head" });
-      const elos = team.players.map((player) => player.elo).filter((elo): elo is number => elo !== undefined);
-      const average = team.averageElo ?? (elos.length ? Math.round(elos.reduce((sum, elo) => sum + elo, 0) / elos.length) : undefined);
-      const range = team.minElo !== undefined && team.maxElo !== undefined ? `${team.minElo}–${team.maxElo}` : elos.length ? `${Math.min(...elos)}–${Math.max(...elos)}` : "—";
-      const known = team.eloKnown ?? elos.length;
-      const total = team.eloTotal ?? team.players.length;
-      append(
-        head,
-        element("strong", { text: team.name ?? team.id }),
-        element("span", {
-          className: "es-muted",
-          text: `AVG ${average ?? "—"} · ${range} · coverage ${known}/${total}${known < total ? " partial" : ""}`,
-        }),
-      );
-      teamNode.append(head);
-      for (const player of team.players) {
-        const rows = eligibleMatches(playerMatches.get(player.id) ?? []);
-        const displayedLevel = player.elo === undefined
-          ? player.officialLevel
-          : getEloTier(player.elo, this.#settings.showExtendedTier);
-        const playerNode = element("div", { className: "es-player" });
-        const meta = element("div", { className: "es-player-meta" });
-        const name = element("strong");
-        append(
-          name,
-          displayedLevel === undefined
-            ? null
-            : element("span", {
-                className: "es-level-mini",
-                text: String(displayedLevel),
-                title: this.#settings.showExtendedTier
-                  ? `Шкала EloScope 1–20 · официальный FACEIT level ${player.officialLevel ?? "—"}`
-                  : "Официальный FACEIT level"
-              }),
-          player.country ? `${player.country} ` : "",
-          player.nickname,
-        );
-        const premadeId = (player as Player & { premadeId?: string }).premadeId;
-        if (premadeId) name.append(element("span", { className: "es-premade", text: "●", title: `Premade ${premadeId}` }));
-        append(meta, name, batteryNode(rows));
-        const stats = element("div", { className: "es-player-stats" });
-        if (!rows.length) append(stats, element("div", { text: player.elo === undefined ? "ELO —" : `ELO ${player.elo}` }), element("small", { className: "es-muted", text: "stats —" }));
-        else {
-          const aggregate = aggregatePlayerMatches(rows, this.#settings.statsWindow);
-          const mapStats = match.selectedMap ? aggregate.maps.find((entry) => entry.map.toLowerCase() === match.selectedMap?.toLowerCase()) : undefined;
-          append(
-            stats,
-            element("div", { text: player.elo === undefined ? "ELO —" : `ELO ${player.elo}` }),
-            mapStats
-              ? element("small", {
-                  className: "es-selected-map-stat",
-                  text: `${match.selectedMap}: ${mapStats.matches}m · ${percent(mapStats.winRate)} WR · ${format(mapStats.kd, 2)} KD · ${format(mapStats.kr, 2)} KR · ${format(mapStats.adr, 0)} ADR`,
-                })
-              : null,
-            element("small", {
-              className: "es-muted",
-              text: `${aggregate.matches}m · ${percent(aggregate.winRate)} WR · ${format(aggregate.kills / aggregate.matches, 1)} avg K · ${format(aggregate.kd, 2)} KD · ${format(aggregate.kr, 2)} KR · ${format(aggregate.adr, 0)} ADR`,
-            })
-          );
-        }
-        append(playerNode, meta, stats);
-        teamNode.append(playerNode);
-      }
-      teams.append(teamNode);
-    }
-    content.append(teams);
-    this.#panel.replaceChildren(this.#header(`Match room · ${match.status}`), content);
+    this.#panel.hidden = true;
+    this.#panel.replaceChildren();
+    this.syncMatchInline(match, playerMatches);
     this.showPositions(match);
+  }
+
+  syncMatchInline(match: MatchContext, playerMatches: ReadonlyMap<string, PlayerMatch[]>): void {
+    this.#inlineMatch.render(match, playerMatches, {
+      statsWindow: this.#settings.statsWindow,
+      showExtendedTier: this.#settings.showExtendedTier,
+    });
   }
 
   showPositions(match: MatchContext): void {
@@ -531,6 +477,9 @@ export class EloScopeOverlay {
     mode.addEventListener("change", savePosition);
     const send = element("button", { className: "es-primary", text: mode.value === "prefill" ? "Подготовить" : "Отправить" });
     send.type = "button";
+    mode.addEventListener("change", () => {
+      send.textContent = mode.value === "prefill" ? "Подготовить" : "Отправить";
+    });
     const updateSendState = (): void => {
       send.disabled = !enabled.checked || !selected;
       send.title = !selected

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createDefaultSettings } from "../src/settings";
 import { EloScopeOverlay, type HistoryDetailData, type OverlayCallbacks } from "../src/ui";
+import { loadFixture } from "./fixture";
 
 const validMatch = {
   id: "match-1",
@@ -94,7 +95,8 @@ describe("Shadow DOM overlays", () => {
     overlay.destroy();
   });
 
-  it("renders the optional 11–20 tier for match-room players after it is enabled", () => {
+  it("renders match stats inside native player cards instead of the floating panel", () => {
+    loadFixture("active-room");
     const settings = { ...createDefaultSettings(), showExtendedTier: true };
     const overlay = new EloScopeOverlay(settings, callbacks());
     overlay.showMatch({
@@ -106,18 +108,46 @@ describe("Shadow DOM overlays", () => {
       teams: [
         {
           id: "team-a",
-          players: [{ id: "player-1", nickname: "One", game: "cs2", elo: 2_511, officialLevel: 10 }],
+          players: [
+            { id: "alpha-ace", nickname: "ace", game: "cs2", elo: 2_511, officialLevel: 10 },
+            { id: "alpha-two", nickname: "alpha-two", game: "cs2", elo: 2_401, officialLevel: 10 },
+            { id: "alpha-three", nickname: "alpha-three", game: "cs2", elo: 2_202, officialLevel: 10 },
+            { id: "alpha-four", nickname: "alpha-four", game: "cs2", elo: 2_301, officialLevel: 10 },
+            { id: "alpha-five", nickname: "alpha-five", game: "cs2", elo: 2_151, officialLevel: 10 },
+          ],
         },
         {
           id: "team-b",
-          players: [{ id: "player-2", nickname: "Two", game: "cs2", elo: 2_100, officialLevel: 10 }],
+          players: [
+            { id: "bravo-one", nickname: "bravo-one", game: "cs2", elo: 2_100, officialLevel: 10 },
+            { id: "bravo-two", nickname: "ace2", game: "cs2", elo: 2_050, officialLevel: 10 },
+            { id: "bravo-three", nickname: "bravo-three", game: "cs2", elo: 2_000, officialLevel: 10 },
+            { id: "bravo-four", nickname: "bravo-four", game: "cs2", elo: 1_950, officialLevel: 9 },
+            { id: "bravo-five", nickname: "bravo-five", game: "cs2", elo: 1_900, officialLevel: 9 },
+          ],
         },
       ],
-    }, new Map([["player-1", [validMatch]]]));
+    }, new Map([["alpha-ace", [{ ...validMatch, playerId: "alpha-ace", map: "dust2" }]]]));
 
-    const extended = overlay.shadow.querySelector<HTMLElement>('.es-level-mini[title^="Шкала EloScope"]');
+    const panel = overlay.shadow.querySelector<HTMLElement>(".es-panel");
+    const host = document.querySelector<HTMLElement>('[data-eloscope-inline-player="alpha-ace"]');
+    const extended = host?.shadowRoot?.querySelector<HTMLElement>("[data-es-tier]");
+    expect(panel?.hidden).toBe(true);
+    expect(overlay.shadow.querySelector(".es-teams")).toBeNull();
+    expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(10);
+    expect(host?.previousElementSibling?.matches('[class*="ListContentPlayer__Background"]')).toBe(true);
     expect(extended?.textContent).toBe("12");
     expect(extended?.title).toContain("официальный FACEIT level 10");
+    const positionMode = overlay.shadow.querySelector<HTMLSelectElement>(".es-position-card .es-select");
+    const positionButton = overlay.shadow.querySelector<HTMLButtonElement>(".es-position-card .es-primary");
+    if (positionMode) {
+      positionMode.value = "prefill";
+      positionMode.dispatchEvent(new Event("change"));
+    }
+    expect(positionButton?.textContent).toBe("Подготовить");
+    overlay.hideRoutePanels();
+    expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
     overlay.destroy();
+    expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
   });
 });

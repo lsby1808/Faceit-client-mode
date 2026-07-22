@@ -126,6 +126,7 @@ export class EloScopeController {
     if (message.source !== MAIN_SOURCE || message.version !== PROTOCOL_VERSION || message.type !== "route") return;
     if (typeof message.pathname !== "string" || !message.pathname.startsWith("/") || message.pathname.length > 2_048) return;
     if (message.pathname !== location.pathname) return;
+    if (routeIdentity(parseFaceitRoute(message.pathname)) === this.#routeIdentity) return;
     void this.navigate(location.pathname);
   };
 
@@ -220,8 +221,7 @@ export class EloScopeController {
   }
 
   async #loadMatch(matchId: string, revision: number, renderOverlay: boolean): Promise<void> {
-    if (renderOverlay) this.#overlay.showLoading("Match room");
-    else this.#overlay.hideRoutePanels();
+    this.#overlay.hideRoutePanels();
     const matchState = await this.#cached<MatchContext>(
       `match:${matchId}`,
       () => this.#adapter.getMatch(matchId),
@@ -229,9 +229,6 @@ export class EloScopeController {
     );
     if (!this.#isCurrent(revision)) return;
     if (matchState.status !== "ready" || !matchState.data) {
-      if (renderOverlay) {
-        this.#overlay.showState("Match room", matchState.status === "restricted" ? "restricted" : "error");
-      }
       return;
     }
 
@@ -314,6 +311,9 @@ export class EloScopeController {
     if (this.#destroyed) return;
     this.#runAutomations();
     if (this.#route.kind !== "match" || !this.#currentMatch) return;
+    if (this.#settings.interfaceVisibility.matchRoom) {
+      this.#overlay.syncMatchInline(this.#currentMatch, this.#currentPlayerMatches);
+    }
     const selected = visibleSelectedMap(document);
     if (!selected) return;
     if (this.#currentMatch.selectedMap?.toLowerCase() === selected.toLowerCase()) {

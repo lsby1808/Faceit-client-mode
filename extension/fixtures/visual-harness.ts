@@ -3,6 +3,7 @@ import { EloScopeOverlay } from "../src/ui";
 import type { MatchContext, PlayerMatch } from "@eloscope/core";
 
 const settings = createDefaultSettings();
+settings.showExtendedTier = true;
 settings.automations.positions = {
   mirage: { enabled: true, message: "I play A connector", mode: "confirm" },
   nuke: { enabled: false, message: "I can play ramp", mode: "prefill" },
@@ -24,15 +25,21 @@ const players = [
   { id: "player-1", nickname: "alpha", country: "PL", elo: 2451, officialLevel: 10, game: "cs2", premadeId: "party-a" },
   { id: "player-2", nickname: "bravo", country: "DE", elo: 2180, officialLevel: 10, game: "cs2", premadeId: "party-a" },
   { id: "player-3", nickname: "charlie", country: "UA", elo: 2024, officialLevel: 10, game: "cs2" },
-  { id: "player-4", nickname: "delta", country: "SE", elo: 2350, officialLevel: 10, game: "cs2" }
+  { id: "player-4", nickname: "delta", country: "SE", elo: 2350, officialLevel: 10, game: "cs2" },
+  { id: "player-5", nickname: "echo", country: "FI", elo: 2288, officialLevel: 10, game: "cs2" },
+  { id: "player-6", nickname: "foxtrot", country: "FR", elo: 2511, officialLevel: 10, game: "cs2", premadeId: "party-b" },
+  { id: "player-7", nickname: "golf", country: "GB", elo: 2402, officialLevel: 10, game: "cs2", premadeId: "party-b" },
+  { id: "player-8", nickname: "hotel", country: "NL", elo: 2210, officialLevel: 10, game: "cs2" },
+  { id: "player-9", nickname: "india", country: "NO", elo: 2090, officialLevel: 10, game: "cs2" },
+  { id: "player-10", nickname: "juliet", country: "DK", elo: 1984, officialLevel: 9, game: "cs2" }
 ];
 const match: MatchContext = {
   id: "11111111-2222-3333-4444-555555555555",
   game: "cs2",
   status: "voting",
   teams: [
-    { id: "faction1", name: "TEAM ALPHA", players: players.slice(0, 2), averageElo: 2316, minElo: 2180, maxElo: 2451, eloKnown: 2, eloTotal: 2 },
-    { id: "faction2", name: "TEAM DELTA", players: players.slice(2), averageElo: 2187, minElo: 2024, maxElo: 2350, eloKnown: 2, eloTotal: 2 }
+    { id: "faction1", name: "TEAM ALPHA", players: players.slice(0, 5), eloKnown: 5, eloTotal: 5 },
+    { id: "faction2", name: "TEAM FOXTROT", players: players.slice(5), eloKnown: 5, eloTotal: 5 }
   ],
   mapPool: ["mirage", "nuke", "ancient"],
   selectedMap: "mirage"

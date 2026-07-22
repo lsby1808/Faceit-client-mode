@@ -7,17 +7,50 @@
     <style>
       html, body { min-height: 100%; margin: 0; background: radial-gradient(circle at 70% 0, #242a32, #08090b 58%); color: #fff; font-family: Segoe UI, sans-serif; }
       header { height: 56px; display: flex; align-items: center; padding: 0 22px; background: #101216; border-bottom: 1px solid #ffffff13; }
-      main { max-width: 1100px; margin: 30px auto; padding: 22px; }
-      .native { height: 500px; border: 1px solid #ffffff12; border-radius: 12px; background: #111419; padding: 18px; color: #929aa5; }
+      main { max-width: 1260px; margin: 18px auto; padding: 14px; }
+      .room { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(300px, 400px) minmax(280px, 1fr); gap: 20px; align-items: start; }
+      [class*="Roster__Group-sc-"] { min-width: 0; }
+      [class*="Roster__Group-sc-"] > h2 { margin: 0 0 8px; color: #afb4bc; font-size: 13px; }
+      [class*="styles__Holder-sc-"] { position: relative; display: block; margin-bottom: 14px; }
+      [class*="ListContentPlayer__Background-sc-"] { height: 58px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border: 1px solid #ffffff1c; border-radius: 5px; background: #15171b; }
+      [class*="Nickname__Name-sc-"] { overflow: hidden; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+      .native-level { width: 28px; height: 28px; display: grid; place-items: center; border: 2px solid #ff2854; border-radius: 50%; color: #ff2854; font-weight: 800; }
+      .center { min-height: 430px; padding: 12px; border: 1px solid #ffffff12; border-radius: 8px; background: #111419; color: #929aa5; }
+      .preference { margin-top: 10px; padding: 14px; border-radius: 5px; background: #202226; color: #fff; font-weight: 700; }
+      .chat { position: absolute; left: -9999px; }
     </style>
   </head>
   <body>
     <header>FACEIT fixture · native page stays interactive</header>
     <main data-match-id="11111111-2222-3333-4444-555555555555">
-      <div class="native">Native match-room placeholder</div>
-      <div data-testid="selected-map" data-map-id="mirage" data-eloscope-visible="true">Mirage selected</div>
-      <textarea data-testid="chat-input" data-eloscope-visible="true" aria-label="Chat"></textarea>
-      <button data-testid="chat-send" data-eloscope-visible="true">Send</button>
+      <div class="room">
+        <section class="Roster__Group-sc-fixture-left">
+          <h2>Игроки</h2>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">alpha</span><span class="native-level">10</span></div></div>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">bravo</span><span class="native-level">10</span></div></div>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">charlie</span><span class="native-level">10</span></div></div>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">delta</span><span class="native-level">10</span></div></div>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">echo</span><span class="native-level">10</span></div></div>
+        </section>
+        <section class="center">
+          <strong>Сервер</strong>
+          <div class="preference">🇩🇪 Germany</div>
+          <strong>Карта</strong>
+          <div class="preference" data-testid="selected-map" data-map-id="mirage" data-eloscope-visible="true">Mirage selected</div>
+        </section>
+        <section class="Roster__Group-sc-fixture-right">
+          <h2>Игроки</h2>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">foxtrot</span><span class="native-level">10</span></div></div>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">golf</span><span class="native-level">10</span></div></div>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">hotel</span><span class="native-level">10</span></div></div>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">india</span><span class="native-level">10</span></div></div>
+          <div class="styles__Holder-sc-fixture-1"><div class="ListContentPlayer__Background-sc-fixture-0"><span class="Nickname__Name-sc-fixture-1">juliet</span><span class="native-level">9</span></div></div>
+        </section>
+      </div>
+      <div class="chat">
+        <textarea data-testid="chat-input" data-eloscope-visible="true" aria-label="Chat"></textarea>
+        <button data-testid="chat-send" data-eloscope-visible="true">Send</button>
+      </div>
     </main>
     <script src="../build/visual-harness.js"></script>
   </body>
