@@ -4,6 +4,8 @@ import {
   classifyPlayerRole,
   eligibleMatches,
   getEloTier,
+  getEloTierPresentation,
+  type EloScopeTier,
   type FormBattery,
   type MatchContext,
   type MatchTeam,
@@ -133,11 +135,11 @@ const TIER_STYLES = `
     width: 100%;
     height: 100%;
     place-items: center;
-    border: 2px solid #35c9ef;
+    border: 2px solid var(--es-tier-color);
     border-radius: 50%;
-    background: #0b1115;
-    color: #5ddcff;
-    box-shadow: inset 0 0 0 2px rgba(53, 201, 239, .1), 0 0 8px rgba(53, 201, 239, .18);
+    background: var(--es-tier-background);
+    color: var(--es-tier-color);
+    box-shadow: inset 0 0 0 2px var(--es-tier-glow), 0 0 8px var(--es-tier-glow);
     font-size: 11px;
     font-weight: 900;
     font-variant-numeric: tabular-nums;
@@ -410,12 +412,16 @@ function renderBattery(shadow: ShadowRoot, matches: readonly PlayerMatch[]): voi
   shadow.replaceChildren(style, node);
 }
 
-function renderTier(shadow: ShadowRoot, player: Player, level: number): void {
+function renderTier(shadow: ShadowRoot, player: Player, level: EloScopeTier): void {
+  const presentation = getEloTierPresentation(level);
   const style = document.createElement("style");
   style.textContent = TIER_STYLES;
   const tier = document.createElement("span");
   tier.className = "tier";
-  tier.dataset.esTier = "";
+  tier.dataset.esTier = String(level);
+  tier.style.setProperty("--es-tier-color", presentation.foreground);
+  tier.style.setProperty("--es-tier-background", presentation.background);
+  tier.style.setProperty("--es-tier-glow", presentation.glow);
   tier.textContent = String(level);
   tier.title = `Шкала EloScope 1–20 · официальный FACEIT level ${player.officialLevel ?? "—"}`;
   tier.tabIndex = 0;

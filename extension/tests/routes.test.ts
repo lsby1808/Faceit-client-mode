@@ -5,6 +5,8 @@ import { routeIdentity } from "../src/controller";
 describe("FACEIT route contracts", () => {
   it.each([
     ["/ru/players/donk666", { kind: "profile", nickname: "donk666" }],
+    ["/ru/matchmaking", { kind: "matchmaking" }],
+    ["/en-US/matchmaking/", { kind: "matchmaking" }],
     ["/ru/players/FixturePlayer/cs2", { kind: "profile", nickname: "FixturePlayer" }],
     ["/ru/players/FixturePlayer/cs2/stats", { kind: "profile", nickname: "FixturePlayer" }],
     ["/en-US/players/test.name/cs2/history", { kind: "history", nickname: "test.name" }],

@@ -441,7 +441,7 @@ export class EloScopeSettingsPanel {
 
     grid.append(this.#switchRow(
       "Расширенная шкала 1–20",
-      "В комнате уровень 11–20 занимает место штатной иконки; официальный level остаётся в подсказке",
+      "На matchmaking, в профиле и комнате уровень 11–20 занимает место штатной иконки; официальный level остаётся в подсказке",
       settings.showExtendedTier,
       "show-extended-tier",
       (checked) => {

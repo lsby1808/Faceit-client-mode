@@ -1,4 +1,9 @@
-import type { MatchContext, PlayerMapStats, PlayerMatch } from "@eloscope/core";
+import {
+  getEloTierPresentation,
+  type MatchContext,
+  type PlayerMapStats,
+  type PlayerMatch,
+} from "@eloscope/core";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -99,6 +104,18 @@ function mountNativeRoom(
 
 const LEFT_PLAYERS = ["AlphaOne", "AlphaTwo", "AlphaThree", "AlphaFour", "AlphaFive"] as const;
 const RIGHT_PLAYERS = ["BravoOne", "BravoTwo", "BravoThree", "BravoFour", "BravoFive"] as const;
+const EXTENDED_TIER_FLOORS = [
+  { tier: 11, elo: 2_251 },
+  { tier: 12, elo: 2_501 },
+  { tier: 13, elo: 2_751 },
+  { tier: 14, elo: 3_001 },
+  { tier: 15, elo: 3_251 },
+  { tier: 16, elo: 3_501 },
+  { tier: 17, elo: 3_751 },
+  { tier: 18, elo: 4_001 },
+  { tier: 19, elo: 4_251 },
+  { tier: 20, elo: 4_501 },
+] as const;
 
 function matchContext(overrides: Partial<MatchContext> = {}): MatchContext {
   return {
@@ -291,6 +308,53 @@ describe("InlineMatchRenderer", () => {
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("coverage");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("2000–2511");
     expect(document.querySelectorAll(`[class*="Roster__Group-sc-"] [${INLINE_TEAM_ATTRIBUTE}]`)).toHaveLength(0);
+  });
+
+  it.each(EXTENDED_TIER_FLOORS)(
+    "replaces official level 10 exactly once at EloScope tier $tier floor $elo",
+    ({ tier, elo }) => {
+      mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+      const base = matchContext();
+      const match: MatchContext = {
+        ...base,
+        teams: base.teams.map((team) => ({
+          ...team,
+          players: team.players.map((player) => {
+            if (player.id === "alpha-one") return { ...player, elo, officialLevel: 10 };
+            if (player.id === "alpha-two") return { ...player, elo: 2_250, officialLevel: 10 };
+            return player;
+          }),
+        })),
+      };
+      const renderer = new InlineMatchRenderer();
+
+      renderer.render(match, matchRows(match), playerMapRows(match), settings);
+
+      const nativeLevel = document.querySelector<SVGSVGElement>(
+        '[class*="Roster__Group-sc-left"] [class*="SkillIcon__StyledSvg-sc-"]',
+      );
+      const replacements = document.querySelectorAll<HTMLElement>(
+        `[${INLINE_TIER_ATTRIBUTE}="alpha-one"]`,
+      );
+      const replacement = replacements[0];
+      const tierNode = replacement?.shadowRoot?.querySelector<HTMLElement>("[data-es-tier]");
+
+      expect(nativeLevel?.querySelector("title")?.textContent).toBe("Skill level 10");
+      expect(replacements).toHaveLength(1);
+      expect(tierHosts()).toHaveLength(1);
+      expect(nativeLevel?.previousElementSibling).toBe(replacement);
+      expect(tierNode?.dataset.esTier).toBe(String(tier));
+      expect(tierNode?.textContent).toBe(String(tier));
+      expect(tierNode?.style.getPropertyValue("--es-tier-color")).toBe(
+        getEloTierPresentation(tier).foreground,
+      );
+    },
+  );
+
+  it("uses a distinct palette foreground for every EloScope tier from 11 through 20", () => {
+    const colors = EXTENDED_TIER_FLOORS.map(({ tier }) => getEloTierPresentation(tier).foreground);
+
+    expect(new Set(colors).size).toBe(EXTENDED_TIER_FLOORS.length);
   });
 
   it.each([30, 50] as const)(

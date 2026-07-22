@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  mode: "error" as "error" | "pending-profile" | "match",
+  mode: "error" as "error" | "pending-profile" | "match" | "matchmaking",
   resolvePlayer: undefined as ((value: unknown) => void) | undefined,
+  viewerRequested: vi.fn(),
   playerRequested: vi.fn(),
   matchRequested: vi.fn(),
   recentMatchesRequested: vi.fn(),
@@ -15,6 +16,8 @@ const state = vi.hoisted(() => ({
   overlayShowMatch: vi.fn(),
   overlayInlineSync: vi.fn(),
   overlayProfileInlineSync: vi.fn(),
+  overlayShowMatchmakingTier: vi.fn(),
+  overlaySyncMatchmakingTier: vi.fn(),
   domMutation: undefined as (() => void) | undefined,
   visibleMap: null as string | null,
   match: {
@@ -52,7 +55,22 @@ vi.mock("../src/bridge-client", () => ({
       state.resolvePlayer = undefined;
     }
 
+    getViewer(): Promise<unknown> {
+      state.viewerRequested();
+      return Promise.resolve(state.mode === "matchmaking"
+        ? { status: "ready", data: { id: "viewer-1", nickname: "Viewer" }, fetchedAt: Date.now() }
+        : { status: "error", error: { code: "test", message: "test", retryable: false } });
+    }
+
     getPlayer(): Promise<unknown> {
+      if (state.mode === "matchmaking") {
+        state.playerRequested();
+        return Promise.resolve({
+          status: "ready",
+          data: { id: "viewer-1", nickname: "Viewer", game: "cs2", elo: 2_486, officialLevel: 10 },
+          fetchedAt: Date.now(),
+        });
+      }
       if (state.mode !== "pending-profile") {
         return Promise.resolve({
           status: "error",
@@ -170,6 +188,10 @@ vi.mock("../src/ui", () => ({
     showState(): void {}
     showProfile(): void {}
     showHistory(): void {}
+    showMatchmakingTier(...args: unknown[]): void { state.overlayShowMatchmakingTier(...args); }
+    syncMatchmakingTier(...args: unknown[]): void { state.overlaySyncMatchmakingTier(...args); }
+    showProfileTier(): void {}
+    syncProfileTier(): void {}
     showMatch(...args: unknown[]): void { state.overlayShowMatch(...args); }
     syncMatchInline(...args: unknown[]): void { state.overlayInlineSync(...args); }
     syncProfileInline(...args: unknown[]): void { state.overlayProfileInlineSync(...args); }
@@ -185,6 +207,7 @@ describe("controller lifecycle", () => {
   beforeEach(() => {
     state.mode = "error";
     state.resolvePlayer = undefined;
+    state.viewerRequested.mockClear();
     state.playerRequested.mockClear();
     state.matchRequested.mockClear();
     state.recentMatchesRequested.mockClear();
@@ -197,6 +220,8 @@ describe("controller lifecycle", () => {
     state.overlayShowMatch.mockClear();
     state.overlayInlineSync.mockClear();
     state.overlayProfileInlineSync.mockClear();
+    state.overlayShowMatchmakingTier.mockClear();
+    state.overlaySyncMatchmakingTier.mockClear();
     state.domMutation = undefined;
     state.visibleMap = null;
     state.match.status = "voting";
@@ -245,6 +270,55 @@ describe("controller lifecycle", () => {
     await controller.navigate("/ru/players/FixturePlayer/cs2/stats");
     expect(onMapPoolChange).toHaveBeenLastCalledWith([]);
     controller.destroy();
+  });
+
+  it("loads the signed-in viewer tier on matchmaking and resyncs it after React mutations", async () => {
+    const settings = createDefaultSettings();
+    settings.showExtendedTier = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "matchmaking";
+
+    await controller.navigate("/ru/matchmaking");
+
+    expect(state.viewerRequested).toHaveBeenCalledOnce();
+    expect(state.playerRequested).toHaveBeenCalledOnce();
+    expect(state.overlayShowMatchmakingTier).toHaveBeenCalledWith(expect.objectContaining({
+      nickname: "Viewer",
+      elo: 2_486,
+    }));
+
+    state.overlaySyncMatchmakingTier.mockClear();
+    state.domMutation?.();
+    await vi.waitFor(() => expect(state.overlaySyncMatchmakingTier).toHaveBeenCalledOnce());
+    controller.destroy();
+  });
+
+  it("does not remount a stale matchmaking tier after an expired reload fails", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-22T12:00:00Z"));
+      const settings = createDefaultSettings();
+      settings.showExtendedTier = true;
+      await saveSettings(settings);
+      const controller = new EloScopeController();
+      await controller.start();
+      state.mode = "matchmaking";
+      await controller.navigate("/ru/matchmaking");
+      expect(state.overlayShowMatchmakingTier).toHaveBeenCalledOnce();
+
+      vi.setSystemTime(new Date("2026-07-22T12:06:00Z"));
+      state.mode = "error";
+      state.overlaySyncMatchmakingTier.mockClear();
+      await controller.navigate("/ru/matchmaking");
+      state.domMutation?.();
+
+      expect(state.overlaySyncMatchmakingTier).not.toHaveBeenCalled();
+      controller.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("loads lifetime map aggregates for every room player and passes them to the inline renderer", async () => {

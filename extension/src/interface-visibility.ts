@@ -13,6 +13,7 @@ export function isOverlayVisibleForPath(
       return settings.interfaceVisibility.history;
     case "match":
       return settings.interfaceVisibility.matchRoom;
+    case "matchmaking":
     case "logged-out":
     case "other":
       return true;

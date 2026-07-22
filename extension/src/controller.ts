@@ -8,7 +8,8 @@ import {
   type Player,
   type PlayerMapStats,
   type PlayerMatch,
-  type StatsWindow
+  type StatsWindow,
+  type Viewer
 } from "@eloscope/core";
 import { VisibleDomAutomationRunner } from "./automations";
 import { FaceitBridgeAdapter } from "./bridge-client";
@@ -58,6 +59,7 @@ export class EloScopeController {
   #currentMatch: MatchContext | undefined;
   #currentPlayerMatches = new Map<string, PlayerMatch[]>();
   #currentPlayerMapStats = new Map<string, PlayerMapStats[]>();
+  #currentTierPlayer: Player | undefined;
   #routeRevision = 0;
   #stopObserver: (() => void) | undefined;
   #destroyed = false;
@@ -138,6 +140,7 @@ export class EloScopeController {
     const nextIdentity = routeIdentity(nextRoute);
     this.#route = nextRoute;
     if (nextIdentity !== this.#routeIdentity) {
+      this.#currentTierPlayer = undefined;
       this.#routeIdentity = nextIdentity;
       this.#automations.resetForRoute();
       if (nextRoute.kind === "match") {
@@ -157,15 +160,24 @@ export class EloScopeController {
     switch (this.#route.kind) {
       case "logged-out":
       case "other":
+        this.#currentTierPlayer = undefined;
         this.#overlay.hideRoutePanels();
         break;
+      case "matchmaking":
+        if (!this.#settings.showExtendedTier) {
+          this.#currentTierPlayer = undefined;
+          this.#overlay.hideRoutePanels();
+        } else {
+          await this.#loadMatchmakingTier(revision);
+        }
+        break;
       case "profile":
-        if (!this.#capabilities.profile || !this.#settings.interfaceVisibility.profile) this.#overlay.hideRoutePanels();
-        else await this.#loadProfile(this.#route.nickname, false, revision);
+        if (!this.#capabilities.profile) this.#overlay.hideRoutePanels();
+        else await this.#loadProfile(this.#route.nickname, false, revision, this.#settings.interfaceVisibility.profile);
         break;
       case "history":
-        if (!this.#capabilities.history || !this.#settings.interfaceVisibility.history) this.#overlay.hideRoutePanels();
-        else await this.#loadProfile(this.#route.nickname, true, revision);
+        if (!this.#capabilities.history) this.#overlay.hideRoutePanels();
+        else await this.#loadProfile(this.#route.nickname, true, revision, this.#settings.interfaceVisibility.history);
         break;
       case "match":
         if (!this.#capabilities.matchRoom) this.#overlay.hideRoutePanels();
@@ -179,9 +191,35 @@ export class EloScopeController {
     if (this.#isCurrent(revision)) this.#runAutomations();
   }
 
-  async #loadProfile(nickname: string, history: boolean, revision: number): Promise<void> {
+  async #loadMatchmakingTier(revision: number): Promise<void> {
+    this.#currentTierPlayer = undefined;
+    this.#overlay.hideRoutePanels();
+    const viewerState = await this.#cached<Viewer>(
+      "viewer",
+      () => this.#adapter.getViewer(),
+      CACHE_TTLS.playerStats,
+    );
+    if (!this.#isCurrent(revision) || viewerState.status !== "ready" || !viewerState.data) return;
+    const playerState = await this.#cached<Player>(
+      `player:${viewerState.data.nickname.toLowerCase()}`,
+      () => this.#adapter.getPlayer(viewerState.data.nickname),
+      CACHE_TTLS.playerStats,
+    );
+    if (!this.#isCurrent(revision) || playerState.status !== "ready" || !playerState.data) return;
+    this.#currentTierPlayer = playerState.data;
+    this.#overlay.showMatchmakingTier(playerState.data);
+  }
+
+  async #loadProfile(
+    nickname: string,
+    history: boolean,
+    revision: number,
+    renderOverlay = true,
+  ): Promise<void> {
+    this.#currentTierPlayer = undefined;
     const mode = history ? "history" : "profile";
-    this.#overlay.showLoading(history ? "Расширенная история" : "Профиль", mode);
+    if (renderOverlay) this.#overlay.showLoading(history ? "Расширенная история" : "Профиль", mode);
+    else this.#overlay.hideRoutePanels();
     const playerState = await this.#cached<Player>(
       `player:${nickname.toLowerCase()}`,
       () => this.#adapter.getPlayer(nickname),
@@ -189,11 +227,16 @@ export class EloScopeController {
     );
     if (!this.#isCurrent(revision)) return;
     if (playerState.status !== "ready" || !playerState.data) {
-      this.#overlay.showState(history ? "Расширенная история" : "Профиль", playerState.status === "restricted" ? "restricted" : "error", mode);
+      if (renderOverlay) {
+        this.#overlay.showState(history ? "Расширенная история" : "Профиль", playerState.status === "restricted" ? "restricted" : "error", mode);
+      }
       return;
     }
+    this.#currentTierPlayer = playerState.data;
+    this.#overlay.showProfileTier(playerState.data, !history && /\/cs2\/stats\/?$/u.test(location.pathname));
     await this.#snapshots.recordPlayer(playerState.data);
     if (!this.#isCurrent(revision)) return;
+    if (!renderOverlay) return;
 
     const limit = requestedWindow(this.#settings.statsWindow);
     const [matchesState, mapsState] = await Promise.all([
@@ -375,15 +418,23 @@ export class EloScopeController {
     if (this.#destroyed) return;
     this.#runAutomations();
     if (this.#route.kind === "profile") {
+      if (this.#currentTierPlayer) {
+        this.#overlay.syncProfileTier(this.#currentTierPlayer, /\/cs2\/stats\/?$/u.test(location.pathname));
+      }
       if (this.#capabilities.profile && this.#settings.interfaceVisibility.profile) {
         this.#overlay.syncProfileInline("profile");
       }
       return;
     }
     if (this.#route.kind === "history") {
+      if (this.#currentTierPlayer) this.#overlay.syncProfileTier(this.#currentTierPlayer, false);
       if (this.#capabilities.history && this.#settings.interfaceVisibility.history) {
         this.#overlay.syncProfileInline("history");
       }
+      return;
+    }
+    if (this.#route.kind === "matchmaking") {
+      if (this.#currentTierPlayer) this.#overlay.syncMatchmakingTier(this.#currentTierPlayer);
       return;
     }
     if (this.#route.kind !== "match" || !this.#currentMatch) return;

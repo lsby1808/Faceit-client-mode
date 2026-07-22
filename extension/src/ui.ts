@@ -4,9 +4,12 @@ import {
   calculateTeamFcr,
   eligibleMatches,
   getEloTier,
+  getEloTierPresentation,
+  getEloTierProgress,
   getOfficialEloProgress,
   toEpochMs,
   type DataState,
+  type EloScopeTier,
   type FormBattery,
   type MatchContext,
   type MatchPlayerStats,
@@ -18,6 +21,7 @@ import {
 } from "@eloscope/core";
 import type { CompatibilityStatus } from "./compatibility";
 import { InlineMatchRenderer } from "./inline-match";
+import { NativeTierSurfaceRenderer } from "./native-tier-surfaces";
 import type { ExtensionSettings } from "./settings";
 import { canonicalPositionMapId, positionForMap, STATS_WINDOWS } from "./settings";
 import { isSelectedMapVisible, type PositionSendResult } from "./positions";
@@ -141,7 +145,11 @@ export class EloScopeOverlay {
   readonly #panel: HTMLElement;
   readonly #positions: HTMLElement;
   readonly #inlineMatch = new InlineMatchRenderer();
+  readonly #nativeTiers = new NativeTierSurfaceRenderer();
   #settings: ExtensionSettings;
+  #nativeTierPlayer: Player | undefined;
+  #nativeTierSurface: "profile" | "matchmaking" | undefined;
+  #profileTierIncludesRail = false;
   #profileInlineMode: ProfileInlineMode | undefined;
   #profilePanelRequested = false;
   #profileRenderGeneration = 0;
@@ -169,11 +177,13 @@ export class EloScopeOverlay {
   destroy(): void {
     this.#profileRenderGeneration += 1;
     this.#inlineMatch.destroy();
+    this.#nativeTiers.destroy();
     this.host.remove();
   }
 
   updateSettings(settings: ExtensionSettings): void {
     this.#settings = settings;
+    if (!settings.showExtendedTier) this.#nativeTiers.cleanup();
   }
 
   setCompatibility(status: CompatibilityStatus): void {
@@ -182,6 +192,10 @@ export class EloScopeOverlay {
 
   hideRoutePanels(): void {
     this.#inlineMatch.cleanup();
+    this.#nativeTiers.cleanup();
+    this.#nativeTierPlayer = undefined;
+    this.#nativeTierSurface = undefined;
+    this.#profileTierIncludesRail = false;
     this.#resetProfileInline();
     this.#panel.hidden = true;
     this.#positions.hidden = true;
@@ -189,7 +203,44 @@ export class EloScopeOverlay {
     this.#positions.replaceChildren();
   }
 
+  showMatchmakingTier(player: Player): void {
+    this.#inlineMatch.cleanup();
+    this.#nativeTiers.cleanup();
+    this.#resetProfileInline();
+    this.#panel.hidden = true;
+    this.#positions.hidden = true;
+    this.#panel.replaceChildren();
+    this.#positions.replaceChildren();
+    this.#nativeTierPlayer = player;
+    this.#nativeTierSurface = "matchmaking";
+    this.#profileTierIncludesRail = false;
+    this.#nativeTiers.syncMatchmaking(player, this.#settings.showExtendedTier);
+  }
+
+  syncMatchmakingTier(player: Player): void {
+    this.#nativeTierPlayer = player;
+    this.#nativeTierSurface = "matchmaking";
+    this.#profileTierIncludesRail = false;
+    this.#nativeTiers.syncMatchmaking(player, this.#settings.showExtendedTier);
+  }
+
+  showProfileTier(player: Player, includeProgressRail: boolean): void {
+    if (this.#nativeTierSurface !== "profile") this.#nativeTiers.cleanup();
+    this.syncProfileTier(player, includeProgressRail);
+  }
+
+  syncProfileTier(player: Player, includeProgressRail: boolean): void {
+    this.#nativeTierPlayer = player;
+    this.#nativeTierSurface = "profile";
+    this.#profileTierIncludesRail = includeProgressRail;
+    this.#nativeTiers.syncProfile(player, this.#settings.showExtendedTier, includeProgressRail);
+  }
+
   showLoading(title: string, mode: ProfileInlineMode = title === "Расширенная история" ? "history" : "profile"): void {
+    this.#nativeTiers.cleanup();
+    this.#nativeTierPlayer = undefined;
+    this.#nativeTierSurface = undefined;
+    this.#profileTierIncludesRail = false;
     this.#renderProfileInline(
       mode,
       this.#header(title),
@@ -202,6 +253,10 @@ export class EloScopeOverlay {
     state: "restricted" | "error" | "empty",
     mode: ProfileInlineMode = title === "Расширенная история" ? "history" : "profile",
   ): void {
+    this.#nativeTiers.cleanup();
+    this.#nativeTierPlayer = undefined;
+    this.#nativeTierSurface = undefined;
+    this.#profileTierIncludesRail = false;
     const messages = {
       restricted: "Данные недоступны для текущей сессии или профиля.",
       error: "Не удалось прочитать данные. Нативная страница FACEIT продолжает работать.",
@@ -212,14 +267,27 @@ export class EloScopeOverlay {
 
   showProfile(player: Player, matches: PlayerMatch[], maps: PlayerMapStats[]): void {
     this.#inlineMatch.cleanup();
+    this.showProfileTier(player, /\/cs2\/stats\/?$/u.test(location.pathname));
     const validMatches = eligibleMatches(matches);
     this.#positions.hidden = true;
     const content = element("div", { className: "es-content" });
     const identity = element("div", { className: "es-profile-line" });
     const level = player.elo === undefined ? player.officialLevel : getEloTier(player.elo, this.#settings.showExtendedTier);
+    const identityLevel = element("div", {
+      className: "es-level",
+      text: level === undefined ? "—" : String(level),
+      title: this.#settings.showExtendedTier ? "Шкала EloScope 1–20" : "Официальный уровень FACEIT",
+    });
+    if (typeof level === "number" && level >= 1 && level <= 20) {
+      const presentation = getEloTierPresentation(level as EloScopeTier);
+      identityLevel.dataset.esTier = String(level);
+      identityLevel.style.setProperty("--es-tier-color", presentation.foreground);
+      identityLevel.style.setProperty("--es-tier-background", presentation.background);
+      identityLevel.style.setProperty("--es-tier-glow", presentation.glow);
+    }
     append(
       identity,
-      element("div", { className: "es-level", text: level === undefined ? "—" : String(level), title: this.#settings.showExtendedTier ? "Шкала EloScope 1–20" : "Официальный уровень FACEIT" }),
+      identityLevel,
       element("div", { className: "es-player-name", text: player.nickname }),
       player.country ? element("span", { className: "es-badge", text: player.country }) : null,
       element("span", { className: "es-spacer" }),
@@ -228,23 +296,33 @@ export class EloScopeOverlay {
     );
     content.append(identity);
     if (player.elo !== undefined) {
-      const progress = getOfficialEloProgress(player.elo);
+      const progress = this.#settings.showExtendedTier
+        ? getEloTierProgress(player.elo)
+        : getOfficialEloProgress(player.elo);
+      const progressLevel = "tier" in progress ? progress.tier : progress.level;
       const progressNode = element("div", { className: "es-progress" });
       const progressLabel = element("div", { className: "es-row" });
       append(
         progressLabel,
-        element("span", { text: `Официальный level ${progress.level}` }),
+        element("span", {
+          text: this.#settings.showExtendedTier
+            ? `EloScope level ${progressLevel}`
+            : `Официальный level ${progressLevel}`,
+        }),
         element("span", { className: "es-spacer" }),
         element("span", {
           className: "es-muted",
           text: progress.pointsNeeded === null
-            ? "Максимальный официальный уровень"
-            : `${progress.pointsNeeded} ELO до level ${progress.level + 1}`,
+            ? (this.#settings.showExtendedTier ? "Максимальный уровень EloScope" : "Максимальный официальный уровень")
+            : `${progress.pointsNeeded} ELO до level ${progressLevel + 1}`,
         }),
       );
       const track = element("div", { className: "es-progress-track" });
       const fill = element("i", { className: "es-progress-fill" });
       fill.style.width = `${progress.percent}%`;
+      if (this.#settings.showExtendedTier) {
+        fill.style.background = getEloTierPresentation(progressLevel as EloScopeTier).foreground;
+      }
       track.append(fill);
       append(progressNode, progressLabel, track);
       content.append(progressNode);
@@ -311,6 +389,7 @@ export class EloScopeOverlay {
 
   showHistory(player: Player, matches: PlayerMatch[]): void {
     this.#inlineMatch.cleanup();
+    this.showProfileTier(player, false);
     const validMatches = eligibleMatches(matches);
     this.#positions.hidden = true;
     const content = element("div", { className: "es-content" });
@@ -323,6 +402,13 @@ export class EloScopeOverlay {
   }
 
   syncProfileInline(mode: ProfileInlineMode): boolean {
+    if (this.#nativeTierSurface === "profile" && this.#nativeTierPlayer) {
+      this.#nativeTiers.syncProfile(
+        this.#nativeTierPlayer,
+        this.#settings.showExtendedTier,
+        this.#profileTierIncludesRail,
+      );
+    }
     if (!this.#profilePanelRequested || this.#profileInlineMode !== mode) return false;
     const target = this.#profileInlineTarget(mode);
     if (!target) {
@@ -526,6 +612,10 @@ export class EloScopeOverlay {
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
   ): void {
+    this.#nativeTiers.cleanup();
+    this.#nativeTierPlayer = undefined;
+    this.#nativeTierSurface = undefined;
+    this.#profileTierIncludesRail = false;
     this.#resetProfileInline();
     this.#panel.hidden = true;
     this.#panel.replaceChildren();

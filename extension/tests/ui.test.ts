@@ -122,6 +122,34 @@ describe("Shadow DOM overlays", () => {
     overlay.destroy();
   });
 
+  it("uses the same colored extended tier and progress in the native profile slot", () => {
+    loadFixture("profile");
+    const settings = { ...createDefaultSettings(), showExtendedTier: true };
+    const overlay = new EloScopeOverlay(settings, callbacks());
+    const native = document.querySelector<SVGSVGElement>('svg[class*="SkillIcon__StyledSvg-sc-"]') as SVGSVGElement;
+
+    overlay.showProfile(
+      { id: "player-1", nickname: "Player", game: "cs2", elo: 2_401, officialLevel: 10 },
+      [validMatch],
+      [],
+    );
+
+    const host = document.querySelector<HTMLElement>('[data-eloscope-native-tier="profile:main:player-1"]');
+    const nativeTier = host?.shadowRoot?.querySelector<HTMLElement>('[data-tier="11"]');
+    const panelTier = overlay.shadow.querySelector<HTMLElement>('.es-level[data-es-tier="11"]');
+    expect(nativeTier?.textContent).toBe("11");
+    expect(nativeTier?.style.getPropertyValue("--tier-fg")).toBe("#4DD8FF");
+    expect(panelTier?.style.getPropertyValue("--es-tier-color")).toBe("#4DD8FF");
+    expect(overlay.shadow.textContent).toContain("EloScope level 11");
+    expect(overlay.shadow.textContent).toContain("100 ELO до level 12");
+    expect(native.style.getPropertyValue("display")).toBe("none");
+
+    overlay.hideRoutePanels();
+    expect(document.querySelector('[data-eloscope-native-tier]')).toBeNull();
+    expect(native.style.getPropertyValue("display")).toBe("");
+    overlay.destroy();
+  });
+
   it("mounts extended history before the native table without replacing FACEIT content", () => {
     loadFixture("history");
     const nativeMain = document.querySelector<HTMLElement>('[data-testid="player-history"]');
