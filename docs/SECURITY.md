@@ -17,6 +17,9 @@ bridge to remote content and does not provide arbitrary URL fetching.
   FACEIT HTTPS host patterns checked by `scripts/verify-release.mjs`.
 - `steam://connect` is rejected by default and is only handed to Windows after a
   trusted visible action or explicit opt-in.
+- FACEIT Anti-Cheat can be launched only from the main FACEIT WebView, only for
+  the exact payload-free `faceitac://launch` URI, and only after a native user
+  confirmation. The original page-supplied URI is never forwarded to Windows.
 - Auto actions are disabled by default and fail closed when DOM contracts drift.
 - Update packages require a valid Tauri updater signature. This is separate from
   Windows Authenticode signing.

@@ -7,16 +7,17 @@ use policy::{is_safe_download_url, NavigationDecision, RequestContext, SessionPo
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::menu::MenuBuilder;
 use tauri::webview::{DownloadEvent, NewWindowFeatures, NewWindowResponse, WebviewWindowBuilder};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, Wry};
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 const FACEIT_HOME: &str = "https://www.faceit.com/";
 const EXTENSION_BOOTSTRAP_URL: &str = "about:blank";
-const ABOUT_TEXT: &str = "EloScope is an independent enhancement client. It is not affiliated with, sponsored by, or endorsed by FACEIT Ltd. FACEIT and Counter-Strike are trademarks of their respective owners. EloScope does not interact with FACEIT Anti-Cheat, CS2 memory, or game processes. No telemetry or remote crash reporting is enabled.";
+const ABOUT_TEXT: &str = "EloScope is an independent enhancement client. It is not affiliated with, sponsored by, or endorsed by FACEIT Ltd. FACEIT and Counter-Strike are trademarks of their respective owners. EloScope can hand Windows the exact official FACEIT Anti-Cheat launch URI after confirmation, but never inspects, injects into, monitors, or modifies Anti-Cheat, CS2 memory, or game processes. No telemetry or remote crash reporting is enabled.";
 static POPUP_COUNTER: AtomicU64 = AtomicU64::new(1);
+static FACEIT_ANTI_CHEAT_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -49,6 +50,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let init_script = trusted_click_script(session_policy.click_nonce());
 
     let navigation_policy = session_policy.clone();
+    let navigation_app = app.handle().clone();
     let popup_policy = session_policy.clone();
     let popup_app = app.handle().clone();
     let popup_init_script = init_script.clone();
@@ -70,6 +72,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .zoom_hotkeys_enabled(true)
         .on_navigation(move |url| {
             handle_navigation(
+                &navigation_app,
                 navigation_policy.classify(url, RequestContext::MainFrame),
                 url.as_str(),
             )
@@ -222,7 +225,11 @@ fn show_extension_load_error(app: &AppHandle<Wry>, detail: String) {
         .show(|_| {});
 }
 
-fn handle_navigation(decision: NavigationDecision, original_url: &str) -> bool {
+fn handle_navigation(
+    app: &AppHandle<Wry>,
+    decision: NavigationDecision,
+    original_url: &str,
+) -> bool {
     match decision {
         NavigationDecision::AllowInWebView => true,
         NavigationDecision::OpenExternal => {
@@ -233,8 +240,41 @@ fn handle_navigation(decision: NavigationDecision, original_url: &str) -> bool {
             let _ = open::that_detached(sanitized_url);
             false
         }
+        NavigationDecision::OpenFaceitAntiCheat { sanitized_url } => {
+            confirm_faceit_anti_cheat_launch(app, sanitized_url);
+            false
+        }
         NavigationDecision::Deny => false,
     }
+}
+
+fn confirm_faceit_anti_cheat_launch(app: &AppHandle<Wry>, sanitized_url: String) {
+    if FACEIT_ANTI_CHEAT_PROMPT_OPEN
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        return;
+    }
+
+    let callback_app = app.clone();
+    app.dialog()
+        .message("Launch the installed FACEIT Anti-Cheat application?")
+        .title("Launch FACEIT Anti-Cheat")
+        .buttons(MessageDialogButtons::YesNo)
+        .kind(MessageDialogKind::Info)
+        .show(move |confirmed| {
+            FACEIT_ANTI_CHEAT_PROMPT_OPEN.store(false, Ordering::Release);
+            if confirmed && open::that_detached(&sanitized_url).is_err() {
+                callback_app
+                    .dialog()
+                    .message(
+                        "Windows could not open FACEIT Anti-Cheat. Install or repair FACEIT AC and try again.",
+                    )
+                    .title("FACEIT Anti-Cheat failed to launch")
+                    .kind(MessageDialogKind::Error)
+                    .show(|_| {});
+            }
+        });
 }
 
 fn handle_popup_request(
@@ -251,6 +291,7 @@ fn handle_popup_request(
                 POPUP_COUNTER.fetch_add(1, Ordering::Relaxed)
             );
             let navigation_policy = policy.clone();
+            let navigation_app = app.clone();
             let nested_policy = policy.clone();
             let nested_app = app.clone();
             let nested_init_script = init_script.to_owned();
@@ -266,6 +307,7 @@ fn handle_popup_request(
                 .devtools(cfg!(debug_assertions))
                 .on_navigation(move |popup_url| {
                     handle_navigation(
+                        &navigation_app,
                         navigation_policy.classify(popup_url, RequestContext::Popup),
                         popup_url.as_str(),
                     )
@@ -294,7 +336,7 @@ fn handle_popup_request(
             }
         }
         decision => {
-            let _ = handle_navigation(decision, url.as_str());
+            let _ = handle_navigation(app, decision, url.as_str());
             NewWindowResponse::Deny
         }
     }

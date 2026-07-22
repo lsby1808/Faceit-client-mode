@@ -5,7 +5,9 @@ the system WebView2 runtime and adds opt-in, locally rendered CS2 statistics.
 
 The project is not affiliated with, endorsed by, or sponsored by FACEIT. FACEIT
 and its logos are trademarks of their respective owners. EloScope does not ship
-FACEIT assets, interact with FACEIT Anti-Cheat, or read game/process memory.
+FACEIT assets or read game/process memory. After an explicit native confirmation,
+the shell may hand Windows only FACEIT's exact `faceitac://launch` URI; it never
+inspects, injects into, monitors or modifies FACEIT Anti-Cheat.
 
 Match rooms can show inline player metrics, inferred roles, form batteries,
 extended Elo tiers and a compact team win-rate comparison for every map in the

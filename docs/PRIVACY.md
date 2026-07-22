@@ -13,8 +13,9 @@ and quick-position deduplication keys are stored only in the local application
 profile. FACEIT login cookies remain managed by the system WebView2 profile.
 
 EloScope does not store session tokens, passwords, cookie values or Authorization
-headers. It does not access FACEIT Anti-Cheat, CS2 memory, other processes, game
-files, microphones or contacts.
+headers. After local confirmation it can ask Windows to launch the installed
+FACEIT Anti-Cheat protocol handler, but it never reads or controls that process.
+It does not access CS2 memory, game files, microphones or contacts.
 
 ## Network requests
 

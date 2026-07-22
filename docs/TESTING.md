@@ -28,7 +28,8 @@ late statistics, React remounts and cleanup.
 
 Use a dedicated test account and keep every automation disabled initially.
 Verify login persistence, profile/history overlays, an active and finished room,
-chat, veto, popup authentication, downloads, external links and `steam://` opt-in.
+chat, veto, popup authentication, downloads, external links, the confirmed
+`faceitac://launch` handoff and `steam://` opt-in.
 Then enable one automation at a time and capture no session data in recordings.
 
 ## Performance budget

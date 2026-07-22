@@ -2,6 +2,7 @@ use std::sync::Arc;
 use url::Url;
 
 const FACEIT_ROOT: &str = "faceit.com";
+const FACEIT_ANTI_CHEAT_LAUNCH_URI: &str = "faceitac://launch";
 const TRUSTED_AUTH_HOSTS: &[&str] = &[
     "accounts.google.com",
     "appleid.apple.com",
@@ -24,6 +25,7 @@ pub enum NavigationDecision {
     AllowInWebView,
     OpenExternal,
     OpenSteam { sanitized_url: String },
+    OpenFaceitAntiCheat { sanitized_url: String },
     Deny,
 }
 
@@ -63,6 +65,7 @@ impl SessionPolicy {
                 NavigationDecision::AllowInWebView
             }
             "steam" => self.classify_steam(url),
+            "faceitac" if context == RequestContext::MainFrame => classify_faceit_anti_cheat(url),
             _ => NavigationDecision::Deny,
         }
     }
@@ -89,6 +92,30 @@ impl SessionPolicy {
         NavigationDecision::OpenSteam {
             sanitized_url: sanitized.into(),
         }
+    }
+}
+
+fn classify_faceit_anti_cheat(url: &Url) -> NavigationDecision {
+    // FACEIT's current web client launches the installed AC with this exact,
+    // payload-free URI. Never forward the original value to Windows: the
+    // registered protocol handler receives the full string as an argument.
+    let exact_launch = url.scheme() == "faceitac"
+        && url
+            .host_str()
+            .is_some_and(|host| host.eq_ignore_ascii_case("launch"))
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && url.path().is_empty()
+        && url.query().is_none()
+        && url.fragment().is_none();
+
+    if exact_launch {
+        NavigationDecision::OpenFaceitAntiCheat {
+            sanitized_url: FACEIT_ANTI_CHEAT_LAUNCH_URI.to_owned(),
+        }
+    } else {
+        NavigationDecision::Deny
     }
 }
 
@@ -291,6 +318,43 @@ mod tests {
             "steam://connect/127.0.0.1:70000",
             "steam://connect/127.0.0.1:27015/password/extra",
             "steam://connect/127.0.0.1:27015?launch=calc",
+        ] {
+            assert_eq!(
+                policy.classify(&url(denied), RequestContext::MainFrame),
+                NavigationDecision::Deny,
+                "{denied} should be denied"
+            );
+        }
+    }
+
+    #[test]
+    fn faceit_anti_cheat_launch_is_exact_and_main_frame_only() {
+        let launch = url("faceitac://launch");
+        assert_eq!(
+            policy().classify(&launch, RequestContext::MainFrame),
+            NavigationDecision::OpenFaceitAntiCheat {
+                sanitized_url: "faceitac://launch".to_owned()
+            }
+        );
+        assert_eq!(
+            policy().classify(&launch, RequestContext::Popup),
+            NavigationDecision::Deny
+        );
+    }
+
+    #[test]
+    fn rejects_faceit_anti_cheat_commands_and_payloads() {
+        let policy = policy();
+        for denied in [
+            "faceitac:launch",
+            "faceitac://other",
+            "faceitac://launch/",
+            "faceitac://launch/extra",
+            "faceitac://user@launch",
+            "faceitac://user:password@launch",
+            "faceitac://launch:28338",
+            "faceitac://launch?command=other",
+            "faceitac://launch#fragment",
         ] {
             assert_eq!(
                 policy.classify(&url(denied), RequestContext::MainFrame),
