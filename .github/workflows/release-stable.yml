@@ -18,7 +18,7 @@ jobs:
       ELOSCOPE_COMPAT_URL: ${{ secrets.ELOSCOPE_COMPAT_URL }}
       ELOSCOPE_COMPAT_PUBLIC_KEY: ${{ secrets.ELOSCOPE_COMPAT_PUBLIC_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Enforce stable release gates
         shell: pwsh
         run: |
