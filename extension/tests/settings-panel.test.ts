@@ -46,6 +46,9 @@ describe("EloScope settings panel", () => {
     expect(panel.shadow.textContent).toContain("Сравнение карт");
     expect(panel.shadow.textContent).toContain("Винрейт обеих команд по картам");
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-map-win-rates")?.checked).toBe(true);
+    expect(panel.shadow.querySelector("#eloscope-visibility-profile")).toBeNull();
+    expect(panel.shadow.querySelector("#eloscope-visibility-history")).toBeNull();
+    expect(panel.shadow.querySelector("#eloscope-visibility-matchRoom")).not.toBeNull();
     expect(panel.shadow.textContent).toContain("Overlay match room");
   });
 
@@ -102,8 +105,6 @@ describe("EloScope settings panel", () => {
     change(shadow.querySelector("#eloscope-show-extended-tier") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-show-player-roles") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-map-win-rates") as HTMLInputElement, false);
-    change(shadow.querySelector("#eloscope-visibility-profile") as HTMLInputElement, false);
-    change(shadow.querySelector("#eloscope-visibility-history") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-visibility-matchRoom") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-automation-partyAccept") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-automation-readyUp") as HTMLInputElement, true);
@@ -234,9 +235,9 @@ describe("EloScope settings panel", () => {
   });
 
   it("keeps the dialog open and reports a storage failure", async () => {
-    const storageSpy = vi.spyOn(chrome.storage.local, "set").mockRejectedValueOnce(new Error("disk"));
     const panel = createPanel();
     await panel.open();
+    const storageSpy = vi.spyOn(chrome.storage.local, "set").mockRejectedValueOnce(new Error("disk"));
     panel.shadow.querySelector("form")?.dispatchEvent(new SubmitEvent("submit", {
       bubbles: true,
       cancelable: true,

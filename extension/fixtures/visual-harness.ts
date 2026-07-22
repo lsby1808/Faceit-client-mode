@@ -15,10 +15,6 @@ const overlay = new EloScopeOverlay(settings, {
   onSettingsChange: () => undefined,
   onStatsWindow: () => undefined,
   onPositionSend: async () => "prepared",
-  onHistoryDetail: async () => ({
-    status: "error",
-    error: { code: "fixture", message: "No detail in visual fixture", retryable: false }
-  })
 });
 overlay.setCompatibility("applied");
 

@@ -8,9 +8,8 @@ export function isOverlayVisibleForPath(
   const route = parseFaceitRoute(pathname);
   switch (route.kind) {
     case "profile":
-      return settings.interfaceVisibility.profile;
     case "history":
-      return settings.interfaceVisibility.history;
+      return false;
     case "match":
       return settings.interfaceVisibility.matchRoom;
     case "matchmaking":

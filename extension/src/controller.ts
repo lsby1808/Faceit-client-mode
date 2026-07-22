@@ -3,7 +3,6 @@ import {
   RequestCache,
   type DataState,
   type MatchContext,
-  type MatchStats,
   type MapId,
   type Player,
   type PlayerMapStats,
@@ -20,7 +19,7 @@ import { MAIN_SOURCE, PROTOCOL_VERSION, type MainMessage } from "./protocol";
 import { parseFaceitRoute, type FaceitRoute } from "./routes";
 import { loadSettings, positionForMap, saveSettings, type ExtensionSettings } from "./settings";
 import { EloSnapshotStore } from "./snapshots";
-import { EloScopeOverlay, type HistoryDetailData } from "./ui";
+import { EloScopeOverlay } from "./ui";
 
 type CachedState = DataState<unknown>;
 
@@ -95,8 +94,7 @@ export class EloScopeController {
           !isSelectedMapVisible(document, map)
         ) return "chat-unavailable";
         return this.#positionSender.send(document, this.#route.matchId, map, message, mode, this.#lifecycle.signal);
-      },
-      onHistoryDetail: (matchId) => this.#loadHistoryDetail(matchId)
+      }
     });
 
     const compatibility = await loadCompatibility({ signal: this.#lifecycle.signal });
@@ -172,12 +170,20 @@ export class EloScopeController {
         }
         break;
       case "profile":
-        if (!this.#capabilities.profile) this.#overlay.hideRoutePanels();
-        else await this.#loadProfile(this.#route.nickname, false, revision, this.#settings.interfaceVisibility.profile);
+        if (!this.#capabilities.profile || !this.#settings.showExtendedTier) {
+          this.#currentTierPlayer = undefined;
+          this.#overlay.hideRoutePanels();
+        } else await this.#loadProfileTier(
+          this.#route.nickname,
+          /\/cs2\/stats\/?$/u.test(pathname),
+          revision,
+        );
         break;
       case "history":
-        if (!this.#capabilities.history) this.#overlay.hideRoutePanels();
-        else await this.#loadProfile(this.#route.nickname, true, revision, this.#settings.interfaceVisibility.history);
+        if (!this.#capabilities.history || !this.#settings.showExtendedTier) {
+          this.#currentTierPlayer = undefined;
+          this.#overlay.hideRoutePanels();
+        } else await this.#loadProfileTier(this.#route.nickname, false, revision);
         break;
       case "match":
         if (!this.#capabilities.matchRoom) this.#overlay.hideRoutePanels();
@@ -210,61 +216,23 @@ export class EloScopeController {
     this.#overlay.showMatchmakingTier(playerState.data);
   }
 
-  async #loadProfile(
+  async #loadProfileTier(
     nickname: string,
-    history: boolean,
+    includeProgressRail: boolean,
     revision: number,
-    renderOverlay = true,
   ): Promise<void> {
     this.#currentTierPlayer = undefined;
-    const mode = history ? "history" : "profile";
-    if (renderOverlay) this.#overlay.showLoading(history ? "Расширенная история" : "Профиль", mode);
-    else this.#overlay.hideRoutePanels();
+    this.#overlay.hideRoutePanels();
     const playerState = await this.#cached<Player>(
       `player:${nickname.toLowerCase()}`,
       () => this.#adapter.getPlayer(nickname),
       CACHE_TTLS.playerStats
     );
     if (!this.#isCurrent(revision)) return;
-    if (playerState.status !== "ready" || !playerState.data) {
-      if (renderOverlay) {
-        this.#overlay.showState(history ? "Расширенная история" : "Профиль", playerState.status === "restricted" ? "restricted" : "error", mode);
-      }
-      return;
-    }
+    if (playerState.status !== "ready" || !playerState.data) return;
     this.#currentTierPlayer = playerState.data;
-    this.#overlay.showProfileTier(playerState.data, !history && /\/cs2\/stats\/?$/u.test(location.pathname));
+    this.#overlay.showProfileTier(playerState.data, includeProgressRail);
     await this.#snapshots.recordPlayer(playerState.data);
-    if (!this.#isCurrent(revision)) return;
-    if (!renderOverlay) return;
-
-    const limit = requestedWindow(this.#settings.statsWindow);
-    const [matchesState, mapsState] = await Promise.all([
-      this.#cached<PlayerMatch[]>(
-        `matches:${playerState.data.id}:${limit}`,
-        () => this.#adapter.getRecentMatches(playerState.data.id, limit),
-        CACHE_TTLS.playerStats
-      ),
-      history
-        ? Promise.resolve<DataState<PlayerMapStats[]>>({ status: "ready", data: [], fetchedAt: Date.now() })
-        : this.#cached<PlayerMapStats[]>(
-            `maps:${playerState.data.id}`,
-            () => this.#adapter.getPlayerMapStats(playerState.data.id),
-            CACHE_TTLS.playerStats
-          )
-    ]);
-    if (!this.#isCurrent(revision)) return;
-    if (matchesState.status !== "ready") {
-      this.#overlay.showState(history ? "Расширенная история" : "Профиль", matchesState.status === "restricted" ? "restricted" : "error", mode);
-      return;
-    }
-    const matches = await this.#snapshots.hydrateMatchElos(playerState.data.id, matchesState.data);
-    if (!this.#isCurrent(revision)) return;
-    await this.#snapshots.rememberMatchElos(playerState.data.id, matches);
-    if (!this.#isCurrent(revision)) return;
-    const maps = mapsState.status === "ready" ? mapsState.data : [];
-    if (history) this.#overlay.showHistory(playerState.data, matches);
-    else this.#overlay.showProfile(playerState.data, matches, maps);
   }
 
   async #loadMatch(matchId: string, revision: number, renderOverlay: boolean): Promise<void> {
@@ -389,31 +357,6 @@ export class EloScopeController {
     return this.#cache.get(key, loader as () => Promise<CachedState>, { ttlMs }) as Promise<DataState<T>>;
   }
 
-  async #loadHistoryDetail(matchId: string): Promise<DataState<HistoryDetailData>> {
-    const [match, stats] = await Promise.all([
-      this.#cached<MatchContext>(
-        `match:${matchId}`,
-        () => this.#adapter.getMatch(matchId),
-        CACHE_TTLS.finishedMatch
-      ),
-      this.#cached<MatchStats>(
-        `match-stats:${matchId}`,
-        () => this.#adapter.getMatchStats(matchId),
-        CACHE_TTLS.finishedMatch
-      )
-    ]);
-    if (match.status === "restricted" || stats.status === "restricted") {
-      return { status: "restricted", reason: "match-detail-unavailable" };
-    }
-    if (match.status === "ready" && stats.status === "ready") {
-      return { status: "ready", data: { match: match.data, stats: stats.data }, fetchedAt: Date.now() };
-    }
-    return {
-      status: "error",
-      error: { code: "match-detail", message: "Match detail is unavailable", retryable: true }
-    };
-  }
-
   async #handleDomMutation(): Promise<void> {
     if (this.#destroyed) return;
     this.#runAutomations();
@@ -421,16 +364,10 @@ export class EloScopeController {
       if (this.#currentTierPlayer) {
         this.#overlay.syncProfileTier(this.#currentTierPlayer, /\/cs2\/stats\/?$/u.test(location.pathname));
       }
-      if (this.#capabilities.profile && this.#settings.interfaceVisibility.profile) {
-        this.#overlay.syncProfileInline("profile");
-      }
       return;
     }
     if (this.#route.kind === "history") {
       if (this.#currentTierPlayer) this.#overlay.syncProfileTier(this.#currentTierPlayer, false);
-      if (this.#capabilities.history && this.#settings.interfaceVisibility.history) {
-        this.#overlay.syncProfileInline("history");
-      }
       return;
     }
     if (this.#route.kind === "matchmaking") {

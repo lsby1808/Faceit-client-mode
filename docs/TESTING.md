@@ -27,7 +27,7 @@ late statistics, React remounts and cleanup.
 ## Manual beta smoke test
 
 Use a dedicated test account and keep every automation disabled initially.
-Verify login persistence, profile/history overlays, an active and finished room,
+Verify login persistence, native profile tiers and the 1–20 stats rail, an active and finished room,
 chat, veto, popup authentication, downloads, external links, the confirmed
 `faceitac://launch` handoff and `steam://` opt-in.
 Then enable one automation at a time and capture no session data in recordings.

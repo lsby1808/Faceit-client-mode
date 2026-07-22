@@ -466,33 +466,22 @@ export class EloScopeSettingsPanel {
         if (this.#draft) this.#draft = { ...this.#draft, showMapWinRates: checked };
       }
     ));
-    const visibilityRows: Array<{
-      key: keyof ExtensionSettings["interfaceVisibility"];
-      title: string;
-      description: string;
-    }> = [
-      { key: "profile", title: "Overlay профиля", description: "Расширенная статистика и карты игрока" },
-      { key: "history", title: "Overlay истории", description: "Дополнительные колонки и детали матча" },
-      { key: "matchRoom", title: "Overlay match room", description: "Команды, форма и быстрые позиции" }
-    ];
-    for (const row of visibilityRows) {
-      grid.append(this.#switchRow(
-        row.title,
-        row.description,
-        settings.interfaceVisibility[row.key],
-        `visibility-${row.key}`,
-        (checked) => {
-          if (!this.#draft) return;
-          this.#draft = {
-            ...this.#draft,
-            interfaceVisibility: {
-              ...this.#draft.interfaceVisibility,
-              [row.key]: checked
-            }
-          };
-        }
-      ));
-    }
+    grid.append(this.#switchRow(
+      "Overlay match room",
+      "Команды, форма и быстрые позиции",
+      settings.interfaceVisibility.matchRoom,
+      "visibility-matchRoom",
+      (checked) => {
+        if (!this.#draft) return;
+        this.#draft = {
+          ...this.#draft,
+          interfaceVisibility: {
+            ...this.#draft.interfaceVisibility,
+            matchRoom: checked
+          }
+        };
+      }
+    ));
     fieldset.append(grid);
     return fieldset;
   }

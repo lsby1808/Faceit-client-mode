@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createDefaultSettings,
   loadSettings,
   parseSettings,
   saveSettings,
+  SETTINGS_KEY,
   settingsWithPositionMaps
 } from "../src/settings";
 
@@ -15,8 +16,8 @@ describe("extension settings", () => {
     expect(settings.showPlayerRoles).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
-      profile: true,
-      history: true,
+      profile: false,
+      history: false,
       matchRoom: true
     });
     expect(settings.automations).toMatchObject({
@@ -44,7 +45,7 @@ describe("extension settings", () => {
     expect(settings.showMapWinRates).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
-      history: true,
+      history: false,
       matchRoom: true
     });
     expect(settings.automations.partyAccept).toBe(false);
@@ -57,6 +58,42 @@ describe("extension settings", () => {
     expect(parseSettings({ showPlayerRoles: false }).showPlayerRoles).toBe(false);
     expect(parseSettings({ statsWindow: 50 }).showMapWinRates).toBe(true);
     expect(parseSettings({ showMapWinRates: false }).showMapWinRates).toBe(false);
+  });
+
+  it("migrates legacy profile and history overlays to false exactly once", async () => {
+    const legacy = {
+      ...createDefaultSettings(),
+      interfaceVisibility: { profile: true, history: true, matchRoom: false }
+    };
+    await chrome.storage.local.set({ [SETTINGS_KEY]: legacy });
+    const setSpy = vi.spyOn(chrome.storage.local, "set");
+
+    await expect(loadSettings()).resolves.toMatchObject({
+      interfaceVisibility: { profile: false, history: false, matchRoom: false }
+    });
+    expect(setSpy).toHaveBeenCalledOnce();
+    await expect(chrome.storage.local.get(SETTINGS_KEY)).resolves.toMatchObject({
+      [SETTINGS_KEY]: {
+        interfaceVisibility: { profile: false, history: false, matchRoom: false }
+      }
+    });
+
+    setSpy.mockClear();
+    await loadSettings();
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it("persists retired overlay defaults once when settings are absent", async () => {
+    const setSpy = vi.spyOn(chrome.storage.local, "set");
+
+    await expect(loadSettings()).resolves.toMatchObject({
+      interfaceVisibility: { profile: false, history: false, matchRoom: true }
+    });
+    expect(setSpy).toHaveBeenCalledOnce();
+
+    setSpy.mockClear();
+    await loadSettings();
+    expect(setSpy).not.toHaveBeenCalled();
   });
 
   it("adds a sanitized dynamic map pool without mutating the source", () => {

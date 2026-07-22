@@ -6,16 +6,16 @@ import {
 import { createDefaultSettings } from "../src/settings";
 
 describe("interface visibility", () => {
-  it("applies independent profile, history and match-room switches", () => {
+  it("keeps retired profile and history overlays hidden and applies the match-room switch", () => {
     const settings = createDefaultSettings();
     settings.interfaceVisibility = {
-      profile: false,
+      profile: true,
       history: true,
       matchRoom: false
     };
 
     expect(isOverlayVisibleForPath(settings, "/en/players/player")).toBe(false);
-    expect(isOverlayVisibleForPath(settings, "/en/players/player/cs2/history")).toBe(true);
+    expect(isOverlayVisibleForPath(settings, "/en/players/player/cs2/history")).toBe(false);
     expect(isOverlayVisibleForPath(settings, "/en/cs2/room/11111111-2222-3333-4444-555555555555")).toBe(false);
     expect(isOverlayVisibleForPath(settings, "/en/login")).toBe(true);
   });

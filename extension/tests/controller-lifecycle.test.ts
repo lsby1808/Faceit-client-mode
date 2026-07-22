@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  mode: "error" as "error" | "pending-profile" | "match" | "matchmaking",
+  mode: "error" as "error" | "pending-profile" | "profile" | "match" | "matchmaking",
   resolvePlayer: undefined as ((value: unknown) => void) | undefined,
   viewerRequested: vi.fn(),
   playerRequested: vi.fn(),
@@ -15,9 +15,10 @@ const state = vi.hoisted(() => ({
   positionSend: vi.fn(),
   overlayShowMatch: vi.fn(),
   overlayInlineSync: vi.fn(),
-  overlayProfileInlineSync: vi.fn(),
   overlayShowMatchmakingTier: vi.fn(),
   overlaySyncMatchmakingTier: vi.fn(),
+  overlayShowProfileTier: vi.fn(),
+  overlaySyncProfileTier: vi.fn(),
   domMutation: undefined as (() => void) | undefined,
   visibleMap: null as string | null,
   match: {
@@ -68,6 +69,14 @@ vi.mock("../src/bridge-client", () => ({
         return Promise.resolve({
           status: "ready",
           data: { id: "viewer-1", nickname: "Viewer", game: "cs2", elo: 2_486, officialLevel: 10 },
+          fetchedAt: Date.now(),
+        });
+      }
+      if (state.mode === "profile") {
+        state.playerRequested();
+        return Promise.resolve({
+          status: "ready",
+          data: { id: "profile-1", nickname: "FixturePlayer", game: "cs2", elo: 2_486, officialLevel: 10 },
           fetchedAt: Date.now(),
         });
       }
@@ -184,17 +193,12 @@ vi.mock("../src/ui", () => ({
     updateSettings(): void {}
     setCompatibility(): void {}
     hideRoutePanels(): void {}
-    showLoading(): void {}
-    showState(): void {}
-    showProfile(): void {}
-    showHistory(): void {}
     showMatchmakingTier(...args: unknown[]): void { state.overlayShowMatchmakingTier(...args); }
     syncMatchmakingTier(...args: unknown[]): void { state.overlaySyncMatchmakingTier(...args); }
-    showProfileTier(): void {}
-    syncProfileTier(): void {}
+    showProfileTier(...args: unknown[]): void { state.overlayShowProfileTier(...args); }
+    syncProfileTier(...args: unknown[]): void { state.overlaySyncProfileTier(...args); }
     showMatch(...args: unknown[]): void { state.overlayShowMatch(...args); }
     syncMatchInline(...args: unknown[]): void { state.overlayInlineSync(...args); }
-    syncProfileInline(...args: unknown[]): void { state.overlayProfileInlineSync(...args); }
     destroy(): void {}
   }
 }));
@@ -219,9 +223,10 @@ describe("controller lifecycle", () => {
     state.positionSend.mockClear();
     state.overlayShowMatch.mockClear();
     state.overlayInlineSync.mockClear();
-    state.overlayProfileInlineSync.mockClear();
     state.overlayShowMatchmakingTier.mockClear();
     state.overlaySyncMatchmakingTier.mockClear();
+    state.overlayShowProfileTier.mockClear();
+    state.overlaySyncProfileTier.mockClear();
     state.domMutation = undefined;
     state.visibleMap = null;
     state.match.status = "voting";
@@ -244,6 +249,9 @@ describe("controller lifecycle", () => {
   });
 
   it("invalidates an in-flight navigation before old automations can run", async () => {
+    const settings = createDefaultSettings();
+    settings.showExtendedTier = true;
+    await saveSettings(settings);
     const controller = new EloScopeController();
     await controller.start();
     state.automationRun.mockClear();
@@ -459,19 +467,67 @@ describe("controller lifecycle", () => {
   });
 
   it.each([
-    ["profile", "/ru/players/FixturePlayer/cs2/stats"],
-    ["history", "/ru/players/FixturePlayer/cs2/history"],
-  ])("resyncs the inline %s panel when FACEIT replaces the profile DOM", async (_kind, path) => {
+    "/ru/players/FixturePlayer",
+    "/ru/players/FixturePlayer/cs2/history",
+  ])("does not read profile data for the removed panels when extended tiers are disabled", async (path) => {
+    history.replaceState(null, "", "/");
+    state.mode = "profile";
+    await saveSettings(createDefaultSettings());
     const controller = new EloScopeController();
+    try {
+      await controller.start();
+      state.playerRequested.mockClear();
+      state.overlayShowProfileTier.mockClear();
+      history.replaceState(null, "", path);
+      await controller.navigate(path);
 
-    await controller.start();
-    await controller.navigate(path);
-    state.overlayProfileInlineSync.mockClear();
+      expect(state.playerRequested).not.toHaveBeenCalled();
+      expect(state.overlayShowProfileTier).not.toHaveBeenCalled();
+    } finally {
+      controller.destroy();
+      history.replaceState(null, "", "/");
+    }
+  });
 
-    state.domMutation?.();
+  it.each([
+    ["profile summary", "/ru/players/FixturePlayer", false],
+    ["history", "/ru/players/FixturePlayer/cs2/history", false],
+    ["profile stats", "/ru/players/FixturePlayer/cs2/stats", true],
+  ])("keeps %s tier-only without mounting the removed panels", async (_kind, path, includeRail) => {
+    history.replaceState(null, "", "/");
+    state.mode = "profile";
+    const settings = createDefaultSettings();
+    settings.showExtendedTier = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    try {
+      await controller.start();
+      state.playerRequested.mockClear();
+      state.recentMatchesRequested.mockClear();
+      state.mapStatsRequested.mockClear();
+      state.overlayShowProfileTier.mockClear();
+      history.replaceState(null, "", path);
+      await controller.navigate(path);
 
-    await vi.waitFor(() => expect(state.overlayProfileInlineSync).toHaveBeenCalledOnce());
-    controller.destroy();
+      expect(state.playerRequested).toHaveBeenCalledOnce();
+      expect(state.recentMatchesRequested).not.toHaveBeenCalled();
+      expect(state.mapStatsRequested).not.toHaveBeenCalled();
+      expect(state.overlayShowProfileTier).toHaveBeenCalledWith(expect.objectContaining({
+        nickname: "FixturePlayer",
+        elo: 2_486,
+      }), includeRail);
+
+      state.overlaySyncProfileTier.mockClear();
+      state.domMutation?.();
+
+      await vi.waitFor(() => expect(state.overlaySyncProfileTier).toHaveBeenCalledWith(
+        expect.objectContaining({ nickname: "FixturePlayer", elo: 2_486 }),
+        includeRail,
+      ));
+    } finally {
+      controller.destroy();
+      history.replaceState(null, "", "/");
+    }
   });
 
   it("ignores duplicate same-path route messages instead of remounting inline hosts", async () => {
