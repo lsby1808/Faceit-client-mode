@@ -780,10 +780,11 @@ export class InlineMatchRenderer {
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]>,
     settings: InlineMatchSettings,
+    viewerTeamId?: string,
   ): InlineMatchRenderResult {
     const discovery = this.#discover(match);
     if (discovery.status === "incompatible") {
-      if (settings.showMapWinRates) this.#mapWinRateChart.render(match, playerMapStats);
+      if (settings.showMapWinRates) this.#mapWinRateChart.render(match, playerMapStats, viewerTeamId);
       else this.#mapWinRateChart.cleanup();
       this.#cleanupRosterEnhancements();
       return discovery;
@@ -793,7 +794,7 @@ export class InlineMatchRenderer {
       teams: discovery.teams.map(({ team }) => team),
     };
     const chartUpdated = settings.showMapWinRates
-      ? this.#mapWinRateChart.render(visibleMatch, playerMapStats).updated
+      ? this.#mapWinRateChart.render(visibleMatch, playerMapStats, viewerTeamId).updated
       : this.#mapWinRateChart.cleanup();
 
     const expectedPlayerIds = new Set(discovery.teams.flatMap((team) => team.players.map(({ player }) => player.id)));

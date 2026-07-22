@@ -43,6 +43,12 @@ export function routeIdentity(route: FaceitRoute): string {
   return route.kind;
 }
 
+export function viewerTeamIdForMatch(match: MatchContext, viewer: Viewer): string | undefined {
+  const matchingTeams = match.teams.filter((team) =>
+    team.players.some((player) => player.id === viewer.id));
+  return matchingTeams.length === 1 ? matchingTeams[0]?.id : undefined;
+}
+
 export class EloScopeController {
   readonly #adapter = new FaceitBridgeAdapter(location.origin);
   readonly #cache = new RequestCache<string, CachedState>({ concurrency: 4, maxBytes: 50 * 1024 * 1024 });
@@ -58,6 +64,7 @@ export class EloScopeController {
   #currentMatch: MatchContext | undefined;
   #currentPlayerMatches = new Map<string, PlayerMatch[]>();
   #currentPlayerMapStats = new Map<string, PlayerMapStats[]>();
+  #currentViewerTeamId: string | undefined;
   #currentTierPlayer: Player | undefined;
   #routeRevision = 0;
   #stopObserver: (() => void) | undefined;
@@ -145,6 +152,7 @@ export class EloScopeController {
         this.#currentMatch = undefined;
         this.#currentPlayerMatches.clear();
         this.#currentPlayerMapStats.clear();
+        this.#currentViewerTeamId = undefined;
         this.#publishMapPool([]);
       }
     }
@@ -152,6 +160,7 @@ export class EloScopeController {
       this.#currentMatch = undefined;
       this.#currentPlayerMatches.clear();
       this.#currentPlayerMapStats.clear();
+      this.#currentViewerTeamId = undefined;
       this.#publishMapPool([]);
     }
 
@@ -270,6 +279,7 @@ export class EloScopeController {
       await this.#maybeSendAutomaticPosition();
       return;
     }
+    void this.#loadMatchViewerTeam(match, revision).catch(() => undefined);
 
     const states = await Promise.all(players.map(async (player) => [
       player.id,
@@ -296,7 +306,7 @@ export class EloScopeController {
     const mapStats = this.#cachedPlayerMapStats(players);
     this.#currentPlayerMatches = matches;
     this.#currentPlayerMapStats = mapStats;
-    this.#overlay.showMatch(match, matches, mapStats);
+    this.#overlay.showMatch(match, matches, mapStats, this.#currentViewerTeamId);
     void this.#loadPlayerMapStats(match, players, revision).catch(() => undefined);
     await this.#maybeSendAutomaticPosition();
   }
@@ -308,6 +318,26 @@ export class EloScopeController {
       if (state?.status === "ready") result.set(player.id, state.data);
     }
     return result;
+  }
+
+  async #loadMatchViewerTeam(match: MatchContext, revision: number): Promise<void> {
+    const viewerState = await this.#cached<Viewer>(
+      "viewer",
+      () => this.#adapter.getViewer(),
+      CACHE_TTLS.playerStats,
+    );
+    if (!this.#isCurrent(revision) || this.#currentMatch?.id !== match.id) return;
+    this.#currentViewerTeamId = viewerState.status === "ready" && viewerState.data
+      ? viewerTeamIdForMatch(match, viewerState.data)
+      : undefined;
+    if (this.#settings.interfaceVisibility.matchRoom && this.#currentPlayerMatches.size > 0) {
+      this.#overlay.syncMatchInline(
+        this.#currentMatch,
+        this.#currentPlayerMatches,
+        this.#currentPlayerMapStats,
+        this.#currentViewerTeamId,
+      );
+    }
   }
 
   async #loadPlayerMapStats(match: MatchContext, players: readonly Player[], revision: number): Promise<void> {
@@ -324,7 +354,12 @@ export class EloScopeController {
     }
     this.#currentPlayerMapStats = mapStats;
     if (this.#settings.interfaceVisibility.matchRoom) {
-      this.#overlay.syncMatchInline(currentMatch, this.#currentPlayerMatches, mapStats);
+      this.#overlay.syncMatchInline(
+        currentMatch,
+        this.#currentPlayerMatches,
+        mapStats,
+        this.#currentViewerTeamId,
+      );
     }
   }
 
@@ -376,7 +411,12 @@ export class EloScopeController {
     }
     if (this.#route.kind !== "match" || !this.#currentMatch) return;
     if (this.#settings.interfaceVisibility.matchRoom) {
-      this.#overlay.syncMatchInline(this.#currentMatch, this.#currentPlayerMatches, this.#currentPlayerMapStats);
+      this.#overlay.syncMatchInline(
+        this.#currentMatch,
+        this.#currentPlayerMatches,
+        this.#currentPlayerMapStats,
+        this.#currentViewerTeamId,
+      );
     }
     const selected = visibleSelectedMap(document);
     if (!selected) return;
@@ -393,7 +433,12 @@ export class EloScopeController {
     };
     this.#publishMapPool(this.#currentMatch.mapPool);
     if (this.#settings.interfaceVisibility.matchRoom) {
-      this.#overlay.showMatch(this.#currentMatch, this.#currentPlayerMatches, this.#currentPlayerMapStats);
+      this.#overlay.showMatch(
+        this.#currentMatch,
+        this.#currentPlayerMatches,
+        this.#currentPlayerMapStats,
+        this.#currentViewerTeamId,
+      );
     }
     await this.#maybeSendAutomaticPosition();
   }

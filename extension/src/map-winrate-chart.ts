@@ -19,6 +19,7 @@ const EXPLICIT_MAP_SELECTORS = [
 ] as const;
 
 export const INLINE_MAP_WINRATE_ATTRIBUTE = "data-eloscope-inline-map-winrates";
+export const INLINE_SELECTED_MAP_WINS_ATTRIBUTE = "data-eloscope-selected-map-wins";
 
 const CHART_STYLES = `
   :host {
@@ -190,13 +191,76 @@ const CHART_STYLES = `
   }
 `;
 
+const SELECTED_WINS_STYLES = `
+  :host {
+    color-scheme: dark;
+    display: block !important;
+    flex: 1 1 auto;
+    min-width: 170px;
+    max-width: 260px;
+    margin-left: auto;
+    pointer-events: none !important;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  .wins-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 2px 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .wins-team { min-width: 0; }
+  .wins-team.right { text-align: right; }
+  .wins-label {
+    display: block;
+    overflow: hidden;
+    color: #8f969f;
+    font-size: 7px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    line-height: 9px;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .wins-value {
+    display: block;
+    margin-top: 1px;
+    color: #ff8b49;
+    font-size: 18px;
+    font-weight: 950;
+    line-height: 19px;
+  }
+  .wins-team.right .wins-value { color: #68ddf8; }
+  .wins-unit {
+    margin-left: 3px;
+    color: #9da4ad;
+    font-size: 7px;
+    font-weight: 800;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+  .wins-vs {
+    color: #d8dbe0;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: .08em;
+    text-align: center;
+  }
+`;
+
 type ChartAnchor = Readonly<{
   container: HTMLElement;
   after: HTMLElement;
+  selected: HTMLElement;
 }>;
 
 type ChartMount = {
   host: HTMLElement;
+  winsHost: HTMLElement;
   anchor: ChartAnchor;
   signature: string;
 };
@@ -244,7 +308,7 @@ function discoverChartAnchor(ownerDocument: Document, match: MatchContext): Char
   if (isExplicit) {
     const declaredMap = selected.dataset.mapId ?? selected.dataset.map;
     if (domMapId(declaredMap) !== expectedMap || !selected.parentElement) return undefined;
-    return { container: selected.parentElement, after: selected };
+    return { container: selected.parentElement, after: selected, selected };
   }
 
   if (domMapId(selected.textContent ?? undefined) !== expectedMap) return undefined;
@@ -261,7 +325,7 @@ function discoverChartAnchor(ownerDocument: Document, match: MatchContext): Char
     || preferences.parentElement !== section
     || section.parentElement !== finished
   ) return undefined;
-  return { container: section, after: preferences };
+  return { container: section, after: preferences, selected };
 }
 
 function teamName(comparison: MapWinRateComparison, index: number, match: MatchContext): string {
@@ -287,6 +351,109 @@ function sampleLabel(team: TeamMapWinRateAggregate): string {
   return team.status === "ready"
     ? `${formatMatches(team.sampleMatches)} матчей · ${coverage}`
     : `— матчей · ${coverage}`;
+}
+
+function completeRosterWins(team: TeamMapWinRateAggregate): number | undefined {
+  return team.status === "ready"
+    && team.totalPlayers === 5
+    && team.knownPlayers === 5
+    && Number.isSafeInteger(team.wins)
+    && team.wins >= 0
+    ? team.wins
+    : undefined;
+}
+
+function matchFromViewerPerspective(
+  match: MatchContext,
+  viewerTeamId: string | undefined,
+): Readonly<{ match: MatchContext; viewerTeamId?: string }> {
+  if (!viewerTeamId || match.teams.length !== 2) return { match };
+  const matching = match.teams.filter(({ id }) => id === viewerTeamId);
+  if (matching.length !== 1) return { match };
+  const opponent = match.teams.find(({ id }) => id !== viewerTeamId);
+  if (!opponent) return { match };
+  return {
+    match: {
+      ...match,
+      teams: [matching[0] as MatchContext["teams"][number], opponent],
+    },
+    viewerTeamId,
+  };
+}
+
+function winsTeamNode(
+  ownerDocument: Document,
+  team: TeamMapWinRateAggregate,
+  side: "left" | "right",
+  label: string,
+  map: string,
+): HTMLElement {
+  const node = ownerDocument.createElement("div");
+  node.className = `wins-team ${side}`;
+  node.dataset.esWinsTeamId = team.teamId;
+  const wins = completeRosterWins(team);
+  node.dataset.status = wins === undefined ? "unavailable" : "ready";
+  const detail = wins === undefined
+    ? `Данные на ${map} доступны для ${team.knownPlayers}/${team.totalPlayers} игроков`
+    : `Суммарные победы пяти игроков на ${map}: ${formatMatches(wins)}`;
+  node.title = detail;
+  node.setAttribute("aria-label", `${label}: ${detail}`);
+
+  const name = ownerDocument.createElement("small");
+  name.className = "wins-label";
+  name.textContent = label;
+  const value = ownerDocument.createElement("strong");
+  value.className = "wins-value";
+  value.textContent = wins === undefined ? "—" : formatMatches(wins);
+  const unit = ownerDocument.createElement("span");
+  unit.className = "wins-unit";
+  unit.textContent = "побед";
+  value.append(unit);
+  node.append(name, value);
+  return node;
+}
+
+function selectedWinsSummary(
+  ownerDocument: Document,
+  match: MatchContext,
+  comparisons: readonly MapWinRateComparison[],
+  viewerTeamId: string | undefined,
+): HTMLElement | undefined {
+  const selectedMap = domMapId(match.selectedMap);
+  const comparison = comparisons.find(({ map }) => domMapId(map) === selectedMap);
+  const left = comparison?.teams[0];
+  const right = comparison?.teams[1];
+  if (!comparison || !left || !right) return undefined;
+
+  const viewerKnown = viewerTeamId !== undefined && left.teamId === viewerTeamId;
+  const summary = ownerDocument.createElement("section");
+  summary.className = "wins-summary";
+  summary.dataset.esSelectedMapWins = comparison.map;
+  summary.setAttribute(
+    "aria-label",
+    `Суммарные победы игроков на ${comparison.map}: ${teamName(comparison, 0, match)} против ${teamName(comparison, 1, match)}`,
+  );
+  const versus = ownerDocument.createElement("span");
+  versus.className = "wins-vs";
+  versus.textContent = "VS";
+  summary.append(
+    winsTeamNode(
+      ownerDocument,
+      left,
+      "left",
+      viewerKnown ? "Наша команда" : teamName(comparison, 0, match),
+      comparison.map,
+    ),
+    versus,
+    winsTeamNode(
+      ownerDocument,
+      right,
+      "right",
+      viewerKnown ? "Соперники" : teamName(comparison, 1, match),
+      comparison.map,
+    ),
+  );
+  return summary;
 }
 
 function valueNode(
@@ -412,7 +579,11 @@ function chartRow(
   return row;
 }
 
-function renderChart(shadow: ShadowRoot, match: MatchContext, comparisons: readonly MapWinRateComparison[]): void {
+function renderChart(
+  shadow: ShadowRoot,
+  match: MatchContext,
+  comparisons: readonly MapWinRateComparison[],
+): void {
   const ownerDocument = shadow.ownerDocument;
   const style = ownerDocument.createElement("style");
   style.textContent = CHART_STYLES;
@@ -452,9 +623,22 @@ function renderChart(shadow: ShadowRoot, match: MatchContext, comparisons: reado
   shadow.replaceChildren(style, chart);
 }
 
+function renderSelectedWins(
+  shadow: ShadowRoot,
+  match: MatchContext,
+  comparisons: readonly MapWinRateComparison[],
+  viewerTeamId: string | undefined,
+): void {
+  const style = shadow.ownerDocument.createElement("style");
+  style.textContent = SELECTED_WINS_STYLES;
+  const summary = selectedWinsSummary(shadow.ownerDocument, match, comparisons, viewerTeamId);
+  shadow.replaceChildren(style, ...(summary ? [summary] : []));
+}
+
 /**
- * Mounts a fail-closed Shadow DOM chart below FACEIT's server/map preferences.
- * It never guesses between multiple preference contracts or mismatched maps.
+ * Mounts a fail-closed total inside the selected-map card and the comparison
+ * chart below FACEIT's preferences. It never guesses between ambiguous DOM
+ * contracts or mismatched maps.
  */
 export class MatchMapWinRateChartRenderer {
   readonly #document: Document;
@@ -467,22 +651,26 @@ export class MatchMapWinRateChartRenderer {
   render(
     match: MatchContext,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]>,
+    viewerTeamId?: string,
   ): MapWinRateChartRenderResult {
-    const anchor = discoverChartAnchor(this.#document, match);
+    const perspective = matchFromViewerPerspective(match, viewerTeamId);
+    const visibleMatch = perspective.match;
+    const anchor = discoverChartAnchor(this.#document, visibleMatch);
     if (!anchor) {
       const updated = this.cleanup();
       return { status: "incompatible", updated };
     }
 
-    const comparisons = compareTeamMapWinRates(match, playerMapStats);
+    const comparisons = compareTeamMapWinRates(visibleMatch, playerMapStats);
     if (!comparisons.length || comparisons.some((comparison) => comparison.teams.length !== 2)) {
       const updated = this.cleanup();
       return { status: "incompatible", updated };
     }
     const signature = JSON.stringify({
-      matchId: match.id,
-      selectedMap: domMapId(match.selectedMap),
-      teamNames: match.teams.map(({ id, name }) => [id, name]),
+      matchId: visibleMatch.id,
+      selectedMap: domMapId(visibleMatch.selectedMap),
+      viewerTeamId: perspective.viewerTeamId,
+      teamNames: visibleMatch.teams.map(({ id, name }) => [id, name]),
       comparisons,
     });
 
@@ -491,41 +679,63 @@ export class MatchMapWinRateChartRenderer {
     if (
       !mount
       || !mount.host.isConnected
+      || !mount.winsHost.isConnected
       || mount.anchor.container !== anchor.container
       || mount.anchor.after !== anchor.after
+      || mount.anchor.selected !== anchor.selected
       || mount.host.parentElement !== anchor.container
+      || mount.winsHost.parentElement !== anchor.selected
     ) {
       mount?.host.remove();
+      mount?.winsHost.remove();
       const host = this.#document.createElement("div");
-      host.setAttribute(INLINE_MAP_WINRATE_ATTRIBUTE, match.id);
+      host.setAttribute(INLINE_MAP_WINRATE_ATTRIBUTE, visibleMatch.id);
       const shadow = host.attachShadow({ mode: "open" });
-      renderChart(shadow, match, comparisons);
-      mount = { host, anchor, signature };
+      renderChart(shadow, visibleMatch, comparisons);
+      const winsHost = this.#document.createElement("span");
+      winsHost.setAttribute(INLINE_SELECTED_MAP_WINS_ATTRIBUTE, visibleMatch.id);
+      const winsShadow = winsHost.attachShadow({ mode: "open" });
+      renderSelectedWins(winsShadow, visibleMatch, comparisons, perspective.viewerTeamId);
+      mount = { host, winsHost, anchor, signature };
       this.#mount = mount;
       updated = 1;
     } else if (mount.signature !== signature) {
-      mount.host.setAttribute(INLINE_MAP_WINRATE_ATTRIBUTE, match.id);
-      renderChart(mount.host.shadowRoot as ShadowRoot, match, comparisons);
+      mount.host.setAttribute(INLINE_MAP_WINRATE_ATTRIBUTE, visibleMatch.id);
+      renderChart(mount.host.shadowRoot as ShadowRoot, visibleMatch, comparisons);
+      mount.winsHost.setAttribute(INLINE_SELECTED_MAP_WINS_ATTRIBUTE, visibleMatch.id);
+      renderSelectedWins(
+        mount.winsHost.shadowRoot as ShadowRoot,
+        visibleMatch,
+        comparisons,
+        perspective.viewerTeamId,
+      );
       mount.signature = signature;
       updated = 1;
     }
 
+    if (mount.winsHost.parentElement !== anchor.selected || anchor.selected.lastElementChild !== mount.winsHost) {
+      anchor.selected.append(mount.winsHost);
+      updated = 1;
+    }
     if (anchor.after.nextElementSibling !== mount.host) {
       anchor.after.insertAdjacentElement("afterend", mount.host);
       updated = 1;
     }
-    this.#removeOrphans(mount.host);
+    this.#removeOrphans(mount.host, mount.winsHost);
     return { status: "rendered", updated };
   }
 
   cleanup(): number {
     let updated = 0;
     if (this.#mount) {
-      if (this.#mount.host.isConnected) updated = 1;
+      if (this.#mount.host.isConnected || this.#mount.winsHost.isConnected) updated = 1;
       this.#mount.host.remove();
+      this.#mount.winsHost.remove();
       this.#mount = undefined;
     }
-    const orphans = Array.from(this.#document.querySelectorAll<HTMLElement>(`[${INLINE_MAP_WINRATE_ATTRIBUTE}]`));
+    const orphans = Array.from(this.#document.querySelectorAll<HTMLElement>(
+      `[${INLINE_MAP_WINRATE_ATTRIBUTE}], [${INLINE_SELECTED_MAP_WINS_ATTRIBUTE}]`,
+    ));
     if (orphans.length) updated = 1;
     orphans.forEach((host) => host.remove());
     return updated;
@@ -535,9 +745,12 @@ export class MatchMapWinRateChartRenderer {
     this.cleanup();
   }
 
-  #removeOrphans(current: HTMLElement): void {
+  #removeOrphans(current: HTMLElement, currentWins: HTMLElement): void {
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_MAP_WINRATE_ATTRIBUTE}]`).forEach((host) => {
       if (host !== current) host.remove();
+    });
+    this.#document.querySelectorAll<HTMLElement>(`[${INLINE_SELECTED_MAP_WINS_ATTRIBUTE}]`).forEach((host) => {
+      if (host !== currentWins) host.remove();
     });
   }
 }

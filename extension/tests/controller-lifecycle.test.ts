@@ -58,9 +58,24 @@ vi.mock("../src/bridge-client", () => ({
 
     getViewer(): Promise<unknown> {
       state.viewerRequested();
-      return Promise.resolve(state.mode === "matchmaking"
-        ? { status: "ready", data: { id: "viewer-1", nickname: "Viewer" }, fetchedAt: Date.now() }
-        : { status: "error", error: { code: "test", message: "test", retryable: false } });
+      if (state.mode === "matchmaking") {
+        return Promise.resolve({
+          status: "ready",
+          data: { id: "viewer-1", nickname: "Viewer" },
+          fetchedAt: Date.now(),
+        });
+      }
+      if (state.mode === "match") {
+        return Promise.resolve({
+          status: "ready",
+          data: { id: "player-a", nickname: "Different nickname" },
+          fetchedAt: Date.now(),
+        });
+      }
+      return Promise.resolve({
+        status: "error",
+        error: { code: "test", message: "test", retryable: false },
+      });
     }
 
     getPlayer(): Promise<unknown> {
@@ -203,9 +218,45 @@ vi.mock("../src/ui", () => ({
   }
 }));
 
-import { allowsAutomaticPosition, EloScopeController } from "../src/controller";
+import { allowsAutomaticPosition, EloScopeController, viewerTeamIdForMatch } from "../src/controller";
 import { MAIN_SOURCE, PROTOCOL_VERSION } from "../src/protocol";
 import { createDefaultSettings, saveSettings } from "../src/settings";
+
+describe("viewer team resolution", () => {
+  it("uses an exact viewer id match even when the nickname differs", () => {
+    expect(viewerTeamIdForMatch(state.match, {
+      id: "player-a",
+      nickname: "Completely different nickname",
+    })).toBe("team-a");
+  });
+
+  it("does not fall back to a matching nickname", () => {
+    expect(viewerTeamIdForMatch(state.match, {
+      id: "missing-viewer-id",
+      nickname: "Alpha",
+    })).toBeUndefined();
+  });
+
+  it("returns undefined when the same viewer id occurs in both teams", () => {
+    const ambiguousMatch = {
+      ...state.match,
+      teams: state.match.teams.map((team, index) => index === 0
+        ? team
+        : {
+            ...team,
+            players: [{
+              ...team.players[0]!,
+              id: "player-a",
+            }],
+          }),
+    };
+
+    expect(viewerTeamIdForMatch(ambiguousMatch, {
+      id: "player-a",
+      nickname: "Alpha",
+    })).toBeUndefined();
+  });
+});
 
 describe("controller lifecycle", () => {
   beforeEach(() => {
@@ -341,12 +392,15 @@ describe("controller lifecycle", () => {
 
     await controller.navigate(`/ru/cs2/room/${state.match.id}`);
 
+    expect(state.viewerRequested).toHaveBeenCalledOnce();
     expect(state.recentMatchesRequested).toHaveBeenCalledTimes(2);
     expect(state.overlayShowMatch.mock.calls[0]?.[2]).toEqual(new Map());
+    expect(state.overlayShowMatch.mock.calls.at(-1)?.[3]).toBe("team-a");
     await vi.waitFor(() => expect(state.mapStatsRequested).toHaveBeenCalledTimes(2));
     expect(state.mapStatsRequested).toHaveBeenCalledWith("player-a");
     expect(state.mapStatsRequested).toHaveBeenCalledWith("player-b");
     await vi.waitFor(() => expect(state.overlayInlineSync).toHaveBeenCalled());
+    expect(state.overlayInlineSync.mock.calls.at(-1)?.[3]).toBe("team-a");
     const mapStats = state.overlayInlineSync.mock.calls.at(-1)?.[2] as Map<string, Array<{ matches: number }>>;
     expect(mapStats.get("player-a")?.[0]?.matches).toBe(416);
     controller.destroy();

@@ -131,10 +131,11 @@ export class EloScopeOverlay {
     match: MatchContext,
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
+    viewerTeamId?: string,
   ): void {
     this.#nativeTiers.cleanup();
     this.#nativeTierSurface = undefined;
-    this.syncMatchInline(match, playerMatches, playerMapStats);
+    this.syncMatchInline(match, playerMatches, playerMapStats, viewerTeamId);
     this.showPositions(match);
   }
 
@@ -142,13 +143,14 @@ export class EloScopeOverlay {
     match: MatchContext,
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
+    viewerTeamId?: string,
   ): InlineMatchRenderResult {
     return this.#inlineMatch.render(match, playerMatches, playerMapStats, {
       statsWindow: this.#settings.statsWindow,
       showExtendedTier: this.#settings.showExtendedTier,
       showPlayerRoles: this.#settings.showPlayerRoles,
       showMapWinRates: this.#settings.showMapWinRates,
-    });
+    }, viewerTeamId);
   }
 
   showPositions(match: MatchContext): void {
