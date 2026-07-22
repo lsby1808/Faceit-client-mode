@@ -437,6 +437,7 @@ export class EloScopeOverlay {
     this.#inlineMatch.render(match, playerMatches, playerMapStats, {
       statsWindow: this.#settings.statsWindow,
       showExtendedTier: this.#settings.showExtendedTier,
+      showPlayerRoles: this.#settings.showPlayerRoles,
     });
   }
 

@@ -4,6 +4,7 @@ import type { MatchContext, PlayerMapStats, PlayerMatch } from "@eloscope/core";
 
 const settings = createDefaultSettings();
 settings.showExtendedTier = true;
+settings.showPlayerRoles = true;
 settings.automations.positions = {
   mirage: { enabled: true, message: "I play A connector", mode: "confirm" },
   nuke: { enabled: false, message: "I can play ramp", mode: "prefill" },
@@ -48,8 +49,19 @@ const match: MatchContext = {
 const now = Date.now();
 const rows = new Map<string, PlayerMatch[]>();
 const mapStats = new Map<string, PlayerMapStats[]>();
+const roleProfiles: ReadonlyArray<Pick<
+  PlayerMatch,
+  "roundsPlayed" | "kills" | "assists" | "deaths" | "damage" | "headshots" | "firstKills" | "survivedRounds"
+>> = [
+  { roundsPlayed: 20, kills: 17, assists: 2, deaths: 9, damage: 1_800, headshots: 3, firstKills: 2, survivedRounds: 11 },
+  { roundsPlayed: 20, kills: 18, assists: 3, deaths: 16, damage: 1_900, headshots: 10, firstKills: 3, survivedRounds: 4 },
+  { roundsPlayed: 20, kills: 12, assists: 6, deaths: 13, damage: 1_500, headshots: 6, firstKills: 0, survivedRounds: 7 },
+  { roundsPlayed: 20, kills: 14, assists: 3, deaths: 8, damage: 1_600, headshots: 7, firstKills: 0, survivedRounds: 12 },
+  { roundsPlayed: 20, kills: 16, assists: 3, deaths: 12, damage: 1_750, headshots: 11, firstKills: 1, survivedRounds: 8 },
+];
 for (const [playerIndex, player] of players.entries()) {
-  rows.set(player.id, Array.from({ length: 12 }, (_, index) => ({
+  const roleProfile = roleProfiles[playerIndex % roleProfiles.length] as (typeof roleProfiles)[number];
+  rows.set(player.id, Array.from({ length: 20 }, (_, index) => ({
     id: `${player.id}-${index}`,
     playerId: player.id,
     game: "cs2",
@@ -58,12 +70,7 @@ for (const [playerIndex, player] of players.entries()) {
     finishedAt: now - index * 12 * 60 * 60 * 1_000,
     result: (index + playerIndex) % 3 ? "win" : "loss",
     map: index % 2 ? "nuke" : "mirage",
-    roundsPlayed: 22,
-    kills: 17 + playerIndex + (index % 4),
-    assists: 5,
-    deaths: 14 + (index % 3),
-    damage: 1_760 + playerIndex * 80,
-    headshots: 8
+    ...roleProfile,
   })));
   mapStats.set(player.id, [
     {

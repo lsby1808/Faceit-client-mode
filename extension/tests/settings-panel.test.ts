@@ -42,6 +42,7 @@ describe("EloScope settings panel", () => {
     expect(panel.launcher.tabIndex).toBe(-1);
     expect(panel.shadow.textContent).toContain("Окно статистики");
     expect(panel.shadow.textContent).toContain("Расширенная шкала 1–20");
+    expect(panel.shadow.textContent).toContain("Иконки ролей вместо аватаров");
     expect(panel.shadow.textContent).toContain("Overlay match room");
   });
 
@@ -96,6 +97,7 @@ describe("EloScope settings panel", () => {
     const shadow = panel.shadow;
     change(shadow.querySelector('[aria-label="Окно статистики"]') as HTMLSelectElement, "50");
     change(shadow.querySelector("#eloscope-show-extended-tier") as HTMLInputElement, true);
+    change(shadow.querySelector("#eloscope-show-player-roles") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-visibility-profile") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-visibility-history") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-visibility-matchRoom") as HTMLInputElement, true);
@@ -124,6 +126,7 @@ describe("EloScope settings panel", () => {
     const stored = await loadSettings();
     expect(stored.statsWindow).toBe(50);
     expect(stored.showExtendedTier).toBe(true);
+    expect(stored.showPlayerRoles).toBe(false);
     expect(stored.interfaceVisibility).toEqual({ profile: false, history: false, matchRoom: true });
     expect(stored.automations).toMatchObject({
       partyAccept: true,

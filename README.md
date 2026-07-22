@@ -9,7 +9,7 @@ FACEIT assets, interact with FACEIT Anti-Cheat, or read game/process memory.
 
 ## Workspace
 
-- `packages/core` — shared types, statistics, form battery, settings, and cache.
+- `packages/core` — shared types, statistics, 20-match role inference, form battery, settings, and cache.
 - `extension` — Manifest V3 bridge and Shadow DOM enhancements.
 - `src-tauri` — Tauri 2 Windows shell and WebView2 policy.
 

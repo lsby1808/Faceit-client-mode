@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   INLINE_BATTERY_ATTRIBUTE,
   INLINE_PLAYER_ATTRIBUTE,
+  INLINE_ROLE_ATTRIBUTE,
   INLINE_TEAM_ATTRIBUTE,
   INLINE_TIER_ATTRIBUTE,
   InlineMatchRenderer,
@@ -13,6 +14,7 @@ import {
 const settings: InlineMatchSettings = {
   statsWindow: 30,
   showExtendedTier: true,
+  showPlayerRoles: true,
 };
 
 function nativePlayer(nickname: string): string {
@@ -22,6 +24,24 @@ function nativePlayer(nickname: string): string {
   return `
     <div class="styles__Holder-sc-fixture-1">
       <article class="ListContentPlayer__Background-sc-fixture-0">
+        <div class="ListContentPlayer__SlotWrapper-sc-fixture-1">
+          <div class="styles__PlayerCardContainer-sc-fixture-1">
+            <div class="styles__PlayerCard-sc-fixture-1"></div>
+            <div size="40" class="Avatar__AvatarHolder-sc-fixture-1" style="position: relative; width: 40px; height: 40px;">
+              <span class="styles__Container-sc-fixture-avatar-badges">
+                <i data-testid="membership badge" role="img" aria-label="Membership badge"></i>
+                <i data-testid="anti-cheat badge" role="img" aria-label="Anti-cheat badge"></i>
+              </span>
+              <img
+                aria-label="avatar"
+                draggable="false"
+                data-avatar-for="${encodeURIComponent(nickname)}"
+                class="Avatar__Image-sc-fixture-1"
+                src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 40%22%3E%3Crect width=%2240%22 height=%2240%22 fill=%22%232b313b%22/%3E%3C/svg%3E"
+              >
+            </div>
+          </div>
+        </div>
         <div class="styles__NicknameContainer-sc-fixture-1">
           <div class="Nickname__Container-sc-fixture-1">
             <a class="Nickname__Name-sc-fixture-1" href="/en/players/${encodeURIComponent(nickname)}">${nickname}</a>
@@ -85,21 +105,23 @@ function matchContext(overrides: Partial<MatchContext> = {}): MatchContext {
 
 function playerMatches(playerId: string, map = "dust2"): PlayerMatch[] {
   const now = Date.now();
-  return [0, 1, 8, 12].map((daysAgo, index) => ({
+  return Array.from({ length: 20 }, (_, index) => ({
     id: `${playerId}-match-${index}`,
     playerId,
     game: "cs2",
     mode: "5v5",
     status: "finished",
-    finishedAt: now - daysAgo * 24 * 60 * 60 * 1_000,
-    result: index === 2 ? "loss" as const : "win" as const,
+    finishedAt: now - index * 24 * 60 * 60 * 1_000,
+    result: index % 3 === 2 ? "loss" as const : "win" as const,
     map,
     roundsPlayed: 24,
-    kills: 18 + index,
-    assists: 5,
-    deaths: 14,
-    damage: 1_920 + index * 48,
-    headshots: 9,
+    kills: 18 + (index % 4),
+    assists: 4 + (index % 3),
+    deaths: 13 + (index % 3),
+    damage: 1_920 + (index % 4) * 48,
+    headshots: 8 + (index % 3),
+    firstKills: 3 + (index % 2),
+    survivedRounds: 9 + (index % 3),
   }));
 }
 
@@ -130,8 +152,12 @@ function tierHosts(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_TIER_ATTRIBUTE}]`));
 }
 
+function roleHosts(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}]`));
+}
+
 describe("InlineMatchRenderer", () => {
-  it("mounts selected-map, aggregate, battery and extended-tier stats directly under every native card", () => {
+  it("mounts selected-map, aggregate, battery, role and extended-tier stats without removing native badges", () => {
     mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
     const match = matchContext();
     const renderer = new InlineMatchRenderer();
@@ -140,7 +166,7 @@ describe("InlineMatchRenderer", () => {
       status: "rendered",
       players: 10,
       teams: 2,
-      updated: 24,
+      updated: 34,
     });
     expect(playerHosts()).toHaveLength(10);
     expect(teamHosts()).toHaveLength(2);
@@ -161,6 +187,18 @@ describe("InlineMatchRenderer", () => {
     const batteryHost = document.querySelector<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}="alpha-one"]`);
     expect(nicknameContainer?.nextElementSibling).toBe(batteryHost);
     expect(batteryHost?.shadowRoot?.querySelector("[data-es-form-battery]")).not.toBeNull();
+
+    const nativeAvatar = nativeCard?.querySelector<HTMLImageElement>('img[class*="Avatar__Image-sc-"][aria-label="avatar"]');
+    const avatarHolder = nativeAvatar?.parentElement;
+    const roleHost = document.querySelector<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`);
+    expect(roleHost?.parentElement).toBe(avatarHolder);
+    expect(avatarHolder?.firstElementChild).toBe(roleHost);
+    expect(nativeAvatar?.style.getPropertyValue("display")).toBe("none");
+    expect(nativeAvatar?.style.getPropertyPriority("display")).toBe("important");
+    expect(nativeAvatar?.getAttribute("aria-hidden")).toBe("true");
+    expect(roleHost?.shadowRoot?.querySelector("[data-es-role]")).not.toBeNull();
+    expect(avatarHolder?.querySelector('[data-testid="membership badge"]')).not.toBeNull();
+    expect(avatarHolder?.querySelector('[data-testid="anti-cheat badge"]')).not.toBeNull();
 
     const nativeLevel = nativeCard?.querySelector<SVGSVGElement>('[class*="SkillIcon__StyledSvg-sc-"]');
     const tierHost = document.querySelector<HTMLElement>(`[${INLINE_TIER_ATTRIBUTE}="alpha-one"]`);
@@ -210,19 +248,147 @@ describe("InlineMatchRenderer", () => {
     const originalAlpha = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`) as HTMLElement;
     const originalBravo = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="bravo-one"]`) as HTMLElement;
     const originalHolder = originalAlpha.parentElement as HTMLElement;
+    const originalNativeAvatar = originalHolder.querySelector<HTMLImageElement>('img[class*="Avatar__Image-sc-"]') as HTMLImageElement;
     const template = document.createElement("template");
     template.innerHTML = nativePlayer("AlphaOne");
     const replacementHolder = template.content.firstElementChild as HTMLElement;
 
     originalHolder.replaceWith(replacementHolder);
 
-    expect(renderer.render(match, rows, maps, settings)).toMatchObject({ status: "rendered", updated: 3 });
+    expect(renderer.render(match, rows, maps, settings)).toMatchObject({ status: "rendered", updated: 4 });
     expect(document.querySelectorAll(`[${INLINE_PLAYER_ATTRIBUTE}]`)).toHaveLength(10);
     expect(batteryHosts()).toHaveLength(10);
     expect(tierHosts()).toHaveLength(2);
+    expect(roleHosts()).toHaveLength(10);
     expect(document.querySelector(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)).not.toBe(originalAlpha);
     expect(document.querySelector(`[${INLINE_PLAYER_ATTRIBUTE}="bravo-one"]`)).toBe(originalBravo);
     expect(replacementHolder.lastElementChild?.getAttribute(INLINE_PLAYER_ATTRIBUTE)).toBe("alpha-one");
+    const replacementAvatar = replacementHolder.querySelector<HTMLImageElement>('img[class*="Avatar__Image-sc-"]');
+    const replacementRole = replacementHolder.querySelector<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`);
+    expect(replacementRole?.parentElement).toBe(replacementAvatar?.parentElement);
+    expect(replacementAvatar?.style.getPropertyValue("display")).toBe("none");
+    expect(originalNativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(originalNativeAvatar.hasAttribute("aria-hidden")).toBe(false);
+  });
+
+  it("restores the exact native avatar state when player roles are disabled", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = matchRows(match);
+    const maps = playerMapRows(match);
+    const nativeAvatar = document.querySelector<HTMLImageElement>(
+      '[class*="Roster__Group-sc-left"] img[class*="Avatar__Image-sc-"][aria-label="avatar"]',
+    ) as HTMLImageElement;
+    nativeAvatar.style.setProperty("display", "inline-block", "important");
+    nativeAvatar.setAttribute("aria-hidden", "false");
+    const avatarHolder = nativeAvatar.parentElement as HTMLElement;
+    avatarHolder.title = "Native FACEIT avatar";
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, maps, settings);
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("none");
+    expect(nativeAvatar.style.getPropertyPriority("display")).toBe("important");
+    expect(nativeAvatar.getAttribute("aria-hidden")).toBe("true");
+    expect(avatarHolder.title).not.toBe("Native FACEIT avatar");
+
+    expect(renderer.render(match, rows, maps, {
+      ...settings,
+      showPlayerRoles: false,
+    })).toMatchObject({ status: "rendered" });
+    expect(roleHosts()).toHaveLength(0);
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("inline-block");
+    expect(nativeAvatar.style.getPropertyPriority("display")).toBe("important");
+    expect(nativeAvatar.getAttribute("aria-hidden")).toBe("false");
+    expect(avatarHolder.title).toBe("Native FACEIT avatar");
+  });
+
+  it("keeps the FACEIT avatar when fewer than 20 eligible matches are available", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    rows.set("alpha-one", (rows.get("alpha-one") ?? []).slice(0, 19));
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(match, rows, playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(roleHosts()).toHaveLength(9);
+    expect(document.querySelector(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`)).toBeNull();
+    const nativeAvatar = document.querySelector<HTMLImageElement>(
+      '[data-avatar-for="AlphaOne"]',
+    ) as HTMLImageElement;
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
+  });
+
+  it("supports FACEIT's default avatar icon while preserving its holder badges", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const image = document.querySelector<HTMLImageElement>('[data-avatar-for="AlphaOne"]') as HTMLImageElement;
+    const avatarHolder = image.parentElement as HTMLElement;
+    const defaultAvatar = document.createElement("i");
+    defaultAvatar.className = "Avatar__AvatarIcon-sc-fixture-1";
+    defaultAvatar.setAttribute("aria-label", "avatar");
+    defaultAvatar.dataset.avatarFor = "AlphaOne-default";
+    image.replaceWith(defaultAvatar);
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, matchRows(match), playerMapRows(match), settings);
+
+    const roleHost = document.querySelector<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`);
+    expect(roleHost?.parentElement).toBe(avatarHolder);
+    expect(defaultAvatar.style.getPropertyValue("display")).toBe("none");
+    expect(defaultAvatar.style.getPropertyPriority("display")).toBe("important");
+    expect(defaultAvatar.getAttribute("aria-hidden")).toBe("true");
+    expect(avatarHolder.querySelector('[data-testid="membership badge"]')).not.toBeNull();
+
+    renderer.destroy();
+    expect(defaultAvatar.style.getPropertyValue("display")).toBe("");
+    expect(defaultAvatar.hasAttribute("aria-hidden")).toBe(false);
+  });
+
+  it("keeps the FACEIT avatar when CSS drift makes its holder unsafe for an absolute overlay", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const nativeAvatar = document.querySelector<HTMLImageElement>('[data-avatar-for="AlphaOne"]') as HTMLImageElement;
+    const avatarHolder = nativeAvatar.parentElement as HTMLElement;
+    avatarHolder.style.position = "static";
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, matchRows(match), playerMapRows(match), settings);
+
+    expect(document.querySelector(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`)).toBeNull();
+    expect(roleHosts()).toHaveLength(9);
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
+    expect(playerHosts()).toHaveLength(10);
+    expect(batteryHosts()).toHaveLength(10);
+  });
+
+  it("fails closed for an ambiguous primary avatar and restores an already hidden native image", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = matchRows(match);
+    const maps = playerMapRows(match);
+    const renderer = new InlineMatchRenderer();
+    renderer.render(match, rows, maps, settings);
+    const nativeAvatar = document.querySelector<HTMLImageElement>('[data-avatar-for="AlphaOne"]') as HTMLImageElement;
+    const avatarHolder = nativeAvatar.parentElement as HTMLElement;
+    const duplicate = nativeAvatar.cloneNode(true) as HTMLImageElement;
+    duplicate.removeAttribute("style");
+    duplicate.removeAttribute("aria-hidden");
+    duplicate.dataset.avatarFor = "AlphaOne-duplicate";
+    avatarHolder.append(duplicate);
+
+    expect(renderer.render(match, rows, maps, settings)).toMatchObject({ status: "rendered", players: 10 });
+    expect(document.querySelector(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`)).toBeNull();
+    expect(roleHosts()).toHaveLength(9);
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
+    expect(duplicate.style.getPropertyValue("display")).toBe("");
+    expect(playerHosts()).toHaveLength(10);
+    expect(batteryHosts()).toHaveLength(10);
   });
 
   it("restores the native FACEIT level when the extended scale is disabled", () => {
@@ -315,6 +481,10 @@ describe("InlineMatchRenderer", () => {
     expect(teamHosts()).toHaveLength(0);
     expect(batteryHosts()).toHaveLength(0);
     expect(tierHosts()).toHaveLength(0);
+    expect(roleHosts()).toHaveLength(0);
+    const nativeAvatar = document.querySelector<HTMLImageElement>('[data-avatar-for="AlphaOne"]') as HTMLImageElement;
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
   });
 
   it("fails closed and removes stale stats when a nickname becomes ambiguous", () => {
@@ -337,6 +507,10 @@ describe("InlineMatchRenderer", () => {
     expect(teamHosts()).toHaveLength(0);
     expect(batteryHosts()).toHaveLength(0);
     expect(tierHosts()).toHaveLength(0);
+    expect(roleHosts()).toHaveLength(0);
+    const nativeAvatar = document.querySelector<HTMLImageElement>('[data-avatar-for="AlphaOne"]') as HTMLImageElement;
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
   });
 
   it("does not mount on an incomplete native roster contract", () => {
@@ -350,6 +524,7 @@ describe("InlineMatchRenderer", () => {
       reason: "roster-contract",
     });
     expect(playerHosts()).toHaveLength(0);
+    expect(roleHosts()).toHaveLength(0);
   });
 
   it("cleans up every owned player and team host on destroy", () => {
@@ -360,13 +535,18 @@ describe("InlineMatchRenderer", () => {
     const nativeLevel = document.querySelector<SVGSVGElement>(
       '[class*="Roster__Group-sc-left"] [class*="SkillIcon__StyledSvg-sc-"]',
     ) as SVGSVGElement;
+    const nativeAvatar = document.querySelector<HTMLImageElement>('[data-avatar-for="AlphaOne"]') as HTMLImageElement;
     expect(nativeLevel.style.getPropertyValue("display")).toBe("none");
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("none");
     renderer.destroy();
     expect(playerHosts()).toHaveLength(0);
     expect(teamHosts()).toHaveLength(0);
     expect(batteryHosts()).toHaveLength(0);
     expect(tierHosts()).toHaveLength(0);
+    expect(roleHosts()).toHaveLength(0);
     expect(nativeLevel.style.getPropertyValue("display")).toBe("");
     expect(nativeLevel.hasAttribute("aria-hidden")).toBe(false);
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
   });
 });

@@ -12,6 +12,7 @@ describe("extension settings", () => {
     const settings = createDefaultSettings();
     expect(settings.statsWindow).toBe(30);
     expect(settings.showExtendedTier).toBe(false);
+    expect(settings.showPlayerRoles).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
       profile: true,
       history: true,
@@ -31,11 +32,13 @@ describe("extension settings", () => {
     const settings = parseSettings({
       statsWindow: 17,
       showExtendedTier: "yes",
+      showPlayerRoles: "yes",
       interfaceVisibility: { profile: false, history: "no", matchRoom: true },
       automations: { partyAccept: "yes", readyUp: 1, autoConnect: true }
     });
     expect(settings.statsWindow).toBe(30);
     expect(settings.showExtendedTier).toBe(false);
+    expect(settings.showPlayerRoles).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
       history: true,
@@ -44,6 +47,11 @@ describe("extension settings", () => {
     expect(settings.automations.partyAccept).toBe(false);
     expect(settings.automations.readyUp).toBe(false);
     expect(settings.automations.autoConnect).toBe(true);
+  });
+
+  it("migrates legacy settings to enabled roles and preserves an explicit opt-out", () => {
+    expect(parseSettings({ statsWindow: 50 }).showPlayerRoles).toBe(true);
+    expect(parseSettings({ showPlayerRoles: false }).showPlayerRoles).toBe(false);
   });
 
   it("adds a sanitized dynamic map pool without mutating the source", () => {
@@ -98,6 +106,7 @@ describe("extension settings", () => {
     const settings = settingsWithPositionMaps(createDefaultSettings(), ["mirage"]);
     settings.statsWindow = 50;
     settings.showExtendedTier = true;
+    settings.showPlayerRoles = false;
     settings.interfaceVisibility.matchRoom = false;
     settings.automations.positions.mirage = {
       enabled: true,

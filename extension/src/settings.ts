@@ -10,6 +10,7 @@ import { STATS_WINDOWS, isStatsWindow } from "./protocol";
 export type ExtensionSettings = {
   statsWindow: StatsWindow;
   showExtendedTier: boolean;
+  showPlayerRoles: boolean;
   interfaceVisibility: {
     profile: boolean;
     history: boolean;
@@ -106,6 +107,7 @@ export function createDefaultSettings(): ExtensionSettings {
   return {
     statsWindow: 30,
     showExtendedTier: false,
+    showPlayerRoles: true,
     interfaceVisibility: {
       profile: true,
       history: true,
@@ -130,6 +132,9 @@ export function parseSettings(value: unknown): ExtensionSettings {
   return {
     statsWindow: isStatsWindow(value.statsWindow) ? value.statsWindow : defaults.statsWindow,
     showExtendedTier: typeof value.showExtendedTier === "boolean" ? value.showExtendedTier : false,
+    showPlayerRoles: typeof value.showPlayerRoles === "boolean"
+      ? value.showPlayerRoles
+      : defaults.showPlayerRoles,
     interfaceVisibility: {
       profile: typeof interfaceVisibility.profile === "boolean"
         ? interfaceVisibility.profile

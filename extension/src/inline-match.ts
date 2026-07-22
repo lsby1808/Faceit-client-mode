@@ -1,6 +1,7 @@
 import {
   aggregatePlayerMatches,
   calculateFormBattery,
+  classifyPlayerRole,
   eligibleMatches,
   getEloTier,
   type FormBattery,
@@ -9,6 +10,7 @@ import {
   type Player,
   type PlayerMapStats,
   type PlayerMatch,
+  type PlayerRole,
   type StatsWindow,
 } from "@eloscope/core";
 
@@ -19,11 +21,15 @@ const NICKNAME_SLOT_SELECTOR = '[class*="styles__NicknameContainer-sc-"]';
 const PLAYER_CARD_SELECTOR = '[class*="ListContentPlayer__Background-sc-"]';
 const PLAYER_HOLDER_SELECTOR = '[class*="styles__Holder-sc-"]';
 const PLAYER_LEVEL_SELECTOR = '[class*="SkillIcon__StyledSvg-sc-"]';
+const AVATAR_HOLDER_SELECTOR = '[class*="Avatar__AvatarHolder-sc-"]';
+const AVATAR_IMAGE_SELECTOR =
+  'img[class*="Avatar__Image-sc-"][aria-label="avatar"], i[class*="Avatar__AvatarIcon-sc-"][aria-label="avatar"]';
 
 export const INLINE_PLAYER_ATTRIBUTE = "data-eloscope-inline-player";
 export const INLINE_TEAM_ATTRIBUTE = "data-eloscope-inline-team";
 export const INLINE_BATTERY_ATTRIBUTE = "data-eloscope-inline-battery";
 export const INLINE_TIER_ATTRIBUTE = "data-eloscope-inline-tier";
+export const INLINE_ROLE_ATTRIBUTE = "data-eloscope-inline-role";
 
 const PLAYER_STYLES = `
   :host {
@@ -153,6 +159,53 @@ const TIER_STYLES = `
   .tier:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 `;
 
+const ROLE_STYLES = `
+  :host {
+    color-scheme: dark;
+    position: absolute !important;
+    inset: 0 !important;
+    z-index: 0;
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none !important;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  .role {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    grid-template-rows: minmax(0, 1fr) auto;
+    place-items: center;
+    gap: 0;
+    padding: 3px 2px 2px;
+    background: #080a0d;
+    background: radial-gradient(circle at 50% 38%, color-mix(in srgb, currentColor 15%, #11151a), #080a0d 72%);
+    color: var(--es-role-color);
+  }
+  svg {
+    display: block;
+    width: min(64%, 25px);
+    height: min(64%, 25px);
+    overflow: visible;
+  }
+  .label {
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--es-role-color);
+    font-size: clamp(6px, 18%, 8px);
+    font-weight: 900;
+    letter-spacing: .04em;
+    line-height: 1;
+    text-overflow: clip;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+`;
+
 const TEAM_STYLES = `
   :host {
     color-scheme: dark;
@@ -187,6 +240,7 @@ const TEAM_STYLES = `
 export type InlineMatchSettings = Readonly<{
   statsWindow: StatsWindow;
   showExtendedTier: boolean;
+  showPlayerRoles: boolean;
 }>;
 
 export type InlineMatchFailure =
@@ -208,6 +262,8 @@ type PlayerAnchor = Readonly<{
   nicknameContainer?: HTMLElement;
   nicknameSlot?: HTMLElement;
   nativeLevel?: SVGSVGElement;
+  avatarHolder?: HTMLElement;
+  nativeAvatar?: HTMLElement;
 }>;
 
 type TeamAnchor = Readonly<{
@@ -231,6 +287,15 @@ type TierMount = Mount & {
   previousAriaHidden: string | null;
 };
 
+type RoleMount = Mount & {
+  avatarHolder: HTMLElement;
+  nativeAvatar: HTMLElement;
+  previousDisplay: string;
+  previousDisplayPriority: string;
+  previousAriaHidden: string | null;
+  previousTitle: string | null;
+};
+
 function normalizedNickname(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("en-US");
 }
@@ -244,6 +309,20 @@ function isRendered(element: Element): boolean {
     if (style?.display === "none" || style?.visibility === "hidden") return false;
   }
   return true;
+}
+
+function isSafeAvatarOverlayHolder(element: HTMLElement): boolean {
+  const view = element.ownerDocument.defaultView;
+  const style = view?.getComputedStyle(element);
+  if (!style || !style.position || style.position === "static") return false;
+  const rect = element.getBoundingClientRect();
+  const width = rect.width > 0 ? rect.width : Number.parseFloat(style.width);
+  const height = rect.height > 0 ? rect.height : Number.parseFloat(style.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 24 || height < 24 || width > 96 || height > 96) {
+    return false;
+  }
+  const ratio = width / height;
+  return ratio >= 0.75 && ratio <= 1.25;
 }
 
 function format(value: number | undefined, digits = 1): string {
@@ -355,6 +434,91 @@ function renderTier(shadow: ShadowRoot, player: Player, level: number): void {
     `EloScope level ${level}, официальный FACEIT level ${player.officialLevel ?? "неизвестен"}`,
   );
   shadow.replaceChildren(style, tier);
+}
+
+const ROLE_PRESENTATION: Record<PlayerRole, Readonly<{ label: string; color: string }>> = {
+  sniper: { label: "SNIPER", color: "#d84cff" },
+  entry: { label: "ENTRY", color: "#ff7a1a" },
+  support: { label: "SUPPORT", color: "#24c9f4" },
+  anchor: { label: "ANCHOR", color: "#21db79" },
+  rifler: { label: "RIFLER", color: "#3d9cff" },
+};
+
+function roleTitle(role: PlayerRole, confidence: number): string {
+  const percent = Math.round(confidence <= 1 ? confidence * 100 : confidence);
+  return `Предполагаемая роль: ${ROLE_PRESENTATION[role].label} · последние 20 матчей · уверенность ${percent}%`;
+}
+
+function svgNode<K extends keyof SVGElementTagNameMap>(
+  ownerDocument: Document,
+  tag: K,
+  attributes: Readonly<Record<string, string | number>>,
+): SVGElementTagNameMap[K] {
+  const node = ownerDocument.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
+  return node;
+}
+
+function roleIcon(ownerDocument: Document, role: PlayerRole): SVGSVGElement {
+  const svg = svgNode(ownerDocument, "svg", {
+    viewBox: "0 0 32 32",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": 2.2,
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+  });
+  if (role === "sniper") {
+    svg.append(
+      svgNode(ownerDocument, "circle", { cx: 16, cy: 15, r: 7 }),
+      svgNode(ownerDocument, "circle", { cx: 16, cy: 15, r: 1.6, fill: "currentColor", stroke: "none" }),
+      svgNode(ownerDocument, "path", { d: "M16 3v6M16 21v7M4 15h6M22 15h6" }),
+    );
+  } else if (role === "entry") {
+    svg.append(
+      svgNode(ownerDocument, "path", { d: "M6 26 16 5l10 21M11 26l5-11 5 11" }),
+      svgNode(ownerDocument, "path", { d: "M16 5v10" }),
+    );
+  } else if (role === "support") {
+    svg.append(
+      svgNode(ownerDocument, "circle", { cx: 16, cy: 15, r: 5 }),
+      svgNode(ownerDocument, "circle", { cx: 7, cy: 22, r: 3 }),
+      svgNode(ownerDocument, "circle", { cx: 25, cy: 22, r: 3 }),
+      svgNode(ownerDocument, "path", { d: "M12 18 9 20M20 18l3 2M16 11V5M13 8h6" }),
+    );
+  } else if (role === "anchor") {
+    svg.append(
+      svgNode(ownerDocument, "path", { d: "M16 3 27 8v8c0 7-5 10-11 13C10 26 5 23 5 16V8Z" }),
+      svgNode(ownerDocument, "path", { d: "M16 8v13M11 21h10" }),
+    );
+  } else {
+    svg.append(
+      svgNode(ownerDocument, "circle", { cx: 16, cy: 15, r: 6 }),
+      svgNode(ownerDocument, "path", { d: "M16 3v6M16 21v7M4 15h6M22 15h6M8 7l4 4M24 7l-4 4" }),
+    );
+  }
+  return svg;
+}
+
+function renderRole(shadow: ShadowRoot, role: PlayerRole, confidence: number): string {
+  const presentation = ROLE_PRESENTATION[role];
+  const title = roleTitle(role, confidence);
+  const ownerDocument = shadow.ownerDocument;
+  const style = ownerDocument.createElement("style");
+  style.textContent = ROLE_STYLES;
+  const tile = ownerDocument.createElement("span");
+  tile.className = "role";
+  tile.dataset.esRole = role;
+  tile.style.setProperty("--es-role-color", presentation.color);
+  tile.setAttribute("role", "img");
+  tile.setAttribute("aria-label", title);
+  const label = ownerDocument.createElement("span");
+  label.className = "label";
+  label.textContent = presentation.label;
+  tile.append(roleIcon(ownerDocument, role), label);
+  shadow.replaceChildren(style, tile);
+  return title;
 }
 
 function matchRowsSignature(rows: readonly PlayerMatch[]): readonly unknown[] {
@@ -499,6 +663,7 @@ export class InlineMatchRenderer {
   readonly #teamMounts = new Map<string, Mount>();
   readonly #batteryMounts = new Map<string, Mount>();
   readonly #tierMounts = new Map<string, TierMount>();
+  readonly #roleMounts = new Map<string, RoleMount>();
 
   constructor(ownerDocument: Document = document) {
     this.#document = ownerDocument;
@@ -522,6 +687,7 @@ export class InlineMatchRenderer {
     this.#removeStale(this.#teamMounts, expectedTeamIds);
     this.#removeStale(this.#batteryMounts, expectedPlayerIds);
     this.#removeStaleTiers(expectedPlayerIds);
+    this.#removeStaleRoles(expectedPlayerIds);
     this.#removeOrphans(expectedPlayerIds, expectedTeamIds);
 
     let updated = 0;
@@ -572,6 +738,7 @@ export class InlineMatchRenderer {
         }
         updated += this.#syncBattery(anchor, rows);
         updated += this.#syncTier(anchor, settings);
+        updated += this.#syncRole(anchor, rows, settings);
       }
     }
 
@@ -588,12 +755,14 @@ export class InlineMatchRenderer {
     for (const mount of this.#teamMounts.values()) mount.host.remove();
     for (const mount of this.#batteryMounts.values()) mount.host.remove();
     for (const mount of this.#tierMounts.values()) this.#removeTierMount(mount);
+    for (const mount of this.#roleMounts.values()) this.#removeRoleMount(mount);
     this.#playerMounts.clear();
     this.#teamMounts.clear();
     this.#batteryMounts.clear();
     this.#tierMounts.clear();
+    this.#roleMounts.clear();
     this.#document.querySelectorAll(
-      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}]`,
+      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}]`,
     )
       .forEach((host) => host.remove());
   }
@@ -705,6 +874,86 @@ export class InlineMatchRenderer {
     mount.host.remove();
   }
 
+  #syncRole(anchor: PlayerAnchor, rows: readonly PlayerMatch[], settings: InlineMatchSettings): number {
+    const id = anchor.player.id;
+    const analysis = settings.showPlayerRoles ? classifyPlayerRole(rows) : undefined;
+    if (
+      analysis?.status !== "known"
+      || !anchor.avatarHolder
+      || !anchor.nativeAvatar
+      || anchor.nativeAvatar.parentElement !== anchor.avatarHolder
+    ) {
+      const existing = this.#roleMounts.get(id);
+      if (!existing) return 0;
+      this.#removeRoleMount(existing);
+      this.#roleMounts.delete(id);
+      return 1;
+    }
+
+    const signature = JSON.stringify(analysis);
+    let mount = this.#roleMounts.get(id);
+    let updated = 0;
+    if (
+      !mount
+      || !mount.host.isConnected
+      || mount.host.parentElement !== anchor.avatarHolder
+      || mount.avatarHolder !== anchor.avatarHolder
+      || mount.nativeAvatar !== anchor.nativeAvatar
+    ) {
+      if (mount) this.#removeRoleMount(mount);
+      const host = this.#document.createElement("span");
+      host.setAttribute(INLINE_ROLE_ATTRIBUTE, id);
+      const shadow = host.attachShadow({ mode: "open" });
+      mount = {
+        host,
+        signature: "",
+        avatarHolder: anchor.avatarHolder,
+        nativeAvatar: anchor.nativeAvatar,
+        previousDisplay: anchor.nativeAvatar.style.getPropertyValue("display"),
+        previousDisplayPriority: anchor.nativeAvatar.style.getPropertyPriority("display"),
+        previousAriaHidden: anchor.nativeAvatar.getAttribute("aria-hidden"),
+        previousTitle: anchor.avatarHolder.getAttribute("title"),
+      };
+      this.#roleMounts.set(id, mount);
+      renderRole(shadow, analysis.role, analysis.confidence);
+      mount.signature = signature;
+      updated = 1;
+    } else if (mount.signature !== signature) {
+      renderRole(mount.host.shadowRoot as ShadowRoot, analysis.role, analysis.confidence);
+      mount.signature = signature;
+      updated = 1;
+    }
+
+    const title = roleTitle(analysis.role, analysis.confidence);
+    if (mount.avatarHolder.getAttribute("title") !== title) mount.avatarHolder.setAttribute("title", title);
+    if (
+      mount.nativeAvatar.style.getPropertyValue("display") !== "none"
+      || mount.nativeAvatar.style.getPropertyPriority("display") !== "important"
+    ) {
+      mount.nativeAvatar.style.setProperty("display", "none", "important");
+    }
+    if (mount.nativeAvatar.getAttribute("aria-hidden") !== "true") {
+      mount.nativeAvatar.setAttribute("aria-hidden", "true");
+    }
+    if (mount.avatarHolder.firstElementChild !== mount.host) {
+      mount.avatarHolder.insertBefore(mount.host, mount.avatarHolder.firstElementChild);
+    }
+    return updated;
+  }
+
+  #removeRoleMount(mount: RoleMount): void {
+    if (mount.previousDisplay) {
+      mount.nativeAvatar.style.setProperty("display", mount.previousDisplay, mount.previousDisplayPriority);
+    } else {
+      mount.nativeAvatar.style.removeProperty("display");
+    }
+    if (mount.previousAriaHidden === null) mount.nativeAvatar.removeAttribute("aria-hidden");
+    else mount.nativeAvatar.setAttribute("aria-hidden", mount.previousAriaHidden);
+    if (mount.previousTitle === null) mount.avatarHolder.removeAttribute("title");
+    else mount.avatarHolder.setAttribute("title", mount.previousTitle);
+    mount.host.remove();
+  }
+
   #nativeLevelMatchesPlayer(nativeLevel: SVGSVGElement, player: Player): boolean {
     const expectedLevel = player.officialLevel
       ?? (player.elo === undefined ? undefined : getEloTier(player.elo, false));
@@ -782,6 +1031,19 @@ export class InlineMatchRenderer {
         const nativeLevel = nativeLevels.length === 1 && this.#nativeLevelMatchesPlayer(nativeLevels[0] as SVGSVGElement, player)
           ? nativeLevels[0]
           : undefined;
+        const mountedNativeAvatar = this.#roleMounts.get(player.id)?.nativeAvatar;
+        const avatarPairs = Array.from(card.querySelectorAll<HTMLElement>(AVATAR_HOLDER_SELECTOR))
+          .filter((avatarHolder) => isRendered(avatarHolder) && isSafeAvatarOverlayHolder(avatarHolder))
+          .flatMap((avatarHolder) => {
+            const nativeAvatars = Array.from(avatarHolder.children)
+              .filter((candidate): candidate is HTMLElement => candidate instanceof HTMLElement)
+              .filter((candidate) => candidate.matches(AVATAR_IMAGE_SELECTOR))
+              .filter((candidate) => candidate === mountedNativeAvatar || isRendered(candidate));
+            return nativeAvatars.length === 1
+              ? [{ avatarHolder, nativeAvatar: nativeAvatars[0] as HTMLElement }]
+              : [];
+          });
+        const avatarPair = avatarPairs.length === 1 ? avatarPairs[0] : undefined;
         players.push({
           player,
           card,
@@ -789,6 +1051,7 @@ export class InlineMatchRenderer {
           ...(nicknameContainer ? { nicknameContainer } : {}),
           ...(nicknameSlot ? { nicknameSlot } : {}),
           ...(nativeLevel ? { nativeLevel } : {}),
+          ...(avatarPair ? avatarPair : {}),
         });
       }
       const parent = players[0]?.holder.parentElement;
@@ -821,11 +1084,20 @@ export class InlineMatchRenderer {
     }
   }
 
+  #removeStaleRoles(expectedIds: ReadonlySet<string>): void {
+    for (const [id, mount] of this.#roleMounts) {
+      if (expectedIds.has(id)) continue;
+      this.#removeRoleMount(mount);
+      this.#roleMounts.delete(id);
+    }
+  }
+
   #removeOrphans(expectedPlayerIds: ReadonlySet<string>, expectedTeamIds: ReadonlySet<string>): void {
     const playerHosts = new Set(Array.from(this.#playerMounts.values(), ({ host }) => host));
     const teamHosts = new Set(Array.from(this.#teamMounts.values(), ({ host }) => host));
     const batteryHosts = new Set(Array.from(this.#batteryMounts.values(), ({ host }) => host));
     const tierHosts = new Set(Array.from(this.#tierMounts.values(), ({ host }) => host));
+    const roleHosts = new Set(Array.from(this.#roleMounts.values(), ({ host }) => host));
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_PLAYER_ATTRIBUTE);
       if (!id || !expectedPlayerIds.has(id) || !playerHosts.has(host)) host.remove();
@@ -841,6 +1113,10 @@ export class InlineMatchRenderer {
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_TIER_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_TIER_ATTRIBUTE);
       if (!id || !expectedPlayerIds.has(id) || !tierHosts.has(host)) host.remove();
+    });
+    this.#document.querySelectorAll<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}]`).forEach((host) => {
+      const id = host.getAttribute(INLINE_ROLE_ATTRIBUTE);
+      if (!id || !expectedPlayerIds.has(id) || !roleHosts.has(host)) host.remove();
     });
   }
 }

@@ -448,6 +448,15 @@ export class EloScopeSettingsPanel {
         if (this.#draft) this.#draft = { ...this.#draft, showExtendedTier: checked };
       }
     ));
+    grid.append(this.#switchRow(
+      "Иконки ролей вместо аватаров",
+      "Расчётная роль по 20 последним завершённым CS2 5v5; при недостатке данных аватар сохраняется",
+      settings.showPlayerRoles,
+      "show-player-roles",
+      (checked) => {
+        if (this.#draft) this.#draft = { ...this.#draft, showPlayerRoles: checked };
+      }
+    ));
     const visibilityRows: Array<{
       key: keyof ExtensionSettings["interfaceVisibility"];
       title: string;
