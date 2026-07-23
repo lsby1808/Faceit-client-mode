@@ -23,6 +23,7 @@ const EXPLICIT_MAP_SELECTORS = [
 
 export const INLINE_MAP_WINRATE_ATTRIBUTE = "data-eloscope-inline-map-winrates";
 export const INLINE_SELECTED_MAP_WINS_ATTRIBUTE = "data-eloscope-selected-map-wins";
+export const INLINE_MAP_CARD_WINRATE_ATTRIBUTE = "data-eloscope-map-card-winrate";
 
 const CHART_STYLES = `
   :host {
@@ -255,16 +256,76 @@ const SELECTED_WINS_STYLES = `
   }
 `;
 
+const MAP_CARD_WINRATE_STYLES = `
+  :host {
+    color-scheme: dark;
+    display: block !important;
+    min-width: 132px;
+    margin-left: auto;
+    pointer-events: none !important;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  .card-wr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    padding: 2px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .team {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 10px;
+    font-weight: 900;
+    line-height: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .team.left { color: #ff8b49; text-align: right; }
+  .team.right { color: #68ddf8; text-align: left; }
+  .vs {
+    color: #8f969f;
+    font-size: 7px;
+    font-weight: 900;
+    letter-spacing: .06em;
+  }
+  .meta {
+    grid-column: 1 / -1;
+    overflow: hidden;
+    color: #8f969f;
+    font-size: 7px;
+    font-weight: 800;
+    line-height: 9px;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+`;
+
 type ChartAnchor = Readonly<{
+  kind: "selected";
   container: HTMLElement;
   after: HTMLElement;
   selected: HTMLElement;
 }>;
 
+type VotingChartAnchor = Readonly<{
+  kind: "voting";
+  container: HTMLElement;
+  after: HTMLElement;
+  cards: ReadonlyMap<string, HTMLElement>;
+}>;
+
+type AnyChartAnchor = ChartAnchor | VotingChartAnchor;
+
 type ChartMount = {
   host: HTMLElement;
   winsHost: HTMLElement;
-  anchor: ChartAnchor;
+  cardHosts: HTMLElement[];
+  anchor: AnyChartAnchor;
   signature: string;
 };
 
@@ -325,6 +386,89 @@ function directChildWithin(element: HTMLElement, container: HTMLElement): HTMLEl
   return current.parentElement === container ? current : undefined;
 }
 
+function cssString(value: string): string {
+  return value.replace(/["\\]/gu, "\\$&");
+}
+
+function explicitVotingMapSelector(map: string): string {
+  const value = cssString(map);
+  return [
+    `[data-testid="veto-map-${value}"]`,
+    `[data-eloscope-contract="veto-map"][data-map-id="${value}"]`,
+    `[data-map-id="${value}"]`,
+  ].join(", ");
+}
+
+function normalizedElementText(element: HTMLElement): string | undefined {
+  const text = element.textContent?.replace(/\s+/gu, " ").trim();
+  return text ? domMapId(text) : undefined;
+}
+
+function isMapCardCandidate(element: HTMLElement, expectedMap: string): boolean {
+  if (
+    element === element.ownerDocument.body
+    || element === element.ownerDocument.documentElement
+    || ["SCRIPT", "STYLE", "OPTION", "SELECT"].includes(element.tagName)
+  ) return false;
+  if (!isRendered(element) || !hasRenderedBox(element)) return false;
+
+  const explicitMap = element.dataset.mapId
+    ?? element.dataset.map
+    ?? element.dataset.testid?.replace(/^veto-map-/u, "").split("-")[0];
+  if (domMapId(explicitMap) === expectedMap) return true;
+  if (normalizedElementText(element) !== expectedMap) return false;
+
+  // Prefer the smallest visible node that names the map. This keeps the
+  // fallback from selecting the whole center column when a child card exists.
+  return !Array.from(element.children).some((child) =>
+    child instanceof HTMLElement
+    && isRendered(child)
+    && hasRenderedBox(child)
+    && normalizedElementText(child) === expectedMap);
+}
+
+function uniqueVotingCardForMap(ownerDocument: Document, map: string): HTMLElement | undefined {
+  const explicit = Array.from(ownerDocument.querySelectorAll<HTMLElement>(explicitVotingMapSelector(map)))
+    .filter((candidate) => isMapCardCandidate(candidate, map));
+  if (explicit.length === 1) return explicit[0];
+  if (explicit.length > 1) return undefined;
+
+  const textMatches = Array.from(ownerDocument.querySelectorAll<HTMLElement>("button, [role='button'], li, div, article, section"))
+    .filter((candidate) => isMapCardCandidate(candidate, map));
+  return textMatches.length === 1 ? textMatches[0] : undefined;
+}
+
+function discoverVotingChartAnchor(ownerDocument: Document, match: MatchContext): VotingChartAnchor | undefined {
+  if (match.teams.length !== 2 || match.mapPool.length === 0) return undefined;
+  const uniqueMaps = [...new Set(match.mapPool
+    .map((map) => domMapId(map))
+    .filter((map): map is string => map !== undefined))];
+  if (uniqueMaps.length === 0) return undefined;
+
+  const cards = new Map<string, HTMLElement>();
+  for (const map of uniqueMaps) {
+    const card = uniqueVotingCardForMap(ownerDocument, map);
+    if (!card || cards.has(map)) return undefined;
+    cards.set(map, card);
+  }
+  const uniqueCards = uniqueElements([...cards.values()]);
+  if (uniqueCards.length !== cards.size) return undefined;
+  const parent = uniqueCards[0]?.parentElement;
+  if (
+    !parent
+    || parent === ownerDocument.body
+    || parent === ownerDocument.documentElement
+    || uniqueCards.some((card) => card.parentElement !== parent)
+  ) return undefined;
+
+  return {
+    kind: "voting",
+    container: parent,
+    after: uniqueCards[uniqueCards.length - 1] as HTMLElement,
+    cards,
+  };
+}
+
 function discoverChartAnchor(ownerDocument: Document, match: MatchContext): ChartAnchor | undefined {
   const expectedMap = domMapId(match.selectedMap);
   if (!expectedMap || match.teams.length !== 2) return undefined;
@@ -354,7 +498,7 @@ function discoverChartAnchor(ownerDocument: Document, match: MatchContext): Char
       || (!declaredContainer && action.parentElement !== container)
     ) return undefined;
     const after = directChildWithin(action, container);
-    return after ? { container, after, selected } : undefined;
+    return after ? { kind: "selected", container, after, selected } : undefined;
   }
 
   if (domMapId(selected.textContent ?? undefined) !== expectedMap) return undefined;
@@ -373,7 +517,7 @@ function discoverChartAnchor(ownerDocument: Document, match: MatchContext): Char
   ) return undefined;
   if (!finished.contains(action)) return undefined;
   const after = directChildWithin(action, finished);
-  return after ? { container: finished, after, selected } : undefined;
+  return after ? { kind: "selected", container: finished, after, selected } : undefined;
 }
 
 function teamName(comparison: MapWinRateComparison, index: number, match: MatchContext): string {
@@ -565,7 +709,7 @@ function chartRow(
   ownerDocument: Document,
   comparison: MapWinRateComparison,
   match: MatchContext,
-  selectedMap: string,
+  selectedMap: string | undefined,
 ): HTMLElement | undefined {
   const left = comparison.teams[0];
   const right = comparison.teams[1];
@@ -584,7 +728,7 @@ function chartRow(
   map.className = "map";
   map.textContent = comparison.map;
   head.append(map);
-  if (domMapId(comparison.map) === selectedMap) {
+  if (selectedMap && domMapId(comparison.map) === selectedMap) {
     const selected = ownerDocument.createElement("span");
     selected.className = "selected";
     selected.textContent = "выбрана";
@@ -658,7 +802,7 @@ function renderChart(
 
   const rows = ownerDocument.createElement("div");
   rows.className = "rows";
-  const selectedMap = domMapId(match.selectedMap) as string;
+  const selectedMap = domMapId(match.selectedMap);
   for (const comparison of comparisons) {
     const row = chartRow(ownerDocument, comparison, match, selectedMap);
     if (row) rows.append(row);
@@ -684,6 +828,43 @@ function renderSelectedWins(
   shadow.replaceChildren(style, ...(summary ? [summary] : []));
 }
 
+function renderMapCardWinRate(
+  shadow: ShadowRoot,
+  comparison: MapWinRateComparison,
+): void {
+  const ownerDocument = shadow.ownerDocument;
+  const style = ownerDocument.createElement("style");
+  style.textContent = MAP_CARD_WINRATE_STYLES;
+  const left = comparison.teams[0];
+  const right = comparison.teams[1];
+  if (!left || !right) {
+    shadow.replaceChildren(style);
+    return;
+  }
+
+  const summary = ownerDocument.createElement("section");
+  summary.className = "card-wr";
+  summary.dataset.esCardMapWinrate = comparison.map;
+  summary.setAttribute(
+    "aria-label",
+    `${comparison.map}: ${formatRate(left)} РїСЂРѕС‚РёРІ ${formatRate(right)}`,
+  );
+  const leftRate = ownerDocument.createElement("strong");
+  leftRate.className = "team left";
+  leftRate.textContent = formatRate(left);
+  const versus = ownerDocument.createElement("span");
+  versus.className = "vs";
+  versus.textContent = "VS";
+  const rightRate = ownerDocument.createElement("strong");
+  rightRate.className = "team right";
+  rightRate.textContent = formatRate(right);
+  const meta = ownerDocument.createElement("span");
+  meta.className = "meta";
+  meta.textContent = `${left.knownPlayers}/${left.totalPlayers} · ${right.knownPlayers}/${right.totalPlayers}`;
+  summary.append(leftRate, versus, rightRate, meta);
+  shadow.replaceChildren(style, summary);
+}
+
 /**
  * Mounts a fail-closed total inside the selected-map card and the comparison
  * chart below FACEIT's connect/back-to-matchmaking action. It never guesses
@@ -706,7 +887,8 @@ export class MatchMapWinRateChartRenderer {
   ): MapWinRateChartRenderResult {
     const perspective = matchFromViewerPerspective(match, viewerTeamId);
     const visibleMatch = perspective.match;
-    const anchor = discoverChartAnchor(this.#document, visibleMatch);
+    const anchor = discoverChartAnchor(this.#document, visibleMatch)
+      ?? discoverVotingChartAnchor(this.#document, visibleMatch);
     if (!anchor) {
       const updated = this.cleanup();
       return { status: "incompatible", updated };
@@ -723,6 +905,7 @@ export class MatchMapWinRateChartRenderer {
       viewerTeamId: perspective.viewerTeamId,
       window,
       showSelectedWins,
+      anchorKind: anchor.kind,
       teamNames: visibleMatch.teams.map(({ id, name }) => [id, name]),
       comparisons,
     });
@@ -732,35 +915,39 @@ export class MatchMapWinRateChartRenderer {
     if (
       !mount
       || !mount.host.isConnected
-      || !mount.winsHost.isConnected
-      || mount.anchor.container !== anchor.container
-      || mount.anchor.after !== anchor.after
-      || mount.anchor.selected !== anchor.selected
+      || !this.#sameAnchor(mount.anchor, anchor)
       || mount.host.parentElement !== anchor.container
-      || mount.winsHost.parentElement !== anchor.selected
     ) {
       mount?.host.remove();
       mount?.winsHost.remove();
+      mount?.cardHosts.forEach((host) => host.remove());
       const host = this.#document.createElement("div");
       host.setAttribute(INLINE_MAP_WINRATE_ATTRIBUTE, visibleMatch.id);
+      host.dataset.eloscopeMapWinrateMode = anchor.kind;
+      if (anchor.kind === "voting") host.style.gridColumn = "1 / -1";
       const shadow = host.attachShadow({ mode: "open" });
       renderChart(shadow, visibleMatch, comparisons, window);
       const winsHost = this.#document.createElement("span");
       winsHost.setAttribute(INLINE_SELECTED_MAP_WINS_ATTRIBUTE, visibleMatch.id);
       const winsShadow = winsHost.attachShadow({ mode: "open" });
-      if (showSelectedWins) {
+      if (anchor.kind === "selected" && showSelectedWins) {
         renderSelectedWins(winsShadow, visibleMatch, comparisons, perspective.viewerTeamId);
       }
-      winsHost.hidden = !showSelectedWins;
-      winsHost.setAttribute("aria-hidden", String(!showSelectedWins));
-      mount = { host, winsHost, anchor, signature };
+      winsHost.hidden = anchor.kind !== "selected" || !showSelectedWins;
+      winsHost.setAttribute("aria-hidden", String(anchor.kind !== "selected" || !showSelectedWins));
+      const cardHosts = anchor.kind === "voting"
+        ? this.#createCardHosts(anchor, visibleMatch.id, comparisons)
+        : [];
+      mount = { host, winsHost, cardHosts, anchor, signature };
       this.#mount = mount;
       updated = 1;
     } else if (mount.signature !== signature) {
       mount.host.setAttribute(INLINE_MAP_WINRATE_ATTRIBUTE, visibleMatch.id);
+      mount.host.dataset.eloscopeMapWinrateMode = anchor.kind;
+      mount.host.style.gridColumn = anchor.kind === "voting" ? "1 / -1" : "";
       renderChart(mount.host.shadowRoot as ShadowRoot, visibleMatch, comparisons, window);
       mount.winsHost.setAttribute(INLINE_SELECTED_MAP_WINS_ATTRIBUTE, visibleMatch.id);
-      if (showSelectedWins) {
+      if (anchor.kind === "selected" && showSelectedWins) {
         renderSelectedWins(
           mount.winsHost.shadowRoot as ShadowRoot,
           visibleMatch,
@@ -770,34 +957,55 @@ export class MatchMapWinRateChartRenderer {
       } else {
         mount.winsHost.shadowRoot?.replaceChildren();
       }
-      mount.winsHost.hidden = !showSelectedWins;
-      mount.winsHost.setAttribute("aria-hidden", String(!showSelectedWins));
+      mount.winsHost.hidden = anchor.kind !== "selected" || !showSelectedWins;
+      mount.winsHost.setAttribute("aria-hidden", String(anchor.kind !== "selected" || !showSelectedWins));
+      if (anchor.kind === "voting") {
+        this.#updateCardHosts(mount.cardHosts, anchor, visibleMatch.id, comparisons);
+      } else {
+        mount.cardHosts.forEach((host) => host.remove());
+        mount.cardHosts = [];
+      }
+      mount.anchor = anchor;
       mount.signature = signature;
       updated = 1;
     }
 
-    if (mount.winsHost.parentElement !== anchor.selected || anchor.selected.lastElementChild !== mount.winsHost) {
+    if (
+      anchor.kind === "selected"
+      && (mount.winsHost.parentElement !== anchor.selected || anchor.selected.lastElementChild !== mount.winsHost)
+    ) {
       anchor.selected.append(mount.winsHost);
+      updated = 1;
+    } else if (anchor.kind === "voting" && mount.winsHost.isConnected) {
+      mount.winsHost.remove();
       updated = 1;
     }
     if (anchor.after.nextElementSibling !== mount.host) {
       anchor.after.insertAdjacentElement("afterend", mount.host);
       updated = 1;
     }
-    this.#removeOrphans(mount.host, mount.winsHost);
+    if (anchor.kind === "voting" && this.#attachCardHosts(mount.cardHosts, anchor)) {
+      updated = 1;
+    }
+    this.#removeOrphans(mount.host, mount.winsHost, mount.cardHosts);
     return { status: "rendered", updated };
   }
 
   cleanup(): number {
     let updated = 0;
     if (this.#mount) {
-      if (this.#mount.host.isConnected || this.#mount.winsHost.isConnected) updated = 1;
+      if (
+        this.#mount.host.isConnected
+        || this.#mount.winsHost.isConnected
+        || this.#mount.cardHosts.some((host) => host.isConnected)
+      ) updated = 1;
       this.#mount.host.remove();
       this.#mount.winsHost.remove();
+      this.#mount.cardHosts.forEach((host) => host.remove());
       this.#mount = undefined;
     }
     const orphans = Array.from(this.#document.querySelectorAll<HTMLElement>(
-      `[${INLINE_MAP_WINRATE_ATTRIBUTE}], [${INLINE_SELECTED_MAP_WINS_ATTRIBUTE}]`,
+      `[${INLINE_MAP_WINRATE_ATTRIBUTE}], [${INLINE_SELECTED_MAP_WINS_ATTRIBUTE}], [${INLINE_MAP_CARD_WINRATE_ATTRIBUTE}]`,
     ));
     if (orphans.length) updated = 1;
     orphans.forEach((host) => host.remove());
@@ -808,12 +1016,85 @@ export class MatchMapWinRateChartRenderer {
     this.cleanup();
   }
 
-  #removeOrphans(current: HTMLElement, currentWins: HTMLElement): void {
+  #sameAnchor(previous: AnyChartAnchor, next: AnyChartAnchor): boolean {
+    if (
+      previous.kind !== next.kind
+      || previous.container !== next.container
+      || previous.after !== next.after
+    ) return false;
+    if (previous.kind === "selected" && next.kind === "selected") {
+      return previous.selected === next.selected;
+    }
+    if (previous.kind === "voting" && next.kind === "voting") {
+      if (previous.cards.size !== next.cards.size) return false;
+      for (const [map, card] of previous.cards) {
+        if (next.cards.get(map) !== card) return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  #createCardHosts(
+    anchor: VotingChartAnchor,
+    matchId: string,
+    comparisons: readonly MapWinRateComparison[],
+  ): HTMLElement[] {
+    return [...anchor.cards.keys()].map((map) => {
+      const host = this.#document.createElement("span");
+      host.setAttribute(INLINE_MAP_CARD_WINRATE_ATTRIBUTE, matchId);
+      host.dataset.mapId = map;
+      const shadow = host.attachShadow({ mode: "open" });
+      const comparison = comparisons.find((candidate) => domMapId(candidate.map) === map);
+      if (comparison) renderMapCardWinRate(shadow, comparison);
+      return host;
+    });
+  }
+
+  #updateCardHosts(
+    hosts: HTMLElement[],
+    anchor: VotingChartAnchor,
+    matchId: string,
+    comparisons: readonly MapWinRateComparison[],
+  ): void {
+    const expectedMaps = [...anchor.cards.keys()];
+    if (hosts.length !== expectedMaps.length) {
+      hosts.forEach((host) => host.remove());
+      hosts.splice(0, hosts.length, ...this.#createCardHosts(anchor, matchId, comparisons));
+      return;
+    }
+    hosts.forEach((host, index) => {
+      const map = expectedMaps[index];
+      if (!map) return;
+      host.dataset.mapId = map;
+      const comparison = comparisons.find((candidate) => domMapId(candidate.map) === map);
+      if (comparison) renderMapCardWinRate(host.shadowRoot as ShadowRoot, comparison);
+    });
+  }
+
+  #attachCardHosts(hosts: readonly HTMLElement[], anchor: VotingChartAnchor): boolean {
+    let updated = false;
+    for (const host of hosts) {
+      const map = host.dataset.mapId;
+      const card = map ? anchor.cards.get(map) : undefined;
+      if (!card) continue;
+      if (host.parentElement !== card || card.lastElementChild !== host) {
+        card.append(host);
+        updated = true;
+      }
+    }
+    return updated;
+  }
+
+  #removeOrphans(current: HTMLElement, currentWins: HTMLElement, currentCards: readonly HTMLElement[]): void {
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_MAP_WINRATE_ATTRIBUTE}]`).forEach((host) => {
       if (host !== current) host.remove();
     });
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_SELECTED_MAP_WINS_ATTRIBUTE}]`).forEach((host) => {
       if (host !== currentWins) host.remove();
+    });
+    this.#document.querySelectorAll<HTMLElement>(`[${INLINE_MAP_CARD_WINRATE_ATTRIBUTE}]`).forEach((host) => {
+      if (!currentCards.includes(host)) host.remove();
     });
   }
 }

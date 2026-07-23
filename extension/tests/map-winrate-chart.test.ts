@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { InlineMatchRenderer } from "../src/inline-match";
 import {
+  INLINE_MAP_CARD_WINRATE_ATTRIBUTE,
   INLINE_MAP_WINRATE_ATTRIBUTE,
   INLINE_SELECTED_MAP_WINS_ATTRIBUTE,
   MatchMapWinRateChartRenderer,
@@ -45,10 +46,10 @@ function row(map: string, matches: number, wins: number): PlayerMapStats {
 function mapRows(match: MatchContext): ReadonlyMap<string, PlayerMapStats[]> {
   const rows = new Map<string, PlayerMapStats[]>();
   for (const member of match.teams[0]?.players ?? []) {
-    rows.set(member.id, [row("dust2", 10, 6), row("mirage", 8, 4)]);
+    rows.set(member.id, [row("dust2", 10, 6), row("mirage", 8, 4), row("ancient", 10, 7)]);
   }
   for (const member of match.teams[1]?.players ?? []) {
-    rows.set(member.id, [row("de_dust2", 20, 8)]);
+    rows.set(member.id, [row("de_dust2", 20, 8), row("ancient", 10, 4)]);
   }
   return rows;
 }
@@ -74,6 +75,10 @@ function chartHost(): HTMLElement | null {
 
 function selectedWinsHost(): HTMLElement | null {
   return document.querySelector<HTMLElement>(`[${INLINE_SELECTED_MAP_WINS_ATTRIBUTE}]`);
+}
+
+function mapCardWinrateHosts(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_MAP_CARD_WINRATE_ATTRIBUTE}]`));
 }
 
 function selectedWinsSummary(): HTMLElement {
@@ -496,5 +501,82 @@ describe("MatchMapWinRateChartRenderer", () => {
     });
     expect(selectedWinsHost()?.hidden).toBe(false);
     expect(selectedWinsHost()?.shadowRoot?.querySelector("[data-es-selected-map-wins]")).not.toBeNull();
+  });
+
+  it("mounts map win rates on voting cards and renders the comparison below the veto pool", () => {
+    document.body.innerHTML = `
+      <main id="center">
+        <section id="veto-pool">
+          <button id="dust2" data-testid="veto-map-dust2" data-eloscope-visible="true">Dust2</button>
+          <button id="ancient" data-testid="veto-map-ancient" data-eloscope-visible="true">Ancient</button>
+        </section>
+      </main>
+    `;
+    const match = matchContext({
+      status: "voting",
+      selectedMap: undefined,
+      mapPool: ["dust2", "ancient"],
+    });
+    const renderer = new MatchMapWinRateChartRenderer();
+
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 1 });
+    expect(chartHost()?.parentElement?.id).toBe("veto-pool");
+    expect(document.querySelector("#ancient")?.nextElementSibling).toBe(chartHost());
+    expect(selectedWinsHost()).toBeNull();
+
+    const cardHosts = mapCardWinrateHosts();
+    expect(cardHosts).toHaveLength(2);
+    expect(document.querySelector("#dust2")?.lastElementChild).toBe(cardHosts[0]);
+    expect(cardHosts[0]?.shadowRoot?.textContent).toContain("60.0%");
+    expect(cardHosts[0]?.shadowRoot?.textContent).toContain("40.0%");
+    expect(document.querySelector("#ancient")?.lastElementChild).toBe(cardHosts[1]);
+    expect(cardHosts[1]?.shadowRoot?.textContent).toContain("70.0%");
+    expect(cardHosts[1]?.shadowRoot?.textContent).toContain("40.0%");
+    expect(chartHost()?.shadowRoot?.querySelector('[data-es-map-row="dust2"]')?.getAttribute("data-selected")).toBe("false");
+    expect(chartHost()?.shadowRoot?.querySelector('[data-es-map-row="ancient"]')?.getAttribute("data-selected")).toBe("false");
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 0 });
+  });
+
+  it("discovers FACEIT-like voting cards by their visible map text", () => {
+    document.body.innerHTML = `
+      <main id="center">
+        <section id="veto-pool">
+          <article id="dust2" data-eloscope-visible="true"><img alt="" /><strong>Dust2</strong></article>
+          <article id="ancient" data-eloscope-visible="true"><img alt="" /><strong>Ancient</strong></article>
+        </section>
+      </main>
+    `;
+    const match = matchContext({
+      status: "voting",
+      selectedMap: undefined,
+      mapPool: ["dust2", "ancient"],
+    });
+    const renderer = new MatchMapWinRateChartRenderer();
+
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 1 });
+    expect(chartHost()?.parentElement?.id).toBe("veto-pool");
+    expect(mapCardWinrateHosts()).toHaveLength(2);
+  });
+
+  it("fails closed when voting card discovery is ambiguous", () => {
+    document.body.innerHTML = `
+      <main id="center">
+        <section id="veto-pool">
+          <button data-testid="veto-map-dust2" data-eloscope-visible="true">Dust2</button>
+          <button data-testid="veto-map-dust2" data-eloscope-visible="true">Dust2</button>
+          <button data-testid="veto-map-ancient" data-eloscope-visible="true">Ancient</button>
+        </section>
+      </main>
+    `;
+    const match = matchContext({
+      status: "voting",
+      selectedMap: undefined,
+      mapPool: ["dust2", "ancient"],
+    });
+    const renderer = new MatchMapWinRateChartRenderer();
+
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "incompatible", updated: 0 });
+    expect(chartHost()).toBeNull();
+    expect(mapCardWinrateHosts()).toHaveLength(0);
   });
 });
