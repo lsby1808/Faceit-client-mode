@@ -91,4 +91,49 @@ for (const [playerIndex, player] of players.entries()) {
     },
   ]);
 }
-overlay.showMatch(match, rows, mapStats);
+
+const encounterRow = (
+  playerId: string,
+  id: string,
+  teamId: string,
+  result: PlayerMatch["result"],
+  map: string,
+  daysAgo: number,
+): PlayerMatch => ({
+  id,
+  playerId,
+  teamId,
+  game: "cs2",
+  mode: "5v5",
+  status: "finished",
+  finishedAt: now - daysAgo * 24 * 60 * 60 * 1_000,
+  result,
+  map,
+  roundsPlayed: 24,
+  kills: 19,
+  assists: 5,
+  deaths: 14,
+  damage: 2_050,
+  headshots: 9,
+  firstKills: 3,
+  survivedRounds: 10,
+});
+const viewerHistory = [
+  encounterRow("player-1", "shared-teammate", "historic-alpha", "win", "mirage", 2),
+  encounterRow("player-1", "shared-opponent", "historic-alpha", "loss", "nuke", 4),
+  ...(rows.get("player-1") ?? []),
+];
+rows.set("player-1", viewerHistory);
+rows.set("player-2", [
+  encounterRow("player-2", "shared-teammate", "historic-alpha", "win", "mirage", 2),
+  ...(rows.get("player-2") ?? []),
+]);
+rows.set("player-6", [
+  encounterRow("player-6", "shared-opponent", "historic-bravo", "win", "nuke", 4),
+  ...(rows.get("player-6") ?? []),
+]);
+
+overlay.showMatch(match, rows, mapStats, "faction1", {
+  id: "player-1",
+  matches: viewerHistory,
+});

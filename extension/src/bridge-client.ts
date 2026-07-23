@@ -39,6 +39,7 @@ function isPlayerMatch(value: unknown): boolean {
   return isText(value.id) && isText(value.playerId) && isText(value.game) && isText(value.mode) &&
     isText(value.status) && (value.result === "win" || value.result === "loss") &&
     (isText(value.finishedAt) || isFiniteNumber(value.finishedAt)) &&
+    (value.teamId === undefined || isText(value.teamId)) &&
     (value.map === undefined || isText(value.map)) &&
     [value.roundsPlayed, value.kills, value.assists, value.deaths, value.damage].every(isFiniteNumber);
 }

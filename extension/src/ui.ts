@@ -54,6 +54,12 @@ export type OverlayCallbacks = {
   onPositionSend: (map: string, message: string, mode: "confirm" | "auto" | "prefill") => Promise<PositionSendResult>;
 };
 
+export type MatchViewerContext = Readonly<{
+  id: string;
+  matches?: readonly PlayerMatch[];
+  histories?: ReadonlyMap<string, readonly PlayerMatch[]>;
+}>;
+
 export class EloScopeOverlay {
   readonly host: HTMLElement;
   readonly shadow: ShadowRoot;
@@ -154,11 +160,12 @@ export class EloScopeOverlay {
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
     viewerTeamId?: string,
+    viewer?: MatchViewerContext,
   ): InlineMatchRenderResult {
     this.#nativeTiers.cleanup();
     this.#profileStats.cleanup();
     this.#nativeTierSurface = undefined;
-    const result = this.syncMatchInline(match, playerMatches, playerMapStats, viewerTeamId);
+    const result = this.syncMatchInline(match, playerMatches, playerMapStats, viewerTeamId, viewer);
     if (this.#settings.interfaceVisibility.quickPositionsPanel) this.showPositions(match);
     else this.#hidePositions();
     return result;
@@ -169,6 +176,7 @@ export class EloScopeOverlay {
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
     viewerTeamId?: string,
+    viewer?: MatchViewerContext,
   ): InlineMatchRenderResult {
     return this.#inlineMatch.render(match, playerMatches, playerMapStats, {
       statsWindow: this.#settings.statsWindow,
@@ -176,7 +184,7 @@ export class EloScopeOverlay {
       showExtendedTier: this.#settings.showExtendedTier,
       showPlayerRoles: this.#settings.showPlayerRoles,
       showMapWinRates: this.#settings.showMapWinRates,
-    }, viewerTeamId);
+    }, viewerTeamId, viewer);
   }
 
   showPositions(match: MatchContext): void {

@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   INLINE_BATTERY_ATTRIBUTE,
+  INLINE_ENCOUNTER_ATTRIBUTE,
   INLINE_MAP_WINRATE_ATTRIBUTE,
   INLINE_PLAYER_ATTRIBUTE,
   INLINE_ROLE_ATTRIBUTE,
@@ -217,6 +218,35 @@ function playerMatches(playerId: string, map = "dust2"): PlayerMatch[] {
   }));
 }
 
+function encounterMatch(
+  playerId: string,
+  matchId: string,
+  teamId: string,
+  result: PlayerMatch["result"],
+  daysAgo: number,
+  map = "dust2",
+): PlayerMatch {
+  return {
+    id: matchId,
+    playerId,
+    teamId,
+    game: "cs2",
+    mode: "5v5",
+    status: "finished",
+    finishedAt: Date.now() - daysAgo * 24 * 60 * 60 * 1_000,
+    result,
+    map,
+    roundsPlayed: 24,
+    kills: 18,
+    assists: 5,
+    deaths: 14,
+    damage: 1_920,
+    headshots: 8,
+    firstKills: 3,
+    survivedRounds: 9,
+  };
+}
+
 function matchRows(match: MatchContext): ReadonlyMap<string, PlayerMatch[]> {
   return new Map(match.teams.flatMap((team) => team.players.map((player) => [player.id, playerMatches(player.id)] as const)));
 }
@@ -273,6 +303,10 @@ function teamHosts(): HTMLElement[] {
 
 function batteryHosts(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}]`));
+}
+
+function encounterHosts(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_ENCOUNTER_ATTRIBUTE}]`));
 }
 
 function tierHosts(): HTMLElement[] {
@@ -412,6 +446,286 @@ describe("InlineMatchRenderer", () => {
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("coverage");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("2000–2511");
     expect(document.querySelectorAll(`[class*="Roster__Group-sc-"] [${INLINE_TEAM_ATTRIBUTE}]`)).toHaveLength(0);
+  });
+
+  it("mounts verified teammate and opponent counts before native ELO controls and exposes an accessible rich tooltip", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const viewerMatches = [
+      encounterMatch("alpha-one", "shared-opponent-new", "historic-alpha", "win", 2, "nuke"),
+      encounterMatch("alpha-one", "shared-teammate", "historic-alpha", "win", 3, "mirage"),
+      encounterMatch("alpha-one", "shared-bravo-teammate", "historic-mix", "win", 4, "ancient"),
+      encounterMatch("alpha-one", "shared-opponent-old", "historic-alpha", "loss", 6, "dust2"),
+      ...(rows.get("alpha-one") ?? []),
+    ];
+    rows.set("alpha-one", viewerMatches);
+    rows.set("alpha-two", [
+      encounterMatch("alpha-two", "shared-teammate", "historic-alpha", "win", 3, "mirage"),
+      ...(rows.get("alpha-two") ?? []),
+    ]);
+    rows.set("bravo-one", [
+      encounterMatch("bravo-one", "shared-opponent-new", "historic-bravo", "loss", 2, "nuke"),
+      encounterMatch("bravo-one", "shared-bravo-teammate", "historic-mix", "win", 4, "ancient"),
+      encounterMatch("bravo-one", "shared-opponent-old", "historic-bravo", "win", 6, "dust2"),
+      ...(rows.get("bravo-one") ?? []),
+    ]);
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(
+      match,
+      rows,
+      playerMapRows(match),
+      settings,
+      undefined,
+      { id: "alpha-one", matches: viewerMatches },
+    )).toMatchObject({ status: "rendered", players: 10 });
+
+    expect(encounterHosts()).toHaveLength(2);
+    expect(document.querySelector(`[${INLINE_ENCOUNTER_ATTRIBUTE}="alpha-one"]`)).toBeNull();
+    const teammateHost = document.querySelector<HTMLElement>(
+      `[${INLINE_ENCOUNTER_ATTRIBUTE}="alpha-two"]`,
+    ) as HTMLElement;
+    const opponentHost = document.querySelector<HTMLElement>(
+      `[${INLINE_ENCOUNTER_ATTRIBUTE}="bravo-one"]`,
+    ) as HTMLElement;
+    const teammateEndSlot = teammateHost.parentElement as HTMLElement;
+    expect(teammateEndSlot.matches('[class*="styles__EndSlotContainer"]')).toBe(true);
+    expect(teammateEndSlot.firstElementChild).toBe(teammateHost);
+    const teammateTier = document.querySelector<HTMLElement>(
+      `[${INLINE_TIER_ATTRIBUTE}="alpha-two"]`,
+    ) as HTMLElement;
+    const teammateNativeLevel = teammateEndSlot.querySelector<SVGSVGElement>(
+      '[class*="SkillIcon__StyledSvg"]',
+    ) as SVGSVGElement;
+    expect(Array.from(teammateEndSlot.children).slice(0, 3)).toEqual([
+      teammateHost,
+      teammateTier,
+      teammateNativeLevel,
+    ]);
+    expect(teammateHost.shadowRoot?.querySelector('[data-es-encounter="teammate"] .count')?.textContent).toBe("1");
+    expect(teammateHost.shadowRoot?.querySelector('[data-es-encounter="teammate"] svg')).not.toBeNull();
+
+    const opponentTrigger = opponentHost.shadowRoot?.querySelector<HTMLElement>(
+      '[data-es-encounter="opponent"]',
+    ) as HTMLElement;
+    const tooltip = opponentHost.shadowRoot?.querySelector<HTMLElement>(
+      '[data-es-encounter-tooltip="opponent"]',
+    ) as HTMLElement;
+    expect(opponentHost.parentElement?.firstElementChild).toBe(opponentHost);
+    const opponentNativeLevel = opponentHost.parentElement?.querySelector<SVGSVGElement>(
+      '[class*="SkillIcon__StyledSvg"]',
+    ) as SVGSVGElement;
+    expect(Array.from(opponentHost.parentElement?.children ?? []).slice(0, 2)).toEqual([
+      opponentHost,
+      opponentNativeLevel,
+    ]);
+    expect(document.querySelector(`[${INLINE_TIER_ATTRIBUTE}="bravo-one"]`)).toBeNull();
+    expect(opponentHost.shadowRoot?.querySelectorAll("[data-es-encounter]")).toHaveLength(2);
+    const historicalTeammateTrigger = opponentHost.shadowRoot?.querySelector<HTMLElement>(
+      '[data-es-encounter="teammate"]',
+    ) as HTMLElement;
+    const historicalTeammateTooltip = opponentHost.shadowRoot?.querySelector<HTMLElement>(
+      '[data-es-encounter-tooltip="teammate"]',
+    ) as HTMLElement;
+    expect(historicalTeammateTrigger.querySelector(".count")?.textContent).toBe("1");
+    expect(historicalTeammateTrigger.getAttribute("aria-describedby")).toBe(historicalTeammateTooltip.id);
+    expect(opponentTrigger.tagName).toBe("SPAN");
+    expect(opponentTrigger.getAttribute("role")).toBe("img");
+    expect(opponentTrigger.tabIndex).toBe(0);
+    expect(opponentTrigger.querySelector(".count")?.textContent).toBe("2");
+    expect(opponentTrigger.getAttribute("aria-describedby")).toBe(tooltip.id);
+    expect(opponentTrigger.getAttribute("aria-label")).toContain(
+      "найдено в доступной истории, до 100 матчей каждого игрока",
+    );
+    expect(tooltip.getAttribute("role")).toBe("tooltip");
+    expect(tooltip.getAttribute("popover")).toBe("manual");
+    expect(tooltip.textContent).toContain("Соперник");
+    expect(tooltip.textContent).toContain("Найдено в доступной истории (до 100 матчей каждого)");
+    expect(tooltip.textContent).toContain("2");
+    expect(tooltip.textContent).toContain("1 – 1");
+    expect(tooltip.textContent).toContain("50.0%");
+    expect(tooltip.textContent).toContain("Nuke");
+    expect(tooltip.textContent).toContain("Dust2");
+    expect(tooltip.textContent).toContain("Победа");
+    expect(tooltip.textContent).toContain("Поражение");
+    expect(tooltip.textContent).not.toMatch(/\d+\s*\/\s*\d+/u);
+
+    opponentTrigger.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(tooltip.dataset.open).toBe("true");
+    expect(tooltip.style.left).toMatch(/px$/u);
+    expect(tooltip.style.top).toMatch(/px$/u);
+    historicalTeammateTrigger.dispatchEvent(new MouseEvent("mouseenter"));
+    expect(tooltip.dataset.open).toBeUndefined();
+    expect(historicalTeammateTooltip.dataset.open).toBe("true");
+    historicalTeammateTrigger.dispatchEvent(new MouseEvent("mouseleave"));
+    opponentTrigger.dispatchEvent(new MouseEvent("mouseleave"));
+    expect(tooltip.dataset.open).toBeUndefined();
+    opponentTrigger.focus();
+    expect(tooltip.dataset.open).toBe("true");
+    opponentTrigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(tooltip.dataset.open).toBeUndefined();
+    opponentTrigger.blur();
+    expect(tooltip.dataset.open).toBeUndefined();
+
+    let nativeClicks = 0;
+    opponentHost.closest('[class*="ListContentPlayer__Background"]')
+      ?.addEventListener("click", () => { nativeClicks += 1; });
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, composed: true });
+    opponentTrigger.dispatchEvent(click);
+    expect(nativeClicks).toBe(1);
+    expect(click.defaultPrevented).toBe(false);
+
+    renderer.destroy();
+    expect(encounterHosts()).toHaveLength(0);
+  });
+
+  it("hides encounter UI for the viewer, missing histories and verified histories without intersections", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const viewerMatches = [
+      encounterMatch("alpha-one", "shared-stale", "historic-alpha", "win", 2),
+      ...(rows.get("alpha-one") ?? []),
+    ];
+    rows.set("alpha-one", viewerMatches);
+    rows.set("alpha-two", [
+      encounterMatch("alpha-two", "shared-stale", "historic-alpha", "win", 2),
+      ...(rows.get("alpha-two") ?? []),
+    ]);
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(
+      match,
+      rows,
+      playerMapRows(match),
+      settings,
+      undefined,
+      { id: "alpha-one", matches: viewerMatches },
+    );
+    const stale = document.querySelector<HTMLElement>(
+      `[${INLINE_ENCOUNTER_ATTRIBUTE}="alpha-two"]`,
+    ) as HTMLElement;
+    expect(stale).not.toBeNull();
+    expect(document.querySelector(`[${INLINE_ENCOUNTER_ATTRIBUTE}="alpha-one"]`)).toBeNull();
+
+    renderer.render(
+      match,
+      rows,
+      playerMapRows(match),
+      settings,
+      undefined,
+      { id: "alpha-one" },
+    );
+    expect(encounterHosts()).toHaveLength(0);
+    expect(stale.isConnected).toBe(false);
+
+    renderer.render(
+      match,
+      rows,
+      playerMapRows(match),
+      settings,
+      undefined,
+      { id: "alpha-one", matches: viewerMatches },
+    );
+    const restored = document.querySelector<HTMLElement>(
+      `[${INLINE_ENCOUNTER_ATTRIBUTE}="alpha-two"]`,
+    ) as HTMLElement;
+    expect(restored).not.toBeNull();
+
+    const missingTarget = new Map(rows);
+    missingTarget.delete("alpha-two");
+    renderer.render(
+      match,
+      missingTarget,
+      playerMapRows(match),
+      settings,
+      undefined,
+      { id: "alpha-one", matches: viewerMatches },
+    );
+    expect(encounterHosts()).toHaveLength(0);
+    expect(restored.isConnected).toBe(false);
+
+    const noOverlap = matchRows(match);
+    renderer.render(
+      match,
+      noOverlap,
+      playerMapRows(match),
+      settings,
+      undefined,
+      { id: "alpha-one", matches: noOverlap.get("alpha-one") },
+    );
+    expect(encounterHosts()).toHaveLength(0);
+  });
+
+  it("fails closed only for an ambiguous native end slot", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const shared = encounterMatch("alpha-one", "shared-teammate", "historic-alpha", "win", 2);
+    const targetShared = encounterMatch("alpha-two", "shared-teammate", "historic-alpha", "win", 2);
+    const viewerMatches = [shared, ...(rows.get("alpha-one") ?? [])];
+    rows.set("alpha-one", viewerMatches);
+    rows.set("alpha-two", [targetShared, ...(rows.get("alpha-two") ?? [])]);
+    const alphaTwoCard = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/players/"]'))
+      .find((link) => link.textContent === "AlphaTwo")
+      ?.closest<HTMLElement>('[class*="ListContentPlayer__Background"]') as HTMLElement;
+    const endSlot = alphaTwoCard.querySelector<HTMLElement>('[class*="styles__EndSlotContainer"]') as HTMLElement;
+    alphaTwoCard.append(endSlot.cloneNode(true));
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(
+      match,
+      rows,
+      playerMapRows(match),
+      settings,
+      undefined,
+      { id: "alpha-one", matches: viewerMatches },
+    )).toMatchObject({ status: "rendered", players: 10 });
+    expect(document.querySelector(`[${INLINE_ENCOUNTER_ATTRIBUTE}="alpha-two"]`)).toBeNull();
+    expect(document.querySelector(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-two"]`)).not.toBeNull();
+    expect(document.querySelector(`[${INLINE_BATTERY_ATTRIBUTE}="alpha-two"]`)).not.toBeNull();
+  });
+
+  it("remounts an encounter host after React replaces its verified player row", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const viewerMatches = [
+      encounterMatch("alpha-one", "shared-teammate", "historic-alpha", "win", 2),
+      ...(rows.get("alpha-one") ?? []),
+    ];
+    rows.set("alpha-one", viewerMatches);
+    rows.set("alpha-two", [
+      encounterMatch("alpha-two", "shared-teammate", "historic-alpha", "win", 2),
+      ...(rows.get("alpha-two") ?? []),
+    ]);
+    const renderer = new InlineMatchRenderer();
+    const viewer = { id: "alpha-one", matches: viewerMatches } as const;
+    renderer.render(match, rows, playerMapRows(match), settings, undefined, viewer);
+    const original = document.querySelector<HTMLElement>(
+      `[${INLINE_ENCOUNTER_ATTRIBUTE}="alpha-two"]`,
+    ) as HTMLElement;
+    const holder = original.closest<HTMLElement>('[class*="styles__Holder"]') as HTMLElement;
+    const template = document.createElement("template");
+    template.innerHTML = nativePlayer("AlphaTwo");
+    const replacement = template.content.firstElementChild as HTMLElement;
+    holder.replaceWith(replacement);
+
+    expect(renderer.render(
+      match,
+      rows,
+      playerMapRows(match),
+      settings,
+      undefined,
+      viewer,
+    )).toMatchObject({ status: "rendered", players: 10 });
+    const remounted = document.querySelector<HTMLElement>(
+      `[${INLINE_ENCOUNTER_ATTRIBUTE}="alpha-two"]`,
+    ) as HTMLElement;
+    expect(original.isConnected).toBe(false);
+    expect(remounted).not.toBe(original);
+    expect(remounted.parentElement?.firstElementChild).toBe(remounted);
   });
 
   it("explains the battery with actual recent, baseline and signed delta values", () => {

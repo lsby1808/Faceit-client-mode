@@ -2,6 +2,7 @@ export * from "./aggregate.js";
 export * from "./battery.js";
 export * from "./cache.js";
 export * from "./elo.js";
+export * from "./encounters.js";
 export * from "./fcr.js";
 export * from "./matches.js";
 export * from "./map-winrates.js";

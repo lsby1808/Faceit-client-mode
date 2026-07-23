@@ -9,6 +9,7 @@ import {
   type PlayerMatch,
   type StatsWindow,
   type Viewer,
+  eligibleMatches,
   loadingState,
 } from "@eloscope/core";
 import { VisibleDomAutomationRunner } from "./automations";
@@ -22,7 +23,7 @@ import { MAIN_SOURCE, PROTOCOL_VERSION, type MainMessage } from "./protocol";
 import { parseFaceitRoute, type FaceitRoute } from "./routes";
 import { loadSettings, positionForMap, saveSettings, type ExtensionSettings } from "./settings";
 import { EloSnapshotStore } from "./snapshots";
-import { EloScopeOverlay } from "./ui";
+import { EloScopeOverlay, type MatchViewerContext } from "./ui";
 
 type CachedState = DataState<unknown>;
 
@@ -85,8 +86,11 @@ export class EloScopeController {
   #routeIdentity = "other";
   #currentMatch: MatchContext | undefined;
   #currentPlayerMatches = new Map<string, PlayerMatch[]>();
+  #currentEncounterMatches = new Map<string, PlayerMatch[]>();
   #currentPlayerMapStats = new Map<string, PlayerMapStats[]>();
+  #currentViewerId: string | undefined;
   #currentViewerTeamId: string | undefined;
+  #currentViewerMatches: PlayerMatch[] | undefined;
   #currentTierPlayer: Player | undefined;
   #currentProfileMatches: DataState<PlayerMatch[]> | undefined;
   #routeRevision = 0;
@@ -233,6 +237,7 @@ export class EloScopeController {
     const nextRoute = parseFaceitRoute(pathname);
     const nextIdentity = routeIdentity(nextRoute);
     this.#route = nextRoute;
+    if (nextRoute.kind === "logged-out") this.#cache.delete("viewer");
     debugLog.record({
       component: "controller",
       event: "controller.navigate",
@@ -250,16 +255,22 @@ export class EloScopeController {
       if (nextRoute.kind === "match") {
         this.#currentMatch = undefined;
         this.#currentPlayerMatches.clear();
+        this.#currentEncounterMatches.clear();
         this.#currentPlayerMapStats.clear();
+        this.#currentViewerId = undefined;
         this.#currentViewerTeamId = undefined;
+        this.#currentViewerMatches = undefined;
         this.#publishMapPool([]);
       }
     }
     if (nextRoute.kind !== "match") {
       this.#currentMatch = undefined;
       this.#currentPlayerMatches.clear();
+      this.#currentEncounterMatches.clear();
       this.#currentPlayerMapStats.clear();
+      this.#currentViewerId = undefined;
       this.#currentViewerTeamId = undefined;
+      this.#currentViewerMatches = undefined;
       this.#publishMapPool([]);
     }
 
@@ -458,36 +469,50 @@ export class EloScopeController {
     this.#currentMatch = match;
     this.#publishMapPool(match.mapPool);
     if (match.status === "finished") this.#cache.set(`match:${matchId}`, matchState, CACHE_TTLS.finishedMatch);
-    const limit = this.#settings.showMapWinRates
+    // Encounter indicators compare the viewer with every room player. Keep
+    // the bounded bridge contract honest by loading its largest supported
+    // window instead of presenting a smaller sample as lifetime history.
+    const displayLimit = this.#settings.showMapWinRates
       ? requestedWindow(this.#settings.statsWindow, this.#settings.mapWinRateWindow)
       : requestedWindow(this.#settings.statsWindow);
+    const encounterLimit: StatsWindow = 100;
     const players = match.teams.flatMap((team) => team.players);
     await Promise.all(players.map((player) => this.#snapshots.recordPlayer(player)));
     if (!this.#isCurrent(revision)) return;
     if (!renderOverlay) {
       this.#currentPlayerMatches.clear();
+      this.#currentEncounterMatches.clear();
       this.#currentPlayerMapStats.clear();
       await this.#maybeSendAutomaticPosition();
       return;
     }
+    // A same-room refresh can follow logout/login or a settings save without a
+    // route-identity change. Remove personalized context before the first
+    // render so badges from a previous viewer cannot survive while GET /viewer
+    // is pending or fails.
+    this.#currentViewerId = undefined;
+    this.#currentViewerTeamId = undefined;
+    this.#currentViewerMatches = undefined;
     void this.#loadMatchViewerTeam(match, revision).catch(() => {
       this.#recordControllerError();
     });
 
     const cachedMapStats = this.#cachedPlayerMapStats(players);
     this.#currentPlayerMatches = new Map();
+    this.#currentEncounterMatches = new Map();
     this.#currentPlayerMapStats = cachedMapStats;
     this.#recordRender(this.#overlay.showMatch(
       match,
       this.#currentPlayerMatches,
       cachedMapStats,
       this.#currentViewerTeamId,
+      this.#matchViewerContext(),
     ));
 
     const states = await Promise.all(players.map(async (player) => [
       player.id,
       await this.#cached<PlayerMatch[]>(
-        `matches:${player.id}:${limit}`,
+        `matches:${player.id}:${encounterLimit}`,
         () => {
           if (!this.#isCurrent(revision) || this.#currentMatch?.id !== match.id) {
             return Promise.resolve({
@@ -495,13 +520,14 @@ export class EloScopeController {
               error: { code: "stale-route", message: "Route changed before the request started", retryable: false },
             } satisfies DataState<PlayerMatch[]>);
           }
-          return this.#adapter.getRecentMatches(player.id, limit);
+          return this.#adapter.getRecentMatches(player.id, encounterLimit);
         },
         CACHE_TTLS.playerStats,
       ),
     ] as const));
     if (!this.#isCurrent(revision)) return;
     const matches = new Map<string, PlayerMatch[]>();
+    const encounterMatches = new Map<string, PlayerMatch[]>();
     let readyMatchHistories = 0;
     for (const [playerId, matchesState] of states) {
       if (matchesState.status !== "ready") {
@@ -509,7 +535,9 @@ export class EloScopeController {
         continue;
       }
       readyMatchHistories += 1;
-      const hydrated = await this.#snapshots.hydrateMatchElos(playerId, matchesState.data);
+      encounterMatches.set(playerId, matchesState.data);
+      const displayRows = eligibleMatches(matchesState.data, displayLimit);
+      const hydrated = await this.#snapshots.hydrateMatchElos(playerId, displayRows);
       if (!this.#isCurrent(revision)) return;
       await this.#snapshots.rememberMatchElos(playerId, hydrated);
       if (!this.#isCurrent(revision)) return;
@@ -518,6 +546,7 @@ export class EloScopeController {
     if (!this.#isCurrent(revision)) return;
     const mapStats = this.#cachedPlayerMapStats(players);
     this.#currentPlayerMatches = matches;
+    this.#currentEncounterMatches = encounterMatches;
     this.#currentPlayerMapStats = mapStats;
     debugLog.record({
       component: "controller",
@@ -533,6 +562,7 @@ export class EloScopeController {
       matches,
       mapStats,
       this.#currentViewerTeamId,
+      this.#matchViewerContext(),
     ));
     void this.#loadPlayerMapStats(match, players, revision).catch(() => {
       this.#recordControllerError();
@@ -550,23 +580,70 @@ export class EloScopeController {
   }
 
   async #loadMatchViewerTeam(match: MatchContext, revision: number): Promise<void> {
-    const viewerState = await this.#cached<Viewer>(
-      "viewer",
-      () => this.#adapter.getViewer(),
-      CACHE_TTLS.playerStats,
-    );
+    // Encounter badges are personalized. Resolve the active session for every
+    // room load instead of reusing a viewer cached before logout/account swap.
+    // The request still goes through the shared four-slot scheduler: firing it
+    // directly beside four player-history reads would make the page bridge
+    // reject the fifth concurrent GET as rate-limited.
+    const viewerState = await this.#cache.get(
+      `viewer:match:${match.id}:${revision}`,
+      () => this.#adapter.getViewer() as Promise<CachedState>,
+      { ttlMs: 0, cache: false },
+    ) as DataState<Viewer>;
     if (!this.#isCurrent(revision) || this.#currentMatch?.id !== match.id) return;
-    this.#currentViewerTeamId = viewerState.status === "ready" && viewerState.data
-      ? viewerTeamIdForMatch(match, viewerState.data)
-      : undefined;
+    if (viewerState.status !== "ready" || !viewerState.data) {
+      this.#currentViewerId = undefined;
+      this.#currentViewerTeamId = undefined;
+      this.#currentViewerMatches = undefined;
+      return;
+    }
+
+    this.#currentViewerId = viewerState.data.id;
+    this.#currentViewerTeamId = viewerTeamIdForMatch(match, viewerState.data);
+    this.#currentViewerMatches = undefined;
+
+    // A viewer can inspect a room they are not playing in. Fetch their own
+    // bounded history once so encounter badges still work in that room.
+    if (!this.#currentViewerTeamId) {
+      const viewerMatchesState = await this.#cached<PlayerMatch[]>(
+        `matches:${viewerState.data.id}:100`,
+        () => {
+          if (!this.#isCurrent(revision) || this.#currentMatch?.id !== match.id) {
+            return Promise.resolve({
+              status: "error",
+              error: { code: "stale-route", message: "Route changed before the request started", retryable: false },
+            } satisfies DataState<PlayerMatch[]>);
+          }
+          return this.#adapter.getRecentMatches(viewerState.data.id, 100);
+        },
+        CACHE_TTLS.playerStats,
+      );
+      if (!this.#isCurrent(revision) || this.#currentMatch?.id !== match.id) return;
+      this.#currentViewerMatches = viewerMatchesState.status === "ready"
+        ? viewerMatchesState.data
+        : undefined;
+    }
+
     if (this.#settings.interfaceVisibility.matchRoom && this.#currentPlayerMatches.size > 0) {
       this.#recordRender(this.#overlay.syncMatchInline(
         this.#currentMatch,
         this.#currentPlayerMatches,
         this.#currentPlayerMapStats,
         this.#currentViewerTeamId,
+        this.#matchViewerContext(),
       ));
     }
+  }
+
+  #matchViewerContext(): MatchViewerContext | undefined {
+    if (!this.#currentViewerId) return undefined;
+    const matches = this.#currentEncounterMatches.get(this.#currentViewerId)
+      ?? this.#currentViewerMatches;
+    return {
+      id: this.#currentViewerId,
+      ...(matches ? { matches } : {}),
+      histories: this.#currentEncounterMatches,
+    };
   }
 
   async #loadPlayerMapStats(match: MatchContext, players: readonly Player[], revision: number): Promise<void> {
@@ -601,6 +678,7 @@ export class EloScopeController {
         this.#currentPlayerMatches,
         mapStats,
         this.#currentViewerTeamId,
+        this.#matchViewerContext(),
       ));
     }
   }
@@ -737,6 +815,7 @@ export class EloScopeController {
         this.#currentPlayerMatches,
         this.#currentPlayerMapStats,
         this.#currentViewerTeamId,
+        this.#matchViewerContext(),
       ));
     }
     const selected = visibleSelectedMap(document);
@@ -759,6 +838,7 @@ export class EloScopeController {
         this.#currentPlayerMatches,
         this.#currentPlayerMapStats,
         this.#currentViewerTeamId,
+        this.#matchViewerContext(),
       ));
     }
     await this.#maybeSendAutomaticPosition();

@@ -4,11 +4,15 @@ const state = vi.hoisted(() => ({
   mode: "error" as "error" | "pending-profile" | "profile" | "match" | "matchmaking",
   resolvePlayer: undefined as ((value: unknown) => void) | undefined,
   viewerRequested: vi.fn(),
+  deferViewer: false,
+  viewerResolver: undefined as (() => void) | undefined,
   playerRequested: vi.fn(),
   matchRequested: vi.fn(),
   matchFailuresRemaining: 0,
   recentMatchesRequested: vi.fn(),
+  recentMatchesByPlayer: new Map<string, unknown[]>(),
   deferRecentMatches: false,
+  deferredRecentPlayerIds: new Set<string>(),
   recentMatchesResolvers: [] as Array<(value: unknown) => void>,
   mapStatsRequested: vi.fn(),
   deferMapStats: false,
@@ -48,6 +52,7 @@ const state = vi.hoisted(() => ({
   overlaySyncProfileStats: vi.fn(),
   domMutation: undefined as (() => void) | undefined,
   visibleMap: null as string | null,
+  matchViewerId: "player-a",
   match: {
     id: "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     game: "cs2",
@@ -60,6 +65,25 @@ const state = vi.hoisted(() => ({
     ]
   }
 }));
+
+function recentRow(playerId: string, id: string) {
+  return {
+    id,
+    playerId,
+    teamId: "historic-team",
+    game: "cs2",
+    mode: "5v5",
+    status: "finished",
+    finishedAt: "2026-07-20T12:00:00.000Z",
+    result: "win" as const,
+    map: "mirage",
+    roundsPlayed: 24,
+    kills: 20,
+    assists: 5,
+    deaths: 14,
+    damage: 2_100,
+  };
+}
 
 vi.mock("../src/automations", () => ({
   VisibleDomAutomationRunner: class {
@@ -94,10 +118,14 @@ vi.mock("../src/bridge-client", () => ({
         });
       }
       if (state.mode === "match") {
-        return Promise.resolve({
+        const result = {
           status: "ready",
-          data: { id: "player-a", nickname: "Different nickname" },
+          data: { id: state.matchViewerId, nickname: "Different nickname" },
           fetchedAt: Date.now(),
+        };
+        if (!state.deferViewer) return Promise.resolve(result);
+        return new Promise((resolve) => {
+          state.viewerResolver = () => resolve(result);
         });
       }
       return Promise.resolve({
@@ -137,8 +165,14 @@ vi.mock("../src/bridge-client", () => ({
 
     getRecentMatches(playerId: string, limit: number): Promise<unknown> {
       state.recentMatchesRequested(playerId, limit);
-      const result = { status: "ready", data: [], fetchedAt: Date.now() };
-      if (!state.deferRecentMatches) return Promise.resolve(result);
+      const result = {
+        status: "ready",
+        data: state.recentMatchesByPlayer.get(playerId) ?? [],
+        fetchedAt: Date.now(),
+      };
+      if (!state.deferRecentMatches && !state.deferredRecentPlayerIds.has(playerId)) {
+        return Promise.resolve(result);
+      }
       return new Promise((resolve) => state.recentMatchesResolvers.push(() => resolve(result)));
     }
 
@@ -346,11 +380,15 @@ describe("controller lifecycle", () => {
     state.mode = "error";
     state.resolvePlayer = undefined;
     state.viewerRequested.mockClear();
+    state.deferViewer = false;
+    state.viewerResolver = undefined;
     state.playerRequested.mockClear();
     state.matchRequested.mockClear();
     state.matchFailuresRemaining = 0;
     state.recentMatchesRequested.mockClear();
+    state.recentMatchesByPlayer.clear();
     state.deferRecentMatches = false;
+    state.deferredRecentPlayerIds.clear();
     state.recentMatchesResolvers = [];
     state.mapStatsRequested.mockClear();
     state.deferMapStats = false;
@@ -375,6 +413,7 @@ describe("controller lifecycle", () => {
     state.overlaySyncProfileStats.mockClear();
     state.domMutation = undefined;
     state.visibleMap = null;
+    state.matchViewerId = "player-a";
     state.match.status = "voting";
   });
 
@@ -501,6 +540,8 @@ describe("controller lifecycle", () => {
     await controller.start();
     state.mode = "match";
     state.deferRecentMatches = true;
+    const viewerHistory = [recentRow("player-a", "viewer-history-deferred")];
+    state.recentMatchesByPlayer.set("player-a", viewerHistory);
     state.overlayShowMatch.mockClear();
 
     const navigation = controller.navigate(`/ru/cs2/room/${state.match.id}`);
@@ -512,14 +553,18 @@ describe("controller lifecycle", () => {
     for (const resolve of state.recentMatchesResolvers.splice(0)) resolve(undefined);
     await navigation;
     expect(state.overlayShowMatch).toHaveBeenCalledTimes(2);
+    expect(state.overlayShowMatch.mock.calls.at(-1)?.[4]).toMatchObject({
+      id: "player-a",
+      matches: viewerHistory,
+    });
     controller.destroy();
   });
 
   it.each([
-    [5, 5, true, 30],
+    [5, 5, true, 100],
     [100, 5, true, 100],
     [5, 100, true, 100],
-    [5, 100, false, 30],
+    [5, 100, false, 100],
   ] as const)(
     "uses stats=%i, map window=%i, map WR enabled=%s -> request %i",
     async (statsWindow, mapWinRateWindow, showMapWinRates, expectedLimit) => {
@@ -585,13 +630,191 @@ describe("controller lifecycle", () => {
     expect(state.recentMatchesRequested).toHaveBeenCalledTimes(2);
     expect(state.overlayShowMatch.mock.calls[0]?.[2]).toEqual(new Map());
     expect(state.overlayShowMatch.mock.calls.at(-1)?.[3]).toBe("team-a");
+    expect(state.overlayShowMatch.mock.calls.at(-1)?.[4]).toMatchObject({
+      id: "player-a",
+      matches: [],
+    });
     await vi.waitFor(() => expect(state.mapStatsRequested).toHaveBeenCalledTimes(2));
     expect(state.mapStatsRequested).toHaveBeenCalledWith("player-a");
     expect(state.mapStatsRequested).toHaveBeenCalledWith("player-b");
     await vi.waitFor(() => expect(state.overlayInlineSync).toHaveBeenCalled());
     expect(state.overlayInlineSync.mock.calls.at(-1)?.[3]).toBe("team-a");
+    expect(state.overlayInlineSync.mock.calls.at(-1)?.[4]).toMatchObject({
+      id: "player-a",
+      matches: [],
+    });
     const mapStats = state.overlayInlineSync.mock.calls.at(-1)?.[2] as Map<string, Array<{ matches: number }>>;
     expect(mapStats.get("player-a")?.[0]?.matches).toBe(416);
+    controller.destroy();
+  });
+
+  it("loads a bounded viewer history when inspecting a room outside the roster", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    state.matchViewerId = "viewer-outside-room";
+    const outsideHistory = [recentRow("viewer-outside-room", "viewer-outside-history")];
+    state.recentMatchesByPlayer.set("viewer-outside-room", outsideHistory);
+    state.recentMatchesRequested.mockClear();
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+    await vi.waitFor(() => expect(state.recentMatchesRequested).toHaveBeenCalledTimes(3));
+    expect(state.recentMatchesRequested).toHaveBeenCalledWith("viewer-outside-room", 100);
+    await vi.waitFor(() => {
+      expect(state.overlayInlineSync.mock.calls.at(-1)?.[4]).toMatchObject({
+        id: "viewer-outside-room",
+        matches: outsideHistory,
+      });
+    });
+    controller.destroy();
+  });
+
+  it("passes the exact roster viewer history after player rows finish loading", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    const viewerHistory = [recentRow("player-a", "viewer-history")];
+    state.recentMatchesByPlayer.set("player-a", viewerHistory);
+    state.recentMatchesByPlayer.set("player-b", [recentRow("player-b", "other-history")]);
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+    await vi.waitFor(() => {
+      expect(state.overlayShowMatch.mock.calls.at(-1)?.[4]).toMatchObject({
+        id: "player-a",
+        matches: viewerHistory,
+      });
+    });
+    controller.destroy();
+  });
+
+  it("keeps the full bounded encounter history separate from the 30-row display window", async () => {
+    const settings = createDefaultSettings();
+    settings.statsWindow = 30;
+    settings.mapWinRateWindow = 30;
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+
+    const viewerHistory = Array.from({ length: 40 }, (_, index) =>
+      recentRow("player-a", index === 35 ? "shared-after-display-window" : `viewer-${index}`));
+    const targetHistory = Array.from({ length: 40 }, (_, index) =>
+      recentRow("player-b", index === 35 ? "shared-after-display-window" : `target-${index}`));
+    state.recentMatchesByPlayer.set("player-a", viewerHistory);
+    state.recentMatchesByPlayer.set("player-b", targetHistory);
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+    const finalCall = state.overlayShowMatch.mock.calls.at(-1);
+    const displayHistories = finalCall?.[1] as Map<string, unknown[]>;
+    const viewer = finalCall?.[4] as {
+      id: string;
+      matches?: readonly unknown[];
+      histories?: ReadonlyMap<string, readonly { id: string }[]>;
+    };
+    expect(displayHistories.get("player-a")).toHaveLength(30);
+    expect(displayHistories.get("player-b")).toHaveLength(30);
+    expect(displayHistories.get("player-a")?.some((row) =>
+      (row as { id?: string }).id === "shared-after-display-window")).toBe(false);
+    expect(viewer.matches).toHaveLength(40);
+    expect(viewer.histories?.get("player-a")).toHaveLength(40);
+    expect(viewer.histories?.get("player-b")).toHaveLength(40);
+    expect(viewer.histories?.get("player-a")?.some(({ id }) =>
+      id === "shared-after-display-window")).toBe(true);
+    expect(viewer.histories?.get("player-b")?.some(({ id }) =>
+      id === "shared-after-display-window")).toBe(true);
+    controller.destroy();
+  });
+
+  it("adds viewer context when player histories resolve before the viewer request", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    state.deferViewer = true;
+    const viewerHistory = [recentRow("player-a", "viewer-history-first")];
+    state.recentMatchesByPlayer.set("player-a", viewerHistory);
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+    expect(state.overlayShowMatch.mock.calls.at(-1)?.[4]).toBeUndefined();
+    state.viewerResolver?.();
+    await vi.waitFor(() => {
+      expect(state.overlayInlineSync.mock.calls.at(-1)?.[4]).toMatchObject({
+        id: "player-a",
+        matches: viewerHistory,
+      });
+    });
+    controller.destroy();
+  });
+
+  it("removes the previous viewer context during a same-room account refresh", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    const firstHistory = [recentRow("player-a", "first-viewer-history")];
+    const secondHistory = [recentRow("player-b", "second-viewer-history")];
+    state.recentMatchesByPlayer.set("player-a", firstHistory);
+    state.recentMatchesByPlayer.set("player-b", secondHistory);
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+    await vi.waitFor(() => expect(state.overlayShowMatch.mock.calls.at(-1)?.[4]).toMatchObject({
+      id: "player-a",
+      matches: firstHistory,
+    }));
+
+    state.matchViewerId = "player-b";
+    state.deferViewer = true;
+    state.overlayShowMatch.mockClear();
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+    expect(state.overlayShowMatch).toHaveBeenCalled();
+    expect(state.overlayShowMatch.mock.calls[0]?.[4]).toBeUndefined();
+    state.viewerResolver?.();
+    await vi.waitFor(() => expect(state.overlayInlineSync.mock.calls.at(-1)?.[4]).toMatchObject({
+      id: "player-b",
+      matches: secondHistory,
+    }));
+    controller.destroy();
+  });
+
+  it("drops a deferred outside-viewer history after leaving the room", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    state.matchViewerId = "viewer-outside-room";
+    state.recentMatchesByPlayer.set(
+      "viewer-outside-room",
+      [recentRow("viewer-outside-room", "stale-outside-history")],
+    );
+    state.deferredRecentPlayerIds.add("viewer-outside-room");
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+    await vi.waitFor(() => expect(state.recentMatchesResolvers).toHaveLength(1));
+    await controller.navigate("/");
+    state.overlayInlineSync.mockClear();
+    for (const resolve of state.recentMatchesResolvers.splice(0)) resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(state.overlayInlineSync).not.toHaveBeenCalled();
     controller.destroy();
   });
 

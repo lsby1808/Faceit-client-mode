@@ -108,6 +108,51 @@ describe("isolated bridge client", () => {
     expect(result).toMatchObject({ status: "error", error: { code: "upstream-shape" } });
   });
 
+  it("rejects a forged recent-match row with a non-string team id", async () => {
+    const origin = "https://www.faceit.com";
+    vi.spyOn(window, "postMessage").mockImplementation(((request: unknown) => {
+      const value = request as { id?: string; type?: string };
+      if (value.type !== "read" || !value.id) return;
+      queueMicrotask(() => {
+        window.dispatchEvent(new MessageEvent("message", {
+          origin,
+          source: window,
+          data: {
+            source: "eloscope:main",
+            version: 1,
+            type: "response",
+            id: value.id,
+            result: {
+              status: "ok",
+              sampledAt: Date.now(),
+              data: [{
+                id: "match-1",
+                playerId: "player-1",
+                teamId: { hostile: true },
+                game: "cs2",
+                mode: "5v5",
+                status: "finished",
+                finishedAt: Date.now(),
+                result: "win",
+                map: "mirage",
+                roundsPlayed: 20,
+                kills: 20,
+                assists: 5,
+                deaths: 10,
+                damage: 2_000,
+              }],
+            },
+          },
+        }));
+      });
+    }) as typeof window.postMessage);
+
+    const adapter = new FaceitBridgeAdapter(origin);
+    const result = await adapter.getRecentMatches("player-1", 30);
+    adapter.destroy();
+    expect(result).toMatchObject({ status: "error", error: { code: "upstream-shape" } });
+  });
+
   it.each([
     [{ status: "restricted", reason: "forbidden" }, { status: "restricted", reason: "forbidden" }],
     [{ status: "error", code: "network" }, { status: "error", error: { code: "network" } }],

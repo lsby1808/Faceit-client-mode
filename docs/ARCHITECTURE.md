@@ -25,6 +25,13 @@ is fixed to the latest 20 eligible matches, while performance metrics follow the
 user-selected statistics window. Its lifetime match count comes from deduplicated
 map aggregates rather than the recent-match window.
 
+Player encounter indicators are a bounded mutual-history comparison, not an
+all-time claim. The controller requests up to 100 recent rows per player; core
+code filters eligible matches, intersects exact match ids, requires both team ids, and
+classifies equal teams as teammates and different teams as opponents. Missing,
+restricted or ambiguous histories suppress the indicator instead of producing
+a zero.
+
 ```mermaid
 flowchart LR
     Page["FACEIT page"] -->|visible DOM| Content["Isolated MV3 content script"]

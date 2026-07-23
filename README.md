@@ -14,7 +14,11 @@ extended Elo tiers and a compact team win-rate comparison for every map in the
 current pool. Missing or restricted statistics are displayed as unavailable,
 never as a fabricated zero. The player-card win rate always uses the latest 20
 completed CS2 5v5 matches; AVG KILLS, K/D, K/R and ADR use the selected
-statistics window.
+statistics window. When the signed-in viewer and another room player have
+verifiable shared match ids, compact teammate/opponent indicators summarize
+the overlap found in each player's available history, capped at 100 eligible
+matches per player. This bounded sample is labeled explicitly and is never
+presented as lifetime history.
 
 Player profile summaries include a native-flow banner calculated from the 20
 newest unique completed CS2 5v5 matches. Its Overview, Combat, Maps and Role

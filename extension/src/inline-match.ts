@@ -1,15 +1,21 @@
 import {
   aggregatePlayerMatches,
+  buildPlayerEncounters,
   calculateFormBattery,
   classifyPlayerRole,
   eligibleMatches,
   getEloTier,
   getEloTierPresentation,
+  loadingState,
+  readyState,
   type EloScopeTier,
   type FormBattery,
   type MatchContext,
   type MatchTeam,
   type Player,
+  type PlayerEncounterKind,
+  type PlayerEncounterSummary,
+  type PlayerEncountersResult,
   type PlayerMapStats,
   type PlayerMatch,
   type PlayerRole,
@@ -30,6 +36,7 @@ const NICKNAME_SLOT_SELECTOR = '[class*="styles__NicknameContainer"]';
 const PLAYER_CARD_SELECTOR = '[class*="ListContentPlayer__Background"]';
 const PLAYER_HOLDER_SELECTOR = '[class*="styles__Holder"]';
 const PLAYER_LEVEL_SELECTOR = '[class*="SkillIcon__StyledSvg"]';
+const PLAYER_END_SLOT_SELECTOR = '[class*="styles__EndSlotContainer"]';
 const AVATAR_HOLDER_SELECTOR = '[class*="Avatar__AvatarHolder"]';
 const AVATAR_IMAGE_SELECTOR =
   'img[class*="Avatar__Image"][aria-label="avatar"], i[class*="Avatar__AvatarIcon"][aria-label="avatar"]';
@@ -42,6 +49,7 @@ export const INLINE_TEAM_ATTRIBUTE = "data-eloscope-inline-team";
 export const INLINE_BATTERY_ATTRIBUTE = "data-eloscope-inline-battery";
 export const INLINE_TIER_ATTRIBUTE = "data-eloscope-inline-tier";
 export const INLINE_ROLE_ATTRIBUTE = "data-eloscope-inline-role";
+export const INLINE_ENCOUNTER_ATTRIBUTE = "data-eloscope-inline-encounter";
 
 const WIN_RATE_WINDOW: StatsWindow = 20;
 
@@ -286,6 +294,146 @@ const ROLE_STYLES = `
   }
 `;
 
+const ENCOUNTER_STYLES = `
+  :host {
+    color-scheme: dark;
+    display: inline-flex !important;
+    flex: 0 0 auto;
+    align-items: center;
+    align-self: center;
+    min-width: 0;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  .encounters {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: #858a92;
+    font-variant-numeric: tabular-nums;
+  }
+  .trigger {
+    display: grid;
+    min-width: 16px;
+    grid-template-rows: 8px 13px;
+    place-items: center;
+    padding: 0 1px;
+    border-radius: 3px;
+    color: #858a92;
+    line-height: 1;
+    outline: none;
+    cursor: help;
+  }
+  .trigger:hover,
+  .trigger:focus-visible {
+    background: rgba(255, 255, 255, .08);
+    color: #d9dde2;
+  }
+  .trigger:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, .78);
+    outline-offset: 1px;
+  }
+  .count {
+    align-self: end;
+    color: currentColor;
+    font-size: 8px;
+    font-weight: 800;
+    line-height: 8px;
+  }
+  svg {
+    display: block;
+    width: 13px;
+    height: 13px;
+    overflow: visible;
+  }
+  .tooltip {
+    position: fixed;
+    inset: auto;
+    z-index: 2147483000;
+    display: none;
+    width: min(360px, calc(100vw - 16px));
+    margin: 0;
+    padding: 15px 16px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 6px;
+    background: #0c0e10;
+    box-shadow: 0 14px 38px rgba(0, 0, 0, .58);
+    color: #eef0f2;
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+  }
+  .tooltip[data-open="true"] { display: block; }
+  .tooltip:popover-open { display: block; }
+  .tooltip strong {
+    display: block;
+    font-size: 15px;
+    line-height: 19px;
+  }
+  .scope {
+    display: block;
+    margin-top: 2px;
+    color: #949aa3;
+    font-size: 12px;
+  }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 17px;
+  }
+  .metric-label {
+    display: block;
+    color: #949aa3;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .metric-value {
+    display: block;
+    margin-top: 3px;
+    color: #f4f5f6;
+    font-size: 15px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+  h4 {
+    margin: 17px 0 7px;
+    color: #eef0f2;
+    font-size: 12px;
+  }
+  .recent {
+    display: grid;
+    gap: 7px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .recent li {
+    display: grid;
+    grid-template-columns: minmax(74px, 1fr) minmax(54px, .8fr) auto;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+  .recent time,
+  .recent .map {
+    overflow: hidden;
+    color: #d9dce0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recent .result {
+    font-weight: 800;
+    white-space: nowrap;
+  }
+  .recent .result[data-result="win"] { color: #24d17e; }
+  .recent .result[data-result="loss"] { color: #ff4655; }
+  @media (prefers-reduced-motion: reduce) {
+    .trigger { transition: none; }
+  }
+`;
+
 const TEAM_STYLES = `
   :host {
     color-scheme: dark;
@@ -324,6 +472,12 @@ export type InlineMatchSettings = Readonly<{
   showMapWinRates: boolean;
 }>;
 
+export type InlineMatchViewerContext = Readonly<{
+  id: string;
+  matches?: readonly PlayerMatch[];
+  histories?: ReadonlyMap<string, readonly PlayerMatch[]>;
+}>;
+
 export type InlineMatchFailure =
   | "invalid-match-roster"
   | "roster-contract"
@@ -343,6 +497,7 @@ type PlayerAnchor = Readonly<{
   mountAfter: HTMLElement;
   nicknameContainer?: HTMLElement;
   nicknameSlot?: HTMLElement;
+  endSlot?: HTMLElement;
   nativeLevel?: SVGSVGElement;
   avatarHolder?: HTMLElement;
   nativeAvatar?: HTMLElement;
@@ -656,6 +811,235 @@ function svgNode<K extends keyof SVGElementTagNameMap>(
   const node = ownerDocument.createElementNS("http://www.w3.org/2000/svg", tag);
   for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
   return node;
+}
+
+function encounterIcon(ownerDocument: Document, kind: PlayerEncounterKind): SVGSVGElement {
+  const svg = svgNode(ownerDocument, "svg", {
+    viewBox: "0 0 20 20",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": 1.65,
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+  });
+  if (kind === "teammate") {
+    svg.append(
+      svgNode(ownerDocument, "path", { d: "m2.5 8 3-3 2.4 2.1 2.2-1.3a2.6 2.6 0 0 1 3.1.3L17.5 10" }),
+      svgNode(ownerDocument, "path", { d: "m4 9.5 4.8 4.8a1.5 1.5 0 0 0 2.1 0l4.8-4.8" }),
+      svgNode(ownerDocument, "path", { d: "m7.1 12.5 1.2-1.2m.8 3 1.2-1.2m1.1.5 1.1-1.1" }),
+      svgNode(ownerDocument, "path", { d: "M2 7.2 4.6 4.6 7 7 4.4 9.6Zm16 0-2.6-2.6L13 7l2.6 2.6Z" }),
+    );
+  } else {
+    svg.append(
+      svgNode(ownerDocument, "path", { d: "m3 3 6.2 6.2M5 2.5 2.5 5l2 1.9 2.4-2.4" }),
+      svgNode(ownerDocument, "path", { d: "m17 3-6.2 6.2M15 2.5 17.5 5l-2 1.9-2.4-2.4" }),
+      svgNode(ownerDocument, "path", { d: "m8.1 10.3-4.8 4.8m8.6-4.8 4.8 4.8" }),
+      svgNode(ownerDocument, "path", { d: "m2.7 14.5 2.8 2.8m11.8-2.8-2.8 2.8" }),
+    );
+  }
+  return svg;
+}
+
+function encounterTitle(kind: PlayerEncounterKind): string {
+  return kind === "teammate" ? "Союзник" : "Соперник";
+}
+
+function relativeEncounterDate(finishedAt: number): string {
+  if (!Number.isFinite(finishedAt)) return "Дата неизвестна";
+  const elapsed = Date.now() - finishedAt;
+  const days = Math.max(0, Math.floor(elapsed / 86_400_000));
+  if (days === 0) return "Сегодня";
+  if (days === 1) return "1 день назад";
+  if (days < 5) return `${days} дня назад`;
+  if (days < 31) return `${days} дней назад`;
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short", year: "numeric" })
+    .format(new Date(finishedAt));
+}
+
+function encounterMapLabel(map: string | undefined): string {
+  const normalized = canonicalMap(map);
+  return normalized ? `${normalized.slice(0, 1).toUpperCase()}${normalized.slice(1)}` : "Карта —";
+}
+
+function positionEncounterTooltip(trigger: HTMLElement, tooltip: HTMLElement): void {
+  const view = trigger.ownerDocument.defaultView;
+  const viewportWidth = Math.max(320, view?.innerWidth ?? 1_280);
+  const viewportHeight = Math.max(320, view?.innerHeight ?? 720);
+  const width = Math.min(360, viewportWidth - 16);
+  const triggerRect = trigger.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const measuredHeight = tooltipRect.height > 0 ? tooltipRect.height : 250;
+  const centered = triggerRect.left + triggerRect.width / 2 - width / 2;
+  const left = Math.min(viewportWidth - width - 8, Math.max(8, centered));
+  const below = triggerRect.bottom + 8;
+  const top = below + measuredHeight <= viewportHeight - 8
+    ? below
+    : Math.max(8, triggerRect.top - measuredHeight - 8);
+  tooltip.style.width = `${Math.round(width)}px`;
+  tooltip.style.left = `${Math.round(left)}px`;
+  tooltip.style.top = `${Math.round(top)}px`;
+}
+
+function renderEncounterTooltip(
+  ownerDocument: Document,
+  target: Player,
+  summary: PlayerEncounterSummary,
+  window: number,
+): HTMLElement {
+  const tooltip = ownerDocument.createElement("section");
+  tooltip.className = "tooltip";
+  tooltip.dataset.esEncounterTooltip = summary.kind;
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.setAttribute("popover", "manual");
+
+  const heading = ownerDocument.createElement("strong");
+  heading.textContent = encounterTitle(summary.kind);
+  const scope = ownerDocument.createElement("span");
+  scope.className = "scope";
+  scope.textContent =
+    `С ${target.nickname} · Найдено в доступной истории (до ${window} матчей каждого)`;
+  tooltip.append(heading, scope);
+
+  const metrics = ownerDocument.createElement("div");
+  metrics.className = "metrics";
+  for (const [label, value] of [
+    ["Матчи", String(summary.matches)],
+    ["Победы — поражения", `${summary.wins} – ${summary.losses}`],
+    ["Процент побед", `${summary.winRate.toFixed(1)}%`],
+  ] as const) {
+    const metric = ownerDocument.createElement("span");
+    const metricLabel = ownerDocument.createElement("small");
+    metricLabel.className = "metric-label";
+    metricLabel.textContent = label;
+    const metricValue = ownerDocument.createElement("b");
+    metricValue.className = "metric-value";
+    metricValue.textContent = value;
+    metric.append(metricLabel, metricValue);
+    metrics.append(metric);
+  }
+  tooltip.append(metrics);
+
+  if (summary.recent.length) {
+    const recentTitle = ownerDocument.createElement("h4");
+    recentTitle.textContent = "Последние матчи";
+    const recent = ownerDocument.createElement("ul");
+    recent.className = "recent";
+    for (const match of summary.recent) {
+      const row = ownerDocument.createElement("li");
+      const date = ownerDocument.createElement("time");
+      date.dateTime = new Date(match.finishedAt).toISOString();
+      date.textContent = relativeEncounterDate(match.finishedAt);
+      const map = ownerDocument.createElement("span");
+      map.className = "map";
+      map.textContent = encounterMapLabel(match.map);
+      const result = ownerDocument.createElement("span");
+      result.className = "result";
+      result.dataset.result = match.result;
+      result.textContent = match.result === "win" ? "Победа" : "Поражение";
+      row.append(date, map, result);
+      recent.append(row);
+    }
+    tooltip.append(recentTitle, recent);
+  }
+  return tooltip;
+}
+
+function renderEncounters(
+  shadow: ShadowRoot,
+  target: Player,
+  relations: readonly PlayerEncounterSummary[],
+  window: number,
+): void {
+  const ownerDocument = shadow.ownerDocument;
+  const style = ownerDocument.createElement("style");
+  style.textContent = ENCOUNTER_STYLES;
+  const root = ownerDocument.createElement("span");
+  root.className = "encounters";
+
+  const closeTooltip = (tooltip: HTMLElement): void => {
+    try {
+      if (typeof tooltip.hidePopover === "function") tooltip.hidePopover();
+    } catch {
+      // A detached or already closed popover only needs its fallback state reset.
+    }
+    delete tooltip.dataset.open;
+  };
+
+  for (const summary of relations) {
+    if (summary.matches <= 0) continue;
+    const trigger = ownerDocument.createElement("span");
+    trigger.className = "trigger";
+    trigger.dataset.esEncounter = summary.kind;
+    trigger.tabIndex = 0;
+    trigger.setAttribute("role", "img");
+    const accessibleLabel =
+      `${encounterTitle(summary.kind)} ${target.nickname}: ${summary.matches} ${matchWord(summary.matches)}, `
+      + `${summary.wins} побед, ${summary.losses} поражений, ${summary.winRate.toFixed(1)}% побед `
+      + `найдено в доступной истории, до ${window} матчей каждого игрока`;
+    trigger.setAttribute("aria-label", accessibleLabel);
+
+    const count = ownerDocument.createElement("span");
+    count.className = "count";
+    count.textContent = String(summary.matches);
+    trigger.append(count, encounterIcon(ownerDocument, summary.kind));
+
+    const tooltip = renderEncounterTooltip(ownerDocument, target, summary, window);
+    const tooltipId = `eloscope-encounter-${summary.kind}-${target.id.replace(/[^A-Za-z0-9_-]/gu, "-")}`;
+    tooltip.id = tooltipId;
+    trigger.setAttribute("aria-describedby", tooltipId);
+
+    let hovered = false;
+    let focused = false;
+    let dismissed = false;
+    const syncTooltip = (): void => {
+      if (dismissed || (!hovered && !focused)) {
+        closeTooltip(tooltip);
+        return;
+      }
+      root.querySelectorAll<HTMLElement>(".tooltip").forEach((candidate) => {
+        if (candidate !== tooltip) closeTooltip(candidate);
+      });
+      tooltip.dataset.open = "true";
+      try {
+        if (typeof tooltip.showPopover === "function") tooltip.showPopover();
+      } catch {
+        // The data-open fallback remains visible when Popover API is unavailable.
+      }
+      positionEncounterTooltip(trigger, tooltip);
+    };
+    trigger.addEventListener("mouseenter", () => {
+      hovered = true;
+      dismissed = false;
+      syncTooltip();
+    });
+    trigger.addEventListener("mouseleave", () => {
+      hovered = false;
+      if (!focused) dismissed = false;
+      syncTooltip();
+    });
+    trigger.addEventListener("focus", () => {
+      focused = true;
+      dismissed = false;
+      syncTooltip();
+    });
+    trigger.addEventListener("blur", () => {
+      focused = false;
+      if (!hovered) dismissed = false;
+      syncTooltip();
+    });
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      dismissed = true;
+      closeTooltip(tooltip);
+    });
+    tooltip.addEventListener("toggle", () => {
+      if (!tooltip.matches(":popover-open")) delete tooltip.dataset.open;
+    });
+
+    root.append(trigger, tooltip);
+  }
+  shadow.replaceChildren(style, root);
 }
 
 function roleIcon(ownerDocument: Document, role: PlayerRole): SVGSVGElement {
@@ -1004,6 +1388,7 @@ export class InlineMatchRenderer {
   readonly #batteryMounts = new Map<string, Mount>();
   readonly #tierMounts = new Map<string, TierMount>();
   readonly #roleMounts = new Map<string, RoleMount>();
+  readonly #encounterMounts = new Map<string, Mount>();
   readonly #mapWinRateChart: MatchMapWinRateChartRenderer;
 
   constructor(ownerDocument: Document = document) {
@@ -1017,6 +1402,7 @@ export class InlineMatchRenderer {
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]>,
     settings: InlineMatchSettings,
     viewerTeamId?: string,
+    viewer?: InlineMatchViewerContext,
   ): InlineMatchRenderResult {
     const recentMapStats = settings.showMapWinRates
       ? buildRecentPlayerMapStats(playerMatches, settings.mapWinRateWindow)
@@ -1059,6 +1445,7 @@ export class InlineMatchRenderer {
     this.#removeStale(this.#playerMounts, expectedPlayerIds);
     this.#removeStale(this.#teamMounts, expectedHeaderTeamIds);
     this.#removeStale(this.#batteryMounts, expectedPlayerIds);
+    this.#removeStale(this.#encounterMounts, expectedPlayerIds);
     this.#removeStaleTiers(expectedPlayerIds);
     this.#removeStaleRoles(expectedPlayerIds);
     this.#removeOrphans(expectedPlayerIds, expectedHeaderTeamIds);
@@ -1089,7 +1476,8 @@ export class InlineMatchRenderer {
 
     for (const teamAnchor of discovery.teams) {
       for (const anchor of teamAnchor.players) {
-        const rows = eligibleMatches(playerMatches.get(anchor.player.id) ?? []);
+        const sourceRows = playerMatches.get(anchor.player.id);
+        const rows = eligibleMatches(sourceRows ?? []);
         const totalMatches = lifetimeMatchCount(playerMapStats.get(anchor.player.id));
         const roleAnalysis = settings.showPlayerRoles ? classifyPlayerRole(rows) : undefined;
         const signature = playerSignature(anchor.player, rows, totalMatches, settings, roleAnalysis);
@@ -1122,6 +1510,16 @@ export class InlineMatchRenderer {
         updated += this.#syncBattery(anchor, rows);
         updated += this.#syncTier(anchor, settings);
         updated += this.#syncRole(anchor, roleAnalysis);
+        const encounterRows = viewer?.histories?.get(anchor.player.id) ?? sourceRows;
+        const encounters = viewer
+          ? buildPlayerEncounters(
+            viewer.id,
+            anchor.player.id,
+            viewer.matches ? readyState(viewer.matches) : loadingState(),
+            encounterRows ? readyState(encounterRows) : loadingState(),
+          )
+          : undefined;
+        updated += this.#syncEncounters(anchor, encounters);
       }
     }
 
@@ -1142,15 +1540,17 @@ export class InlineMatchRenderer {
     for (const mount of this.#playerMounts.values()) mount.host.remove();
     for (const mount of this.#teamMounts.values()) mount.host.remove();
     for (const mount of this.#batteryMounts.values()) mount.host.remove();
+    for (const mount of this.#encounterMounts.values()) mount.host.remove();
     for (const mount of this.#tierMounts.values()) this.#removeTierMount(mount);
     for (const mount of this.#roleMounts.values()) this.#removeRoleMount(mount);
     this.#playerMounts.clear();
     this.#teamMounts.clear();
     this.#batteryMounts.clear();
+    this.#encounterMounts.clear();
     this.#tierMounts.clear();
     this.#roleMounts.clear();
     this.#document.querySelectorAll(
-      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}]`,
+      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}], [${INLINE_ENCOUNTER_ATTRIBUTE}]`,
     )
       .forEach((host) => host.remove());
   }
@@ -1189,6 +1589,49 @@ export class InlineMatchRenderer {
     }
     if (anchor.nicknameContainer.nextElementSibling !== mount.host) {
       anchor.nicknameContainer.insertAdjacentElement("afterend", mount.host);
+    }
+    return updated;
+  }
+
+  #syncEncounters(anchor: PlayerAnchor, result: PlayerEncountersResult | undefined): number {
+    const id = anchor.player.id;
+    if (
+      result?.status !== "ready"
+      || result.relations.length === 0
+      || !anchor.endSlot
+    ) {
+      const existing = this.#encounterMounts.get(id);
+      if (!existing) return 0;
+      existing.host.remove();
+      this.#encounterMounts.delete(id);
+      return 1;
+    }
+
+    const signature = JSON.stringify(result);
+    let mount = this.#encounterMounts.get(id);
+    let updated = 0;
+    if (!mount || !mount.host.isConnected || mount.host.parentElement !== anchor.endSlot) {
+      mount?.host.remove();
+      const host = this.#document.createElement("span");
+      host.setAttribute(INLINE_ENCOUNTER_ATTRIBUTE, id);
+      const shadow = host.attachShadow({ mode: "open" });
+      mount = { host, signature: "" };
+      this.#encounterMounts.set(id, mount);
+      renderEncounters(shadow, anchor.player, result.relations, result.window);
+      mount.signature = signature;
+      updated = 1;
+    } else if (mount.signature !== signature) {
+      renderEncounters(
+        mount.host.shadowRoot as ShadowRoot,
+        anchor.player,
+        result.relations,
+        result.window,
+      );
+      mount.signature = signature;
+      updated = 1;
+    }
+    if (anchor.endSlot.firstElementChild !== mount.host) {
+      anchor.endSlot.insertBefore(mount.host, anchor.endSlot.firstElementChild);
     }
     return updated;
   }
@@ -1474,6 +1917,10 @@ export class InlineMatchRenderer {
           && card.contains(nicknameContainer.parentElement)
           ? nicknameContainer.parentElement
           : undefined;
+        const endSlots = Array.from(card.querySelectorAll<HTMLElement>(PLAYER_END_SLOT_SELECTOR))
+          .filter(isRendered)
+          .filter((candidate) => candidate.closest(PLAYER_CARD_SELECTOR) === card);
+        const endSlot = endSlots.length === 1 ? endSlots[0] : undefined;
         const mountedNativeLevel = this.#tierMounts.get(player.id)?.nativeLevel;
         const nativeLevels = Array.from(card.querySelectorAll<SVGSVGElement>(PLAYER_LEVEL_SELECTOR))
           .filter((level) => level === mountedNativeLevel || isRendered(level));
@@ -1500,6 +1947,7 @@ export class InlineMatchRenderer {
           mountAfter,
           ...(nicknameContainer ? { nicknameContainer } : {}),
           ...(nicknameSlot ? { nicknameSlot } : {}),
+          ...(endSlot ? { endSlot } : {}),
           ...(nativeLevel ? { nativeLevel } : {}),
           ...(avatarPair ? avatarPair : {}),
         });
@@ -1590,6 +2038,7 @@ export class InlineMatchRenderer {
     const playerHosts = new Set(Array.from(this.#playerMounts.values(), ({ host }) => host));
     const teamHosts = new Set(Array.from(this.#teamMounts.values(), ({ host }) => host));
     const batteryHosts = new Set(Array.from(this.#batteryMounts.values(), ({ host }) => host));
+    const encounterHosts = new Set(Array.from(this.#encounterMounts.values(), ({ host }) => host));
     const tierHosts = new Set(Array.from(this.#tierMounts.values(), ({ host }) => host));
     const roleHosts = new Set(Array.from(this.#roleMounts.values(), ({ host }) => host));
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}]`).forEach((host) => {
@@ -1603,6 +2052,10 @@ export class InlineMatchRenderer {
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_BATTERY_ATTRIBUTE);
       if (!id || !expectedPlayerIds.has(id) || !batteryHosts.has(host)) host.remove();
+    });
+    this.#document.querySelectorAll<HTMLElement>(`[${INLINE_ENCOUNTER_ATTRIBUTE}]`).forEach((host) => {
+      const id = host.getAttribute(INLINE_ENCOUNTER_ATTRIBUTE);
+      if (!id || !expectedPlayerIds.has(id) || !encounterHosts.has(host)) host.remove();
     });
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_TIER_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_TIER_ATTRIBUTE);

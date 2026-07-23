@@ -37,6 +37,7 @@ describe("FACEIT response contracts", () => {
     expect(normalizeRecentMatches(currentRecentMatches, "11111111-2222-3333-4444-555555555555")).toEqual([
       expect.objectContaining({
         id: "1-12345678-90ab-cdef-1234-567890abcdef",
+        teamId: "team_alpha",
         status: "finished",
         mode: "5v5",
         result: "win",

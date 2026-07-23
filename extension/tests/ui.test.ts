@@ -97,15 +97,22 @@ describe("Shadow DOM overlays", () => {
           ],
         },
       ],
-    }, new Map([["alpha-ace", [{ ...validMatch, playerId: "alpha-ace", map: "dust2" }]]]), new Map([[
+    }, new Map([
+      ["alpha-ace", [{ ...validMatch, playerId: "alpha-ace", map: "dust2" }]],
+      ["alpha-two", [{ ...validMatch, playerId: "alpha-two", map: "dust2" }]],
+    ]), new Map([[
       "alpha-ace",
       [{ map: "dust2", matches: 416, wins: 220, kills: 7_900, assists: 1_800, deaths: 6_700, roundsPlayed: 9_800, damage: 820_000 }],
-    ]]));
+    ]]), "team-a", {
+      id: "alpha-ace",
+      matches: [{ ...validMatch, playerId: "alpha-ace", map: "dust2" }],
+    });
 
     const host = document.querySelector<HTMLElement>('[data-eloscope-inline-player="alpha-ace"]');
     const tierHost = document.querySelector<HTMLElement>('[data-eloscope-inline-tier="alpha-ace"]');
     const extended = tierHost?.shadowRoot?.querySelector<HTMLElement>("[data-es-tier]");
     const batteryHost = document.querySelector<HTMLElement>('[data-eloscope-inline-battery="alpha-ace"]');
+    const encounterHost = document.querySelector<HTMLElement>('[data-eloscope-inline-encounter="alpha-two"]');
     expect(overlay.shadow.querySelector(".es-panel")).toBeNull();
     expect(overlay.shadow.querySelector(".es-teams")).toBeNull();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(10);
@@ -118,13 +125,16 @@ describe("Shadow DOM overlays", () => {
     expect(extended?.textContent).toBe("12");
     expect(extended?.title).toContain("официальный FACEIT level 10");
     expect(batteryHost?.previousElementSibling?.matches('[class*="Nickname__Container-sc-"]')).toBe(true);
+    expect(encounterHost?.parentElement?.matches('[class*="styles__EndSlotContainer-sc-"]')).toBe(true);
     const positions = overlay.shadow.querySelector<HTMLElement>(".es-positions");
     expect(positions?.hidden).toBe(true);
     expect(positions?.childElementCount).toBe(0);
     expect(overlay.shadow.querySelector(".es-position-card")).toBeNull();
     overlay.hideRoutePanels();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
-    expect(document.querySelectorAll("[data-eloscope-inline-team], [data-eloscope-inline-tier], [data-eloscope-inline-battery]")).toHaveLength(0);
+    expect(document.querySelectorAll(
+      "[data-eloscope-inline-team], [data-eloscope-inline-tier], [data-eloscope-inline-battery], [data-eloscope-inline-encounter]",
+    )).toHaveLength(0);
     overlay.destroy();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
   });

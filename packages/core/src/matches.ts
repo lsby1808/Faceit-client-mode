@@ -1,5 +1,7 @@
 import type { PlayerMatch, StatsWindow } from "./types.js";
 
+const MAX_DATE_EPOCH_MS = 8_640_000_000_000_000;
+
 export const toEpochMs = (value: string | number | Date): number => {
   if (value instanceof Date) return value.getTime();
   if (typeof value === "number") {
@@ -25,12 +27,14 @@ export const isCompletedCs2FiveVFive = (match: PlayerMatch): boolean => {
     match.damage,
   ];
   const optionalStats = [match.headshots, match.firstKills, match.survivedRounds];
+  const finishedAt = toEpochMs(match.finishedAt);
 
   return (
     game === "cs2" &&
     mode === "5v5" &&
     (status === "finished" || status === "completed") &&
-    Number.isFinite(toEpochMs(match.finishedAt)) &&
+    Number.isFinite(finishedAt) &&
+    Math.abs(finishedAt) <= MAX_DATE_EPOCH_MS &&
     Number.isFinite(match.roundsPlayed) &&
     match.roundsPlayed > 0 &&
     requiredStats.every((value) => Number.isFinite(value) && value >= 0) &&
