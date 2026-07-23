@@ -179,6 +179,9 @@ export class FaceitBridgeAdapter implements FaceitReadAdapter {
       event: "bridge.response",
       operation: pending.operation,
       status: debugStatus(response.result),
+      ...(response.result.status === "restricted" && response.result.reason === "rate-limited"
+        ? { reason: "rate-limited" as const }
+        : {}),
       durationMs,
     });
     pending.resolve(response.result);

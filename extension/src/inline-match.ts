@@ -751,8 +751,8 @@ type TierMount = Mount & {
 type RoleMount = Mount & {
   avatarHolder: HTMLElement;
   nativeAvatar: HTMLElement;
-  previousDisplay: string;
-  previousDisplayPriority: string;
+  previousOpacity: string;
+  previousOpacityPriority: string;
   previousAriaHidden: string | null;
   previousTitle: string | null;
 };
@@ -2356,8 +2356,8 @@ export class InlineMatchRenderer {
         signature: "",
         avatarHolder: anchor.avatarHolder,
         nativeAvatar: anchor.nativeAvatar,
-        previousDisplay: anchor.nativeAvatar.style.getPropertyValue("display"),
-        previousDisplayPriority: anchor.nativeAvatar.style.getPropertyPriority("display"),
+        previousOpacity: anchor.nativeAvatar.style.getPropertyValue("opacity"),
+        previousOpacityPriority: anchor.nativeAvatar.style.getPropertyPriority("opacity"),
         previousAriaHidden: anchor.nativeAvatar.getAttribute("aria-hidden"),
         previousTitle: anchor.avatarHolder.getAttribute("title"),
       };
@@ -2374,10 +2374,13 @@ export class InlineMatchRenderer {
     const title = roleTitle(analysis.role, analysis.confidence);
     if (mount.avatarHolder.getAttribute("title") !== title) mount.avatarHolder.setAttribute("title", title);
     if (
-      mount.nativeAvatar.style.getPropertyValue("display") !== "none"
-      || mount.nativeAvatar.style.getPropertyPriority("display") !== "important"
+      mount.nativeAvatar.style.getPropertyValue("opacity") !== "0"
+      || mount.nativeAvatar.style.getPropertyPriority("opacity") !== "important"
     ) {
-      mount.nativeAvatar.style.setProperty("display", "none", "important");
+      // Keep the real FACEIT avatar in layout and hit-testing. The role tile is
+      // visual-only (`pointer-events: none`), so native delegated profile-card
+      // handlers still receive the exact avatar element they were built for.
+      mount.nativeAvatar.style.setProperty("opacity", "0", "important");
     }
     if (mount.nativeAvatar.getAttribute("aria-hidden") !== "true") {
       mount.nativeAvatar.setAttribute("aria-hidden", "true");
@@ -2389,10 +2392,14 @@ export class InlineMatchRenderer {
   }
 
   #removeRoleMount(mount: RoleMount): void {
-    if (mount.previousDisplay) {
-      mount.nativeAvatar.style.setProperty("display", mount.previousDisplay, mount.previousDisplayPriority);
+    if (mount.previousOpacity) {
+      mount.nativeAvatar.style.setProperty(
+        "opacity",
+        mount.previousOpacity,
+        mount.previousOpacityPriority,
+      );
     } else {
-      mount.nativeAvatar.style.removeProperty("display");
+      mount.nativeAvatar.style.removeProperty("opacity");
     }
     if (mount.previousAriaHidden === null) mount.nativeAvatar.removeAttribute("aria-hidden");
     else mount.nativeAvatar.setAttribute("aria-hidden", mount.previousAriaHidden);

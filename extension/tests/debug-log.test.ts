@@ -256,6 +256,64 @@ describe("local debug log", () => {
     expect(JSON.stringify(bundle)).not.toContain("Private map label");
   });
 
+  it("classifies a native FACEIT avatar click as a privacy-safe profile action", async () => {
+    const log = new LocalDebugLog();
+    await log.start();
+    const cleanup = log.installGlobalCapture(() => "match");
+    const holder = document.createElement("span");
+    holder.className = "Avatar__AvatarHolder-sc-live";
+    const avatar = document.createElement("img");
+    avatar.className = "Avatar__Image-sc-live";
+    avatar.setAttribute("aria-label", "avatar");
+    avatar.dataset.privatePlayerNickname = "never-export-this";
+    holder.append(avatar);
+    document.body.append(holder);
+
+    avatar.dispatchEvent(new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    }));
+    cleanup();
+
+    const text = await log.exportText();
+    const bundle = JSON.parse(text) as DebugBundle;
+    expect(bundle.events).toContainEqual(expect.objectContaining({
+      event: "interaction.click",
+      route: "match",
+      source: "faceit",
+      control: "player-profile",
+    }));
+    expect(text).not.toContain("never-export-this");
+  });
+
+  it("recognizes inline match Shadow DOM interactions as EloScope", async () => {
+    const log = new LocalDebugLog();
+    await log.start();
+    const cleanup = log.installGlobalCapture(() => "match");
+    const host = document.createElement("span");
+    host.setAttribute("data-eloscope-inline-encounter", "private-player-id");
+    const shadow = host.attachShadow({ mode: "open" });
+    const trigger = document.createElement("button");
+    trigger.textContent = "Private encounter detail";
+    shadow.append(trigger);
+    document.body.append(host);
+
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+    cleanup();
+
+    const text = await log.exportText();
+    const bundle = JSON.parse(text) as DebugBundle;
+    expect(bundle.events).toContainEqual(expect.objectContaining({
+      event: "interaction.click",
+      route: "match",
+      source: "eloscope",
+      control: "button",
+    }));
+    expect(text).not.toContain("private-player-id");
+    expect(text).not.toContain("Private encounter detail");
+  });
+
   it("keeps the newest 2000 events in the count-bounded ring", async () => {
     const log = new LocalDebugLog();
     for (let index = 1; index <= DEBUG_LOG_MAX_EVENTS + 5; index += 1) {

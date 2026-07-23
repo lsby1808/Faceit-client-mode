@@ -6,6 +6,7 @@ mod updater;
 use debug_log::DebugEventKind;
 use getrandom::fill as fill_random;
 use policy::{is_safe_download_url, NavigationDecision, RequestContext, SessionPolicy};
+use serde::Deserialize;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 const FACEIT_HOME: &str = "https://www.faceit.com/";
 const EXTENSION_BOOTSTRAP_URL: &str = "about:blank";
+const EXTENSION_NAME: &str = "EloScope";
 const ABOUT_TEXT: &str = "EloScope is an independent enhancement client. It is not affiliated with, sponsored by, or endorsed by FACEIT Ltd. FACEIT and Counter-Strike are trademarks of their respective owners. EloScope can hand Windows the exact official FACEIT Anti-Cheat launch URI after confirmation, but never inspects, injects into, monitors, or modifies Anti-Cheat, CS2 memory, or game processes. No telemetry or remote crash reporting is enabled.";
 static POPUP_COUNTER: AtomicU64 = AtomicU64::new(1);
 static FACEIT_ANTI_CHEAT_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
@@ -45,7 +47,11 @@ pub fn run() {
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     debug_log::record(DebugEventKind::SetupStarted);
     let extension_path = resolve_extension_path(app.handle())?;
-    validate_extension(&extension_path)?;
+    validate_extension(
+        &extension_path,
+        &app.package_info().version.to_string(),
+        env!("CARGO_PKG_VERSION"),
+    )?;
     debug_log::record(DebugEventKind::ExtensionManifestValidated);
 
     let profile_path = app.path().app_local_data_dir()?.join("webview-profile");
@@ -459,12 +465,78 @@ fn resolve_extension_path(app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn Err
     Ok(app.path().resource_dir()?.join("extension"))
 }
 
-fn validate_extension(path: &Path) -> Result<(), Box<dyn Error>> {
-    let manifest = path.join("manifest.json");
-    if !manifest.is_file() {
+#[derive(Deserialize)]
+struct BundledExtensionManifest {
+    manifest_version: u8,
+    name: String,
+    version: String,
+}
+
+fn expected_extension_version(app_version: &str) -> Result<String, Box<dyn Error>> {
+    let (core, beta) = match app_version.split_once("-beta.") {
+        Some((core, beta)) => (core, Some(beta)),
+        None if !app_version.contains('-') => (app_version, None),
+        None => {
+            return Err(format!(
+                "unsupported EloScope application version for extension mapping: {app_version}"
+            )
+            .into())
+        }
+    };
+    let components = core
+        .split('.')
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>()?;
+    if components.len() != 3 {
+        return Err(format!("invalid EloScope application version: {app_version}").into());
+    }
+
+    let extension_patch = match beta {
+        Some(beta) => beta.parse::<u64>()?,
+        None => components[2],
+    };
+    Ok(format!(
+        "{}.{}.{}",
+        components[0], components[1], extension_patch
+    ))
+}
+
+fn validate_extension(
+    path: &Path,
+    app_version: &str,
+    cargo_version: &str,
+) -> Result<(), Box<dyn Error>> {
+    let manifest_path = path.join("manifest.json");
+    if !manifest_path.is_file() {
         return Err(format!(
             "EloScope extension is missing at {}. Build extension/ before starting the client.",
-            manifest.display()
+            manifest_path.display()
+        )
+        .into());
+    }
+
+    if app_version != cargo_version {
+        return Err(format!(
+            "EloScope application version mismatch: bundle is {app_version}, native package is {cargo_version}."
+        )
+        .into());
+    }
+
+    let manifest: BundledExtensionManifest = serde_json::from_slice(&fs::read(&manifest_path)?)
+        .map_err(|error| {
+            format!(
+                "EloScope extension manifest is invalid at {} ({error}).",
+                manifest_path.display()
+            )
+        })?;
+    let expected_version = expected_extension_version(app_version)?;
+    if manifest.manifest_version != 3
+        || manifest.name != EXTENSION_NAME
+        || manifest.version != expected_version
+    {
+        return Err(format!(
+            "EloScope extension bundle mismatch: expected {EXTENSION_NAME} MV3 version {expected_version}, found {} MV{} version {}.",
+            manifest.name, manifest.manifest_version, manifest.version
         )
         .into());
     }
@@ -544,9 +616,45 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&temp);
         fs::create_dir_all(&temp).expect("create test directory");
-        assert!(validate_extension(&temp).is_err());
-        fs::write(temp.join("manifest.json"), "{}").expect("write manifest");
-        assert!(validate_extension(&temp).is_ok());
+        assert!(validate_extension(&temp, "0.1.0-beta.27", "0.1.0-beta.27").is_err());
+        fs::write(
+            temp.join("manifest.json"),
+            r#"{"manifest_version":3,"name":"EloScope","version":"0.1.27"}"#,
+        )
+        .expect("write manifest");
+        assert!(validate_extension(&temp, "0.1.0-beta.27", "0.1.0-beta.27").is_ok());
         let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn extension_validation_rejects_stale_or_misaligned_bundles() {
+        let temp = std::env::temp_dir().join(format!(
+            "eloscope-extension-version-validation-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).expect("create test directory");
+        fs::write(
+            temp.join("manifest.json"),
+            r#"{"manifest_version":3,"name":"EloScope","version":"0.1.18"}"#,
+        )
+        .expect("write manifest");
+
+        assert!(validate_extension(&temp, "0.1.0-beta.27", "0.1.0-beta.27").is_err());
+        assert!(validate_extension(&temp, "0.1.0-beta.18", "0.1.0-beta.17").is_err());
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn application_versions_map_to_valid_manifest_versions() {
+        assert_eq!(
+            expected_extension_version("0.1.0-beta.28").expect("beta mapping"),
+            "0.1.28"
+        );
+        assert_eq!(
+            expected_extension_version("1.2.3").expect("stable mapping"),
+            "1.2.3"
+        );
+        assert!(expected_extension_version("0.1.0-alpha.1").is_err());
     }
 }

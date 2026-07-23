@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   recentMatchesResolvers: [] as Array<(value: unknown) => void>,
   mapStatsRequested: vi.fn(),
   deferMapStats: false,
+  mapStatsRestrictedPlayers: new Set<string>(),
   mapStatsResolvers: [] as Array<(value: unknown) => void>,
   automationRun: vi.fn(),
   automationReset: vi.fn(),
@@ -178,6 +179,9 @@ vi.mock("../src/bridge-client", () => ({
 
     getPlayerMapStats(playerId: string): Promise<unknown> {
       state.mapStatsRequested(playerId);
+      if (state.mapStatsRestrictedPlayers.has(playerId)) {
+        return Promise.resolve({ status: "restricted", reason: "rate-limited" });
+      }
       const result = {
         status: "ready",
         data: [{ map: "mirage", matches: 416, wins: 220, kills: 7_900, assists: 1_800, deaths: 6_700, roundsPlayed: 9_800, damage: 820_000 }],
@@ -392,6 +396,7 @@ describe("controller lifecycle", () => {
     state.recentMatchesResolvers = [];
     state.mapStatsRequested.mockClear();
     state.deferMapStats = false;
+    state.mapStatsRestrictedPlayers.clear();
     state.mapStatsResolvers = [];
     state.automationRun.mockClear();
     state.automationReset.mockClear();
@@ -648,6 +653,47 @@ describe("controller lifecycle", () => {
     controller.destroy();
   });
 
+  it("keeps lifetime map aggregates sequential so native profile reads retain capacity", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    state.deferMapStats = true;
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+    await vi.waitFor(() => expect(state.mapStatsRequested).toHaveBeenCalledOnce());
+    expect(state.mapStatsRequested).toHaveBeenLastCalledWith("player-a");
+
+    state.mapStatsResolvers.shift()?.(undefined);
+    await vi.waitFor(() => expect(state.mapStatsRequested).toHaveBeenCalledTimes(2));
+    expect(state.mapStatsRequested).toHaveBeenLastCalledWith("player-b");
+
+    state.mapStatsResolvers.shift()?.(undefined);
+    await vi.waitFor(() => expect(state.overlayInlineSync).toHaveBeenCalled());
+    controller.destroy();
+  });
+
+  it("does not cache a rate-limited lifetime response and retries on the next room load", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    state.mapStatsRestrictedPlayers.add("player-a");
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+    await vi.waitFor(() => expect(state.mapStatsRequested).toHaveBeenCalledTimes(1));
+    expect(state.mapStatsRequested).toHaveBeenLastCalledWith("player-a");
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+    await vi.waitFor(() => expect(state.mapStatsRequested).toHaveBeenCalledTimes(2));
+    expect(state.mapStatsRequested).toHaveBeenLastCalledWith("player-a");
+    controller.destroy();
+  });
+
   it("loads a bounded viewer history when inspecting a room outside the roster", async () => {
     const settings = createDefaultSettings();
     settings.interfaceVisibility.matchRoom = true;
@@ -837,7 +883,7 @@ describe("controller lifecycle", () => {
     state.deferMapStats = true;
 
     await controller.navigate(`/ru/cs2/room/${state.match.id}`);
-    await vi.waitFor(() => expect(state.mapStatsResolvers).toHaveLength(2));
+    await vi.waitFor(() => expect(state.mapStatsResolvers).toHaveLength(1));
     state.visibleMap = "nuke";
     state.domMutation?.();
     await vi.waitFor(() => {
@@ -845,7 +891,9 @@ describe("controller lifecycle", () => {
       expect(current?.selectedMap).toBe("nuke");
     });
 
-    for (const resolve of state.mapStatsResolvers.splice(0)) resolve(undefined);
+    state.mapStatsResolvers.shift()?.(undefined);
+    await vi.waitFor(() => expect(state.mapStatsResolvers).toHaveLength(1));
+    state.mapStatsResolvers.shift()?.(undefined);
     await vi.waitFor(() => {
       const current = state.overlayInlineSync.mock.calls.at(-1)?.[0] as { selectedMap?: string } | undefined;
       expect(current?.selectedMap).toBe("nuke");
@@ -887,12 +935,12 @@ describe("controller lifecycle", () => {
       state.mode = "match";
       state.deferMapStats = true;
       await controller.navigate(`/ru/cs2/room/${state.match.id}`);
-      await vi.waitFor(() => expect(state.mapStatsRequested).toHaveBeenCalledTimes(4));
+      await vi.waitFor(() => expect(state.mapStatsRequested).toHaveBeenCalledTimes(1));
 
       await controller.navigate("/");
       for (const resolve of state.mapStatsResolvers.splice(0)) resolve(undefined);
       await new Promise((resolve) => window.setTimeout(resolve, 0));
-      expect(state.mapStatsRequested).toHaveBeenCalledTimes(4);
+      expect(state.mapStatsRequested).toHaveBeenCalledTimes(1);
     } finally {
       controller.destroy();
       state.match.teams = originalTeams;

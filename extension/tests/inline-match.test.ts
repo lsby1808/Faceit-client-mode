@@ -6,7 +6,7 @@ import {
   type PlayerMatch,
   type PlayerRole,
 } from "@eloscope/core";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   INLINE_BATTERY_ATTRIBUTE,
@@ -449,8 +449,9 @@ describe("InlineMatchRenderer", () => {
     const roleHost = document.querySelector<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`);
     expect(roleHost?.parentElement).toBe(avatarHolder);
     expect(avatarHolder?.firstElementChild).toBe(roleHost);
-    expect(nativeAvatar?.style.getPropertyValue("display")).toBe("none");
-    expect(nativeAvatar?.style.getPropertyPriority("display")).toBe("important");
+    expect(nativeAvatar?.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar?.style.getPropertyValue("opacity")).toBe("0");
+    expect(nativeAvatar?.style.getPropertyPriority("opacity")).toBe("important");
     expect(nativeAvatar?.getAttribute("aria-hidden")).toBe("true");
     expect(roleHost?.shadowRoot?.querySelector("[data-es-role]")).not.toBeNull();
     expect(avatarHolder?.querySelector('[data-testid="membership badge"]')).not.toBeNull();
@@ -1477,8 +1478,8 @@ describe("InlineMatchRenderer", () => {
     const replacementAvatar = replacementHolder.querySelector<HTMLImageElement>('img[class*="Avatar__Image-sc-"]');
     const replacementRole = replacementHolder.querySelector<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`);
     expect(replacementRole?.parentElement).toBe(replacementAvatar?.parentElement);
-    expect(replacementAvatar?.style.getPropertyValue("display")).toBe("none");
-    expect(originalNativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(replacementAvatar?.style.getPropertyValue("opacity")).toBe("0");
+    expect(originalNativeAvatar.style.getPropertyValue("opacity")).toBe("");
     expect(originalNativeAvatar.hasAttribute("aria-hidden")).toBe(false);
   });
 
@@ -1491,14 +1492,16 @@ describe("InlineMatchRenderer", () => {
       '[class*="Roster__Group-sc-left"] img[class*="Avatar__Image-sc-"][aria-label="avatar"]',
     ) as HTMLImageElement;
     nativeAvatar.style.setProperty("display", "inline-block", "important");
+    nativeAvatar.style.setProperty("opacity", "0.63", "important");
     nativeAvatar.setAttribute("aria-hidden", "false");
     const avatarHolder = nativeAvatar.parentElement as HTMLElement;
     avatarHolder.title = "Native FACEIT avatar";
     const renderer = new InlineMatchRenderer();
 
     renderer.render(match, rows, maps, settings);
-    expect(nativeAvatar.style.getPropertyValue("display")).toBe("none");
-    expect(nativeAvatar.style.getPropertyPriority("display")).toBe("important");
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("inline-block");
+    expect(nativeAvatar.style.getPropertyValue("opacity")).toBe("0");
+    expect(nativeAvatar.style.getPropertyPriority("opacity")).toBe("important");
     expect(nativeAvatar.getAttribute("aria-hidden")).toBe("true");
     expect(avatarHolder.title).not.toBe("Native FACEIT avatar");
 
@@ -1509,6 +1512,8 @@ describe("InlineMatchRenderer", () => {
     expect(roleHosts()).toHaveLength(0);
     expect(nativeAvatar.style.getPropertyValue("display")).toBe("inline-block");
     expect(nativeAvatar.style.getPropertyPriority("display")).toBe("important");
+    expect(nativeAvatar.style.getPropertyValue("opacity")).toBe("0.63");
+    expect(nativeAvatar.style.getPropertyPriority("opacity")).toBe("important");
     expect(nativeAvatar.getAttribute("aria-hidden")).toBe("false");
     expect(avatarHolder.title).toBe("Native FACEIT avatar");
   });
@@ -1552,13 +1557,14 @@ describe("InlineMatchRenderer", () => {
 
     const roleHost = document.querySelector<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`);
     expect(roleHost?.parentElement).toBe(avatarHolder);
-    expect(defaultAvatar.style.getPropertyValue("display")).toBe("none");
-    expect(defaultAvatar.style.getPropertyPriority("display")).toBe("important");
+    expect(defaultAvatar.style.getPropertyValue("display")).toBe("");
+    expect(defaultAvatar.style.getPropertyValue("opacity")).toBe("0");
+    expect(defaultAvatar.style.getPropertyPriority("opacity")).toBe("important");
     expect(defaultAvatar.getAttribute("aria-hidden")).toBe("true");
     expect(avatarHolder.querySelector('[data-testid="membership badge"]')).not.toBeNull();
 
     renderer.destroy();
-    expect(defaultAvatar.style.getPropertyValue("display")).toBe("");
+    expect(defaultAvatar.style.getPropertyValue("opacity")).toBe("");
     expect(defaultAvatar.hasAttribute("aria-hidden")).toBe(false);
   });
 
@@ -1574,7 +1580,7 @@ describe("InlineMatchRenderer", () => {
 
     expect(document.querySelector(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`)).toBeNull();
     expect(roleHosts()).toHaveLength(9);
-    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.style.getPropertyValue("opacity")).toBe("");
     expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
     expect(playerHosts()).toHaveLength(10);
     expect(batteryHosts()).toHaveLength(10);
@@ -1598,11 +1604,45 @@ describe("InlineMatchRenderer", () => {
     expect(renderer.render(match, rows, maps, settings)).toMatchObject({ status: "rendered", players: 10 });
     expect(document.querySelector(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`)).toBeNull();
     expect(roleHosts()).toHaveLength(9);
-    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.style.getPropertyValue("opacity")).toBe("");
     expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
-    expect(duplicate.style.getPropertyValue("display")).toBe("");
+    expect(duplicate.style.getPropertyValue("opacity")).toBe("");
     expect(playerHosts()).toHaveLength(10);
     expect(batteryHosts()).toHaveLength(10);
+  });
+
+  it("keeps the native FACEIT avatar as the click target behind the role tile", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+    renderer.render(match, matchRows(match), playerMapRows(match), settings);
+
+    const nativeAvatar = document.querySelector<HTMLImageElement>(
+      '[data-avatar-for="AlphaOne"]',
+    ) as HTMLImageElement;
+    const nativeCard = nativeAvatar.closest<HTMLElement>(
+      '[class*="ListContentPlayer__Background"]',
+    ) as HTMLElement;
+    const roleHost = document.querySelector<HTMLElement>(
+      `[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`,
+    ) as HTMLElement;
+    const rowAction = vi.fn<(event: MouseEvent) => void>();
+    nativeCard.addEventListener("click", rowAction);
+
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
+    nativeAvatar.dispatchEvent(click);
+
+    expect(roleHost.shadowRoot?.querySelector("style")?.textContent)
+      .toContain("pointer-events: none !important");
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.style.getPropertyValue("opacity")).toBe("0");
+    expect(rowAction).toHaveBeenCalledOnce();
+    expect(rowAction.mock.calls[0]?.[0].target).toBe(nativeAvatar);
+    expect(click.defaultPrevented).toBe(false);
   });
 
   it("restores the native FACEIT level when the extended scale is disabled", () => {
@@ -1783,7 +1823,7 @@ describe("InlineMatchRenderer", () => {
     expect(tierHosts()).toHaveLength(0);
     expect(roleHosts()).toHaveLength(0);
     const nativeAvatar = document.querySelector<HTMLImageElement>('[data-avatar-for="AlphaOne"]') as HTMLImageElement;
-    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.style.getPropertyValue("opacity")).toBe("");
     expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
   });
 
@@ -2039,7 +2079,8 @@ describe("InlineMatchRenderer", () => {
     ) as SVGSVGElement;
     const nativeAvatar = document.querySelector<HTMLImageElement>('[data-avatar-for="AlphaOne"]') as HTMLImageElement;
     expect(nativeLevel.style.getPropertyValue("display")).toBe("none");
-    expect(nativeAvatar.style.getPropertyValue("display")).toBe("none");
+    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.style.getPropertyValue("opacity")).toBe("0");
     renderer.destroy();
     expect(playerHosts()).toHaveLength(0);
     expect(teamHosts()).toHaveLength(0);
@@ -2049,7 +2090,7 @@ describe("InlineMatchRenderer", () => {
     expect(roleHosts()).toHaveLength(0);
     expect(nativeLevel.style.getPropertyValue("display")).toBe("");
     expect(nativeLevel.hasAttribute("aria-hidden")).toBe(false);
-    expect(nativeAvatar.style.getPropertyValue("display")).toBe("");
+    expect(nativeAvatar.style.getPropertyValue("opacity")).toBe("");
     expect(nativeAvatar.hasAttribute("aria-hidden")).toBe(false);
   });
 });

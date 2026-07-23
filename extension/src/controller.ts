@@ -648,28 +648,36 @@ export class EloScopeController {
   }
 
   async #loadPlayerMapStats(match: MatchContext, players: readonly Player[], revision: number): Promise<void> {
-    const states = await Promise.all(players.map(async (player) => [
-      player.id,
-      await this.#loadRoomPlayerMapStats(match.id, player.id, revision),
-    ] as const));
-    const currentMatch = this.#currentMatch;
-    if (!this.#isCurrent(revision) || currentMatch?.id !== match.id) return;
-
     const mapStats = new Map<string, PlayerMapStats[]>();
     let readyMapStats = 0;
-    for (const [playerId, state] of states) {
+    let rateLimited = false;
+    // Lifetime totals are secondary metadata; keep them to one in-flight GET
+    // so EloScope never competes with a user opening FACEIT's native player
+    // card after the primary room stats have loaded.
+    for (const player of players) {
+      if (!this.#isCurrent(revision) || this.#currentMatch?.id !== match.id) return;
+      const state = await this.#loadRoomPlayerMapStats(match.id, player.id, revision);
+      if (!this.#isCurrent(revision) || this.#currentMatch?.id !== match.id) return;
       if (state.status === "ready") {
-        mapStats.set(playerId, state.data);
+        mapStats.set(player.id, state.data);
         readyMapStats += 1;
+      } else if (state.status === "restricted" && state.reason === "rate-limited") {
+        rateLimited = true;
+        break;
       }
     }
+    const currentMatch = this.#currentMatch;
+    if (!this.#isCurrent(revision) || currentMatch?.id !== match.id) return;
     this.#currentPlayerMapStats = mapStats;
     debugLog.record({
       component: "controller",
       event: "controller.load",
       route: this.#route.kind,
       operation: "playerMapStats",
-      status: readyMapStats === players.length ? "ready" : "error",
+      status: rateLimited
+        ? "restricted"
+        : readyMapStats === players.length ? "ready" : "error",
+      ...(rateLimited ? { reason: "rate-limited" as const } : {}),
       count: readyMapStats,
       total: players.length,
     });
@@ -702,7 +710,11 @@ export class EloScopeController {
         } satisfies DataState<PlayerMapStats[]>;
       }
       const state = await this.#adapter.getPlayerMapStats(playerId);
-      if (this.#isCurrent(revision) && this.#currentMatch?.id === matchId) {
+      if (
+        state.status === "ready"
+        && this.#isCurrent(revision)
+        && this.#currentMatch?.id === matchId
+      ) {
         this.#cache.set(cacheKey, state, CACHE_TTLS.playerStats);
       }
       return state;

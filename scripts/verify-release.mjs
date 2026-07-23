@@ -7,9 +7,54 @@ const root = path.resolve(import.meta.dirname, "..");
 const extensionRoot = path.join(root, "extension", "build");
 const manifestPath = path.join(extensionRoot, "manifest.json");
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const sourceManifest = JSON.parse(
+  await readFile(path.join(root, "extension", "manifest.json"), "utf8"),
+);
+const rootPackage = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+const extensionPackage = JSON.parse(
+  await readFile(path.join(root, "extension", "package.json"), "utf8"),
+);
+const corePackage = JSON.parse(
+  await readFile(path.join(root, "packages", "core", "package.json"), "utf8"),
+);
 const tauriConfig = JSON.parse(
   await readFile(path.join(root, "src-tauri", "tauri.conf.json"), "utf8"),
 );
+const cargoManifest = await readFile(path.join(root, "src-tauri", "Cargo.toml"), "utf8");
+const cargoVersion = cargoManifest.match(
+  /^\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/mu,
+)?.[1];
+
+function expectedExtensionVersion(appVersion) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$/u.exec(appVersion);
+  if (!match) throw new Error(`Unsupported application version: ${appVersion}`);
+  return `${Number(match[1])}.${Number(match[2])}.${Number(match[4] ?? match[3])}`;
+}
+
+const appVersion = rootPackage.version;
+for (const [source, version] of [
+  ["extension/package.json", extensionPackage.version],
+  ["packages/core/package.json", corePackage.version],
+  ["src-tauri/tauri.conf.json", tauriConfig.version],
+  ["src-tauri/Cargo.toml", cargoVersion],
+]) {
+  if (version !== appVersion) {
+    throw new Error(
+      `Release version mismatch: package.json is ${appVersion}, ${source} is ${version ?? "missing"}`,
+    );
+  }
+}
+const expectedManifestVersion = expectedExtensionVersion(appVersion);
+for (const [source, version] of [
+  ["extension/manifest.json", sourceManifest.version],
+  ["extension/build/manifest.json", manifest.version],
+]) {
+  if (version !== expectedManifestVersion) {
+    throw new Error(
+      `Extension version mismatch: ${source} is ${version}, expected ${expectedManifestVersion} for ${appVersion}`,
+    );
+  }
+}
 const requiredResources = new Map([
   ["../extension/build/", "extension/"],
   ["../docs/PRIVACY.md", "docs/PRIVACY.md"],

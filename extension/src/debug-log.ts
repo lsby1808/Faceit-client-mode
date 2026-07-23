@@ -90,6 +90,7 @@ const CONTROLS = [
   "server-connect",
   "server-copy",
   "chat-send",
+  "player-profile",
   "button",
   "link",
   "checkbox",
@@ -396,6 +397,8 @@ function isEloScopePath(path: readonly EventTarget[]): boolean {
     candidate instanceof Element && (
       candidate.matches("#eloscope-root, #eloscope-settings-root")
       || candidate.matches("[data-eloscope-profile-stats]")
+      || Array.from(candidate.attributes).some(({ name }) =>
+        name.startsWith("data-eloscope-inline-"))
       || candidate.matches('[class^="es-"], [class*=" es-"]')
     ));
 }
@@ -409,6 +412,11 @@ function interactiveElement(path: readonly EventTarget[]): Element | undefined {
 function classifyControl(path: readonly EventTarget[], source: DebugInteractionSource): DebugControl {
   const candidates = path.filter((candidate): candidate is Element => candidate instanceof Element);
   const contains = (selector: string): boolean => candidates.some((candidate) => candidate.matches(selector));
+
+  if (
+    contains('[class*="Avatar__AvatarHolder"]')
+    && contains('[aria-label="avatar"]')
+  ) return "player-profile";
 
   if (source === "eloscope") {
     if (contains(".es-settings-launcher")) return "settings-open";
