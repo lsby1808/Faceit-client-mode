@@ -148,11 +148,11 @@ const TIER_RAIL_STYLES = `
     border: 1px solid transparent;
     border-radius: 6px;
     color: var(--tier-fg);
-    background: color-mix(in srgb, var(--tier-fg) 7%, transparent);
+    background: color-mix(in srgb, var(--tier-fg) 8%, var(--tier-bg));
   }
   .tier[aria-current="true"] {
     border-color: var(--tier-fg);
-    background: color-mix(in srgb, var(--tier-fg) 15%, #0b1115);
+    background: color-mix(in srgb, var(--tier-fg) 18%, var(--tier-bg));
     box-shadow: 0 0 10px var(--tier-glow);
   }
   .badge {
@@ -163,12 +163,21 @@ const TIER_RAIL_STYLES = `
     place-items: center;
     border: 2px solid currentColor;
     border-radius: 50%;
-    background: #0b1115;
-    font-size: 9px;
+    background: var(--tier-bg);
+    font-size: 10px;
     font-weight: 900;
     font-variant-numeric: tabular-nums;
+    line-height: 1;
+    padding-block-start: 1px;
+    text-align: center;
   }
-  .floor { color: #838b96; font-size: 9px; font-variant-numeric: tabular-nums; }
+  .floor {
+    color: #b8c0ca;
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    text-align: center;
+  }
 `;
 
 function isRendered(element: Element): boolean {
@@ -399,6 +408,7 @@ function renderTierRail(shadow: ShadowRoot, player: Player, eligible: EligibleTi
     item.className = "tier";
     item.dataset.tier = String(tierNumber);
     item.style.setProperty("--tier-fg", presentation.foreground);
+    item.style.setProperty("--tier-bg", presentation.background);
     item.style.setProperty("--tier-glow", presentation.glow);
     if (tierNumber === progress.tier) item.setAttribute("aria-current", "true");
     const badge = shadow.ownerDocument.createElement("span");

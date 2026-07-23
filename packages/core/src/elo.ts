@@ -46,18 +46,25 @@ export interface EloTierPresentation {
   readonly glow: string;
 }
 
-function tierPresentation(tier: EloScopeTier, foreground: string): EloTierPresentation {
+function tierPresentation(
+  tier: EloScopeTier,
+  foreground: string,
+  background = TIER_BACKGROUND,
+  glow = `${foreground}${GLOW_ALPHA_HEX}`,
+): EloTierPresentation {
   return Object.freeze({
     tier,
     foreground,
-    background: TIER_BACKGROUND,
-    glow: `${foreground}${GLOW_ALPHA_HEX}`,
+    background,
+    glow,
   });
 }
 
 /**
  * One presentation source for profile rails, match-room replacements and any
- * future tier surface. Glow uses the foreground at roughly 28% alpha.
+ * future tier surface. Official tiers retain the common dark background and
+ * subtle glow; extended tiers use dedicated backgrounds and stronger glows so
+ * neighboring colors remain distinguishable at small icon sizes.
  */
 export const ELO_TIER_PALETTE: Readonly<Record<EloScopeTier, EloTierPresentation>> = Object.freeze({
   1: tierPresentation(1, "#A7ADB7"),
@@ -70,16 +77,16 @@ export const ELO_TIER_PALETTE: Readonly<Record<EloScopeTier, EloTierPresentation
   8: tierPresentation(8, "#EE5656"),
   9: tierPresentation(9, "#E74372"),
   10: tierPresentation(10, "#FF2854"),
-  11: tierPresentation(11, "#4DD8FF"),
-  12: tierPresentation(12, "#39BFFF"),
-  13: tierPresentation(13, "#5CA2FF"),
-  14: tierPresentation(14, "#8284FF"),
-  15: tierPresentation(15, "#A974FF"),
-  16: tierPresentation(16, "#CD63FF"),
-  17: tierPresentation(17, "#F05CC6"),
-  18: tierPresentation(18, "#FF628E"),
-  19: tierPresentation(19, "#FF914D"),
-  20: tierPresentation(20, "#FFD45A"),
+  11: tierPresentation(11, "#22E6F3", "#05272B", "#22E6F380"),
+  12: tierPresentation(12, "#42A5FF", "#0A2034", "#42A5FF80"),
+  13: tierPresentation(13, "#6E76FF", "#0D122A", "#6E76FF80"),
+  14: tierPresentation(14, "#B084FF", "#251936", "#B084FF80"),
+  15: tierPresentation(15, "#D64DFF", "#2C0F35", "#D64DFF80"),
+  16: tierPresentation(16, "#FF69E4", "#35152F", "#FF69E480"),
+  17: tierPresentation(17, "#FF4D91", "#350E1F", "#FF4D9180"),
+  18: tierPresentation(18, "#FF7068", "#351611", "#FF706880"),
+  19: tierPresentation(19, "#FF982E", "#342007", "#FF982E80"),
+  20: tierPresentation(20, "#FFE55C", "#302A09", "#FFE55C80"),
 });
 
 export interface OfficialEloProgress {

@@ -224,14 +224,29 @@ describe("NativeTierSurfaceRenderer", () => {
     const host = document.querySelector<HTMLElement>(`[${NATIVE_TIER_RAIL_ATTRIBUTE}]`) as HTMLElement;
     const rail = host.shadowRoot?.querySelector<HTMLElement>(".rail");
     const current = host.shadowRoot?.querySelector<HTMLElement>('[data-tier="12"]');
+    const badges = Array.from(host.shadowRoot?.querySelectorAll<HTMLElement>(".badge") ?? []);
+    const badgeStyle = getComputedStyle(badges[11] as HTMLElement);
+    const floorStyle = getComputedStyle(
+      host.shadowRoot?.querySelector<HTMLElement>('[data-tier="12"] .floor') as HTMLElement,
+    );
     expect(host.getAttribute(NATIVE_TIER_RAIL_ATTRIBUTE)).toBe("profile:progress:player-1");
     expect(host.nextElementSibling).toBe(native);
     expect(host.shadowRoot?.querySelectorAll(".tiers > .tier")).toHaveLength(20);
+    expect(badges).toHaveLength(20);
+    expect([badges[0]?.textContent, badges[9]?.textContent, badges[10]?.textContent, badges[19]?.textContent])
+      .toEqual(["1", "10", "11", "20"]);
+    expect(badgeStyle.lineHeight).toBe("1");
+    expect(badgeStyle.fontSize).toBe("10px");
+    expect(badgeStyle.paddingBlockStart).toBe("1px");
+    expect(badgeStyle.textAlign).toBe("center");
+    expect(floorStyle.lineHeight).toBe("1");
+    expect(floorStyle.textAlign).toBe("center");
     expect(rail?.dataset.currentTier).toBe("12");
     expect(rail?.textContent).toContain("Уровень 12 · 2600 ELO");
     expect(rail?.textContent).toContain("151 ELO до уровня 13");
     expect(current?.getAttribute("aria-current")).toBe("true");
     expect(current?.style.getPropertyValue("--tier-fg")).toBe(getEloTierPresentation(12).foreground);
+    expect(current?.style.getPropertyValue("--tier-bg")).toBe(getEloTierPresentation(12).background);
     expect(host.shadowRoot?.querySelector<HTMLElement>('[data-tier="20"] .floor')?.textContent).toBe("4501");
     expect(native.style.getPropertyValue("display")).toBe("none");
     expect(native.style.getPropertyPriority("display")).toBe("important");

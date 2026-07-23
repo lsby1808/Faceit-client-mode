@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { getEloTierPresentation } from "@eloscope/core";
 
 import { createDefaultSettings } from "../src/settings";
 import { EloScopeOverlay, type OverlayCallbacks } from "../src/ui";
@@ -47,7 +48,7 @@ describe("Shadow DOM overlays", () => {
     const host = document.querySelector<HTMLElement>('[data-eloscope-native-tier="profile:main:player-1"]');
     const nativeTier = host?.shadowRoot?.querySelector<HTMLElement>('[data-tier="11"]');
     expect(nativeTier?.textContent).toBe("11");
-    expect(nativeTier?.style.getPropertyValue("--tier-fg")).toBe("#4DD8FF");
+    expect(nativeTier?.style.getPropertyValue("--tier-fg")).toBe(getEloTierPresentation(11).foreground);
     expect(native.style.getPropertyValue("display")).toBe("none");
     expect(overlay.host.parentElement).toBe(document.documentElement);
     expect(overlay.host.dataset.layout).toBeUndefined();

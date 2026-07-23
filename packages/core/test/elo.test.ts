@@ -37,27 +37,29 @@ const TIER_BOUNDS: ReadonlyArray<Readonly<{
   { tier: 20, floor: 4_501, next: null },
 ];
 
-const EXPECTED_FOREGROUNDS: ReadonlyArray<readonly [EloScopeTier, string]> = [
-  [1, "#A7ADB7"],
-  [2, "#69C96B"],
-  [3, "#8CCF4D"],
-  [4, "#C7D83D"],
-  [5, "#F0C341"],
-  [6, "#F3A43B"],
-  [7, "#F27A3D"],
-  [8, "#EE5656"],
-  [9, "#E74372"],
-  [10, "#FF2854"],
-  [11, "#4DD8FF"],
-  [12, "#39BFFF"],
-  [13, "#5CA2FF"],
-  [14, "#8284FF"],
-  [15, "#A974FF"],
-  [16, "#CD63FF"],
-  [17, "#F05CC6"],
-  [18, "#FF628E"],
-  [19, "#FF914D"],
-  [20, "#FFD45A"],
+const EXPECTED_PRESENTATIONS: ReadonlyArray<
+  readonly [EloScopeTier, string, string, string]
+> = [
+  [1, "#A7ADB7", "#0B1115", "#A7ADB747"],
+  [2, "#69C96B", "#0B1115", "#69C96B47"],
+  [3, "#8CCF4D", "#0B1115", "#8CCF4D47"],
+  [4, "#C7D83D", "#0B1115", "#C7D83D47"],
+  [5, "#F0C341", "#0B1115", "#F0C34147"],
+  [6, "#F3A43B", "#0B1115", "#F3A43B47"],
+  [7, "#F27A3D", "#0B1115", "#F27A3D47"],
+  [8, "#EE5656", "#0B1115", "#EE565647"],
+  [9, "#E74372", "#0B1115", "#E7437247"],
+  [10, "#FF2854", "#0B1115", "#FF285447"],
+  [11, "#22E6F3", "#05272B", "#22E6F380"],
+  [12, "#42A5FF", "#0A2034", "#42A5FF80"],
+  [13, "#6E76FF", "#0D122A", "#6E76FF80"],
+  [14, "#B084FF", "#251936", "#B084FF80"],
+  [15, "#D64DFF", "#2C0F35", "#D64DFF80"],
+  [16, "#FF69E4", "#35152F", "#FF69E480"],
+  [17, "#FF4D91", "#350E1F", "#FF4D9180"],
+  [18, "#FF7068", "#351611", "#FF706880"],
+  [19, "#FF982E", "#342007", "#FF982E80"],
+  [20, "#FFE55C", "#302A09", "#FFE55C80"],
 ];
 
 function relativeLuminance(hex: string): number {
@@ -71,6 +73,28 @@ function relativeLuminance(hex: string): number {
 function contrastRatio(foreground: string, background: string): number {
   const values = [relativeLuminance(foreground), relativeLuminance(background)].sort((a, b) => b - a);
   return ((values[0] ?? 0) + 0.05) / ((values[1] ?? 0) + 0.05);
+}
+
+function oklab(hex: string): readonly [number, number, number] {
+  const [red = 0, green = 0, blue = 0] = [1, 3, 5]
+    .map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255)
+    .map((channel) => channel <= 0.04045
+      ? channel / 12.92
+      : ((channel + 0.055) / 1.055) ** 2.4);
+  const l = Math.cbrt(0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue);
+  const m = Math.cbrt(0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue);
+  const s = Math.cbrt(0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ];
+}
+
+function oklabDistance(first: string, second: string): number {
+  const [firstL, firstA, firstB] = oklab(first);
+  const [secondL, secondA, secondB] = oklab(second);
+  return Math.hypot(firstL - secondL, firstA - secondA, firstB - secondB) * 100;
 }
 
 describe("ELO levels", () => {
@@ -156,17 +180,33 @@ describe("ELO levels", () => {
   it("exposes one immutable exact palette for all 20 tiers", () => {
     expect(Object.isFrozen(ELO_TIER_PALETTE)).toBe(true);
     expect(Object.keys(ELO_TIER_PALETTE)).toHaveLength(20);
-    for (const [tier, foreground] of EXPECTED_FOREGROUNDS) {
+    for (const [tier, foreground, background, glow] of EXPECTED_PRESENTATIONS) {
       const presentation = getEloTierPresentation(tier);
       expect(presentation).toEqual({
         tier,
         foreground,
-        background: "#0B1115",
-        glow: `${foreground}47`,
+        background,
+        glow,
       });
       expect(ELO_TIER_PALETTE[tier]).toBe(presentation);
       expect(Object.isFrozen(presentation)).toBe(true);
       expect(contrastRatio(presentation.foreground, presentation.background)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("keeps every extended-tier color perceptually distinct", () => {
+    const extended = EXPECTED_PRESENTATIONS.filter(([tier]) => tier >= 11);
+    for (let firstIndex = 0; firstIndex < extended.length; firstIndex += 1) {
+      const first = extended[firstIndex];
+      if (!first) continue;
+      for (let secondIndex = firstIndex + 1; secondIndex < extended.length; secondIndex += 1) {
+        const second = extended[secondIndex];
+        if (!second) continue;
+        expect(
+          oklabDistance(first[1], second[1]),
+          `tiers ${first[0]} and ${second[0]} should remain visibly distinct`,
+        ).toBeGreaterThanOrEqual(9);
+      }
     }
   });
 
