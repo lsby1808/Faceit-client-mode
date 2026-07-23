@@ -18,6 +18,7 @@ describe("extension settings", () => {
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
       history: false,
+      profileStatsBanner: true,
       matchRoom: true,
       quickPositionsPanel: false
     });
@@ -47,6 +48,7 @@ describe("extension settings", () => {
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
       history: false,
+      profileStatsBanner: true,
       matchRoom: true,
       quickPositionsPanel: false
     });
@@ -74,6 +76,7 @@ describe("extension settings", () => {
       interfaceVisibility: {
         profile: false,
         history: false,
+        profileStatsBanner: true,
         matchRoom: false,
         quickPositionsPanel: false
       }
@@ -84,6 +87,7 @@ describe("extension settings", () => {
         interfaceVisibility: {
           profile: false,
           history: false,
+          profileStatsBanner: true,
           matchRoom: false,
           quickPositionsPanel: false
         }
@@ -102,6 +106,7 @@ describe("extension settings", () => {
       interfaceVisibility: {
         profile: false,
         history: false,
+        profileStatsBanner: true,
         matchRoom: true,
         quickPositionsPanel: false
       }

@@ -16,6 +16,11 @@ never as a fabricated zero. The player-card win rate always uses the latest 20
 completed CS2 5v5 matches; AVG KILLS, K/D, K/R and ADR use the selected
 statistics window.
 
+Player profile summaries include a native-flow banner calculated from the 20
+newest unique completed CS2 5v5 matches. Its Overview, Combat, Maps and Role
+views expose only fields available in the verified FACEIT response; unsupported
+MVP, clutch, utility, flash and multi-kill values are not fabricated.
+
 ## Workspace
 
 - `packages/core` — shared types, statistics, 20-match role inference, form battery, settings, and cache.

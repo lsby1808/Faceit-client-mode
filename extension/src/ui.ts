@@ -1,4 +1,5 @@
 import {
+  type DataState,
   type MatchContext,
   type Player,
   type PlayerMapStats,
@@ -8,6 +9,7 @@ import {
 import type { CompatibilityStatus } from "./compatibility";
 import { InlineMatchRenderer, type InlineMatchRenderResult } from "./inline-match";
 import { NativeTierSurfaceRenderer } from "./native-tier-surfaces";
+import { ProfileStatsBannerRenderer } from "./profile-stats-banner";
 import type { ExtensionSettings } from "./settings";
 import { canonicalPositionMapId, positionForMap, STATS_WINDOWS } from "./settings";
 import { isSelectedMapVisible, type PositionSendResult } from "./positions";
@@ -59,6 +61,7 @@ export class EloScopeOverlay {
   readonly #positions: HTMLElement;
   readonly #inlineMatch = new InlineMatchRenderer();
   readonly #nativeTiers = new NativeTierSurfaceRenderer();
+  readonly #profileStats = new ProfileStatsBannerRenderer();
   #settings: ExtensionSettings;
   #nativeTierSurface: "profile" | "matchmaking" | undefined;
 
@@ -83,12 +86,14 @@ export class EloScopeOverlay {
   destroy(): void {
     this.#inlineMatch.destroy();
     this.#nativeTiers.destroy();
+    this.#profileStats.destroy();
     this.host.remove();
   }
 
   updateSettings(settings: ExtensionSettings): void {
     this.#settings = settings;
     if (!settings.showExtendedTier) this.#nativeTiers.cleanup();
+    if (!settings.interfaceVisibility.profileStatsBanner) this.#profileStats.cleanup();
     if (!settings.interfaceVisibility.quickPositionsPanel) this.#hidePositions();
   }
 
@@ -99,6 +104,7 @@ export class EloScopeOverlay {
   hideRoutePanels(): void {
     this.#inlineMatch.cleanup();
     this.#nativeTiers.cleanup();
+    this.#profileStats.cleanup();
     this.#nativeTierSurface = undefined;
     this.#hidePositions();
   }
@@ -106,6 +112,7 @@ export class EloScopeOverlay {
   showMatchmakingTier(player: Player): number {
     this.#inlineMatch.cleanup();
     this.#nativeTiers.cleanup();
+    this.#profileStats.cleanup();
     this.#hidePositions();
     this.#nativeTierSurface = "matchmaking";
     return this.#nativeTiers.syncMatchmaking(player, this.#settings.showExtendedTier);
@@ -130,6 +137,18 @@ export class EloScopeOverlay {
     );
   }
 
+  showProfileStats(player: Player, matches: DataState<PlayerMatch[]>): boolean {
+    return this.#profileStats.render(player, matches);
+  }
+
+  syncProfileStats(): boolean {
+    return this.#profileStats.sync();
+  }
+
+  hideProfileStats(): void {
+    this.#profileStats.cleanup();
+  }
+
   showMatch(
     match: MatchContext,
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
@@ -137,6 +156,7 @@ export class EloScopeOverlay {
     viewerTeamId?: string,
   ): InlineMatchRenderResult {
     this.#nativeTiers.cleanup();
+    this.#profileStats.cleanup();
     this.#nativeTierSurface = undefined;
     const result = this.syncMatchInline(match, playerMatches, playerMapStats, viewerTeamId);
     if (this.#settings.interfaceVisibility.quickPositionsPanel) this.showPositions(match);

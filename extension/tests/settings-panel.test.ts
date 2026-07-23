@@ -62,6 +62,9 @@ describe("EloScope settings panel", () => {
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-map-win-rates")?.checked).toBe(true);
     expect(panel.shadow.querySelector("#eloscope-visibility-profile")).toBeNull();
     expect(panel.shadow.querySelector("#eloscope-visibility-history")).toBeNull();
+    expect(
+      panel.shadow.querySelector<HTMLInputElement>("#eloscope-visibility-profileStatsBanner")?.checked
+    ).toBe(true);
     expect(panel.shadow.querySelector("#eloscope-visibility-matchRoom")).not.toBeNull();
     expect(
       panel.shadow.querySelector<HTMLInputElement>("#eloscope-visibility-quickPositionsPanel")?.checked
@@ -154,6 +157,7 @@ describe("EloScope settings panel", () => {
     expect(stored.interfaceVisibility).toEqual({
       profile: false,
       history: false,
+      profileStatsBanner: true,
       matchRoom: true,
       quickPositionsPanel: true
     });

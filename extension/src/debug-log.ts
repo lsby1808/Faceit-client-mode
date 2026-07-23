@@ -395,6 +395,7 @@ function isEloScopePath(path: readonly EventTarget[]): boolean {
   return path.some((candidate) =>
     candidate instanceof Element && (
       candidate.matches("#eloscope-root, #eloscope-settings-root")
+      || candidate.matches("[data-eloscope-profile-stats]")
       || candidate.matches('[class^="es-"], [class*=" es-"]')
     ));
 }

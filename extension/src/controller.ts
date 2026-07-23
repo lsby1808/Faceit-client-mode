@@ -8,7 +8,8 @@ import {
   type PlayerMapStats,
   type PlayerMatch,
   type StatsWindow,
-  type Viewer
+  type Viewer,
+  loadingState,
 } from "@eloscope/core";
 import { VisibleDomAutomationRunner } from "./automations";
 import { FaceitBridgeAdapter } from "./bridge-client";
@@ -56,7 +57,10 @@ function stateStatus(state: DataState<unknown>): DebugStatus {
 }
 
 export function routeIdentity(route: FaceitRoute): string {
-  if (route.kind === "profile" || route.kind === "history") return `${route.kind}:${route.nickname.toLowerCase()}`;
+  if (route.kind === "profile") {
+    return `${route.kind}:${route.nickname.toLowerCase()}:${route.section}`;
+  }
+  if (route.kind === "history") return `${route.kind}:${route.nickname.toLowerCase()}`;
   if (route.kind === "match") return `match:${route.matchId}`;
   return route.kind;
 }
@@ -84,6 +88,7 @@ export class EloScopeController {
   #currentPlayerMapStats = new Map<string, PlayerMapStats[]>();
   #currentViewerTeamId: string | undefined;
   #currentTierPlayer: Player | undefined;
+  #currentProfileMatches: DataState<PlayerMatch[]> | undefined;
   #routeRevision = 0;
   #matchRetryTimer: number | undefined;
   #matchRetryAttempt = 0;
@@ -236,6 +241,7 @@ export class EloScopeController {
     });
     if (nextIdentity !== this.#routeIdentity) {
       this.#currentTierPlayer = undefined;
+      this.#currentProfileMatches = undefined;
       this.#routeIdentity = nextIdentity;
       this.#automations.resetForRoute();
       this.#lastAutomationSignature = "";
@@ -272,12 +278,25 @@ export class EloScopeController {
         }
         break;
       case "profile":
-        if (!this.#capabilities.profile || !this.#settings.showExtendedTier) {
+        if (
+          !this.#capabilities.profile
+          || (
+            !this.#settings.showExtendedTier
+            && !(
+              this.#route.section === "summary"
+              && this.#settings.interfaceVisibility.profileStatsBanner
+            )
+          )
+        ) {
           this.#currentTierPlayer = undefined;
+          this.#currentProfileMatches = undefined;
           this.#overlay.hideRoutePanels();
-        } else await this.#loadProfileTier(
+        } else await this.#loadProfile(
           this.#route.nickname,
-          /\/cs2\/stats\/?$/u.test(pathname),
+          this.#route.section === "stats",
+          this.#settings.showExtendedTier,
+          this.#route.section === "summary"
+            && this.#settings.interfaceVisibility.profileStatsBanner,
           revision,
         );
         break;
@@ -285,7 +304,13 @@ export class EloScopeController {
         if (!this.#capabilities.history || !this.#settings.showExtendedTier) {
           this.#currentTierPlayer = undefined;
           this.#overlay.hideRoutePanels();
-        } else await this.#loadProfileTier(this.#route.nickname, false, revision);
+        } else await this.#loadProfile(
+          this.#route.nickname,
+          false,
+          true,
+          false,
+          revision,
+        );
         break;
       case "match":
         if (!this.#capabilities.matchRoom) {
@@ -337,12 +362,15 @@ export class EloScopeController {
     );
   }
 
-  async #loadProfileTier(
+  async #loadProfile(
     nickname: string,
     includeProgressRail: boolean,
+    renderTier: boolean,
+    renderStatsBanner: boolean,
     revision: number,
   ): Promise<void> {
     this.#currentTierPlayer = undefined;
+    this.#currentProfileMatches = undefined;
     this.#overlay.hideRoutePanels();
     const playerState = await this.#cached<Player>(
       `player:${nickname.toLowerCase()}`,
@@ -359,11 +387,37 @@ export class EloScopeController {
     if (!this.#isCurrent(revision)) return;
     if (playerState.status !== "ready" || !playerState.data) return;
     this.#currentTierPlayer = playerState.data;
-    this.#recordNativeRender(
-      "render.profile",
-      this.#overlay.showProfileTier(playerState.data, includeProgressRail),
-    );
+    if (renderTier) {
+      this.#recordNativeRender(
+        "render.profile",
+        this.#overlay.showProfileTier(playerState.data, includeProgressRail),
+      );
+    }
     await this.#snapshots.recordPlayer(playerState.data);
+    if (!this.#isCurrent(revision) || !renderStatsBanner) return;
+
+    this.#currentProfileMatches = loadingState<PlayerMatch[]>();
+    this.#overlay.showProfileStats(playerState.data, this.#currentProfileMatches);
+    const matchesState = await this.#cached<PlayerMatch[]>(
+      `matches:${playerState.data.id}:30`,
+      // Fetch a small buffer so duplicate or ineligible upstream rows do not
+      // silently shrink the truthful newest-20 sample rendered by the model.
+      () => this.#adapter.getRecentMatches(playerState.data.id, 30),
+      CACHE_TTLS.playerStats,
+    );
+    if (!this.#isCurrent(revision) || this.#route.kind !== "profile" || this.#route.section !== "summary") {
+      return;
+    }
+    this.#currentProfileMatches = matchesState;
+    debugLog.record({
+      component: "controller",
+      event: "controller.load",
+      route: this.#route.kind,
+      operation: "recentMatches",
+      status: stateStatus(matchesState),
+      count: matchesState.status === "ready" ? matchesState.data.length : 0,
+    });
+    this.#overlay.showProfileStats(playerState.data, matchesState);
   }
 
   async #loadMatch(matchId: string, revision: number, renderOverlay: boolean): Promise<void> {
@@ -637,14 +691,22 @@ export class EloScopeController {
     if (this.#destroyed) return;
     this.#runAutomations();
     if (this.#route.kind === "profile") {
-      if (this.#currentTierPlayer) {
+      if (this.#currentTierPlayer && this.#settings.showExtendedTier) {
         this.#recordNativeRender(
           "render.profile",
           this.#overlay.syncProfileTier(
             this.#currentTierPlayer,
-            /\/cs2\/stats\/?$/u.test(location.pathname),
+            this.#route.section === "stats",
           ),
         );
+      }
+      if (
+        this.#route.section === "summary"
+        && this.#settings.interfaceVisibility.profileStatsBanner
+        && this.#currentTierPlayer
+        && this.#currentProfileMatches
+      ) {
+        this.#overlay.syncProfileStats();
       }
       return;
     }

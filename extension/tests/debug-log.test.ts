@@ -229,6 +229,33 @@ describe("local debug log", () => {
     }
   });
 
+  it("classifies profile-banner Shadow DOM interactions as EloScope", async () => {
+    const log = new LocalDebugLog();
+    await log.start();
+    const cleanup = log.installGlobalCapture(() => "profile");
+    const host = document.createElement("section");
+    host.setAttribute("data-eloscope-profile-stats", "private-player-id");
+    const shadow = host.attachShadow({ mode: "open" });
+    const tab = document.createElement("button");
+    tab.className = "tab";
+    tab.textContent = "Private map label";
+    shadow.append(tab);
+    document.body.append(host);
+
+    tab.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+    cleanup();
+
+    const bundle = JSON.parse(await log.exportText()) as DebugBundle;
+    expect(bundle.events).toContainEqual(expect.objectContaining({
+      event: "interaction.click",
+      route: "profile",
+      source: "eloscope",
+      control: "button",
+    }));
+    expect(JSON.stringify(bundle)).not.toContain("private-player-id");
+    expect(JSON.stringify(bundle)).not.toContain("Private map label");
+  });
+
   it("keeps the newest 2000 events in the count-bounded ring", async () => {
     const log = new LocalDebugLog();
     for (let index = 1; index <= DEBUG_LOG_MAX_EVENTS + 5; index += 1) {

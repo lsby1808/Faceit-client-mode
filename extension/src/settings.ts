@@ -17,6 +17,8 @@ export type ExtensionSettings = {
     profile: boolean;
     /** @deprecated History data panels were retired; kept false for v1 storage compatibility. */
     history: boolean;
+    /** Compact, native-flow statistics banner on the player profile summary. */
+    profileStatsBanner: boolean;
     matchRoom: boolean;
     quickPositionsPanel: boolean;
   };
@@ -116,6 +118,7 @@ export function createDefaultSettings(): ExtensionSettings {
     interfaceVisibility: {
       profile: false,
       history: false,
+      profileStatsBanner: true,
       matchRoom: true,
       quickPositionsPanel: false
     },
@@ -149,6 +152,9 @@ export function parseSettings(value: unknown): ExtensionSettings {
       // closed after a downgrade. Legacy true values must never revive panels.
       profile: false,
       history: false,
+      profileStatsBanner: typeof interfaceVisibility.profileStatsBanner === "boolean"
+        ? interfaceVisibility.profileStatsBanner
+        : defaults.interfaceVisibility.profileStatsBanner,
       matchRoom: typeof interfaceVisibility.matchRoom === "boolean"
         ? interfaceVisibility.matchRoom
         : defaults.interfaceVisibility.matchRoom,
@@ -160,9 +166,11 @@ export function parseSettings(value: unknown): ExtensionSettings {
   };
 }
 
-function needsRetiredOverlayMigration(value: unknown): boolean {
+function needsSettingsMigration(value: unknown): boolean {
   if (!isRecord(value) || !isRecord(value.interfaceVisibility)) return true;
-  return value.interfaceVisibility.profile !== false || value.interfaceVisibility.history !== false;
+  return value.interfaceVisibility.profile !== false
+    || value.interfaceVisibility.history !== false
+    || typeof value.interfaceVisibility.profileStatsBanner !== "boolean";
 }
 
 export async function loadSettings(): Promise<ExtensionSettings> {
@@ -170,7 +178,7 @@ export async function loadSettings(): Promise<ExtensionSettings> {
     const stored = await chrome.storage.local.get(SETTINGS_KEY);
     const raw = stored[SETTINGS_KEY];
     const safe = parseSettings(raw);
-    if (needsRetiredOverlayMigration(raw)) {
+    if (needsSettingsMigration(raw)) {
       try {
         await chrome.storage.local.set({ [SETTINGS_KEY]: safe });
       } catch {

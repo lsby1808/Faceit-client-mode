@@ -4,11 +4,11 @@ import { routeIdentity } from "../src/controller";
 
 describe("FACEIT route contracts", () => {
   it.each([
-    ["/ru/players/donk666", { kind: "profile", nickname: "donk666" }],
+    ["/ru/players/donk666", { kind: "profile", nickname: "donk666", section: "summary" }],
     ["/ru/matchmaking", { kind: "matchmaking" }],
     ["/en-US/matchmaking/", { kind: "matchmaking" }],
-    ["/ru/players/FixturePlayer/cs2", { kind: "profile", nickname: "FixturePlayer" }],
-    ["/ru/players/FixturePlayer/cs2/stats", { kind: "profile", nickname: "FixturePlayer" }],
+    ["/ru/players/FixturePlayer/cs2", { kind: "profile", nickname: "FixturePlayer", section: "summary" }],
+    ["/ru/players/FixturePlayer/cs2/stats", { kind: "profile", nickname: "FixturePlayer", section: "stats" }],
     ["/en-US/players/test.name/cs2/history", { kind: "history", nickname: "test.name" }],
     ["/ru/cs2/room/11111111-2222-3333-4444-555555555555", { kind: "match", matchId: "11111111-2222-3333-4444-555555555555" }],
     ["/ru/cs2/room/1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/scoreboard", { kind: "match", matchId: "1-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }],
@@ -27,5 +27,11 @@ describe("FACEIT route contracts", () => {
     const first = parseFaceitRoute("/en/cs2/room/11111111-2222-3333-4444-555555555555");
     const second = parseFaceitRoute("/ru/cs2/room/11111111-2222-3333-4444-555555555555");
     expect(routeIdentity(first)).toBe(routeIdentity(second));
+  });
+
+  it("gives profile summary and stats separate identities", () => {
+    const summary = parseFaceitRoute("/en/players/FixturePlayer/cs2");
+    const stats = parseFaceitRoute("/en/players/FixturePlayer/cs2/stats");
+    expect(routeIdentity(summary)).not.toBe(routeIdentity(stats));
   });
 });

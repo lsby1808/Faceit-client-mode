@@ -11,6 +11,7 @@ describe("interface visibility", () => {
     settings.interfaceVisibility = {
       profile: true,
       history: true,
+      profileStatsBanner: true,
       matchRoom: false,
       quickPositionsPanel: false
     };

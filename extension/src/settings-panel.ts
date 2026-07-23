@@ -520,6 +520,22 @@ export class EloScopeSettingsPanel {
       }
     ));
     grid.append(this.#switchRow(
+      "Статистика в профиле",
+      "Встроенный баннер с достоверной статистикой последних 20 завершённых CS2 5v5 матчей",
+      settings.interfaceVisibility.profileStatsBanner,
+      "visibility-profileStatsBanner",
+      (checked) => {
+        if (!this.#draft) return;
+        this.#draft = {
+          ...this.#draft,
+          interfaceVisibility: {
+            ...this.#draft.interfaceVisibility,
+            profileStatsBanner: checked
+          }
+        };
+      }
+    ));
+    grid.append(this.#switchRow(
       "Overlay match room",
       "Команды, форма и сравнение карт",
       settings.interfaceVisibility.matchRoom,

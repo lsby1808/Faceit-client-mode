@@ -48,3 +48,29 @@ if (historyMode && main) {
 }
 
 overlay.showProfileTier(player, statsMode);
+
+if (!historyMode && !statsMode) {
+  const recentMatches = Array.from({ length: 20 }, (_, index) => ({
+    id: `profile-match-${index}`,
+    playerId: player.id,
+    game: "cs2",
+    mode: "5v5",
+    status: "finished",
+    finishedAt: Date.UTC(2026, 6, 23) - index * 86_400_000,
+    result: index < 13 ? "win" as const : "loss" as const,
+    map: index % 3 === 0 ? "dust2" : index % 3 === 1 ? "mirage" : "ancient",
+    roundsPlayed: 20,
+    kills: 18 + (index % 5),
+    assists: 4 + (index % 3),
+    deaths: 14 + (index % 4),
+    damage: 1_820 + index * 7,
+    headshots: 8 + (index % 4),
+    firstKills: 2 + (index % 2),
+    survivedRounds: 20 - (14 + (index % 4)),
+  }));
+  overlay.showProfileStats(player, {
+    status: "ready",
+    data: recentMatches,
+    fetchedAt: Date.now(),
+  });
+}

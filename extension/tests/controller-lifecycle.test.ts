@@ -44,6 +44,8 @@ const state = vi.hoisted(() => ({
   overlaySyncMatchmakingTier: vi.fn(),
   overlayShowProfileTier: vi.fn(),
   overlaySyncProfileTier: vi.fn(),
+  overlayShowProfileStats: vi.fn(),
+  overlaySyncProfileStats: vi.fn(),
   domMutation: undefined as (() => void) | undefined,
   visibleMap: null as string | null,
   match: {
@@ -133,8 +135,8 @@ vi.mock("../src/bridge-client", () => ({
       });
     }
 
-    getRecentMatches(playerId: string): Promise<unknown> {
-      state.recentMatchesRequested(playerId);
+    getRecentMatches(playerId: string, limit: number): Promise<unknown> {
+      state.recentMatchesRequested(playerId, limit);
       const result = { status: "ready", data: [], fetchedAt: Date.now() };
       if (!state.deferRecentMatches) return Promise.resolve(result);
       return new Promise((resolve) => state.recentMatchesResolvers.push(() => resolve(result)));
@@ -247,6 +249,8 @@ vi.mock("../src/ui", () => ({
     syncMatchmakingTier(...args: unknown[]): void { state.overlaySyncMatchmakingTier(...args); }
     showProfileTier(...args: unknown[]): void { state.overlayShowProfileTier(...args); }
     syncProfileTier(...args: unknown[]): void { state.overlaySyncProfileTier(...args); }
+    showProfileStats(...args: unknown[]): void { state.overlayShowProfileStats(...args); }
+    syncProfileStats(...args: unknown[]): void { state.overlaySyncProfileStats(...args); }
     showMatch(...args: unknown[]): typeof state.overlayRenderResult {
       state.overlayShowMatch(...args);
       return state.overlayRenderResult;
@@ -367,6 +371,8 @@ describe("controller lifecycle", () => {
     state.overlaySyncMatchmakingTier.mockClear();
     state.overlayShowProfileTier.mockClear();
     state.overlaySyncProfileTier.mockClear();
+    state.overlayShowProfileStats.mockClear();
+    state.overlaySyncProfileStats.mockClear();
     state.domMutation = undefined;
     state.visibleMap = null;
     state.match.status = "voting";
@@ -681,7 +687,9 @@ describe("controller lifecycle", () => {
   ])("does not read profile data for the removed panels when extended tiers are disabled", async (path) => {
     history.replaceState(null, "", "/");
     state.mode = "profile";
-    await saveSettings(createDefaultSettings());
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.profileStatsBanner = false;
+    await saveSettings(settings);
     const controller = new EloScopeController();
     try {
       await controller.start();
@@ -707,6 +715,7 @@ describe("controller lifecycle", () => {
     state.mode = "profile";
     const settings = createDefaultSettings();
     settings.showExtendedTier = true;
+    settings.interfaceVisibility.profileStatsBanner = false;
     await saveSettings(settings);
     const controller = new EloScopeController();
     try {
@@ -733,6 +742,99 @@ describe("controller lifecycle", () => {
         expect.objectContaining({ nickname: "FixturePlayer", elo: 2_486 }),
         includeRail,
       ));
+    } finally {
+      controller.destroy();
+      history.replaceState(null, "", "/");
+    }
+  });
+
+  it("loads and remounts the summary statistics banner independently of extended tiers", async () => {
+    history.replaceState(null, "", "/");
+    state.mode = "profile";
+    const settings = createDefaultSettings();
+    settings.showExtendedTier = false;
+    settings.interfaceVisibility.profileStatsBanner = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    try {
+      await controller.start();
+      state.playerRequested.mockClear();
+      state.recentMatchesRequested.mockClear();
+      state.overlayShowProfileStats.mockClear();
+      history.replaceState(null, "", "/ru/players/FixturePlayer/cs2");
+      await controller.navigate(location.pathname);
+
+      expect(state.playerRequested).toHaveBeenCalledOnce();
+      expect(state.recentMatchesRequested).toHaveBeenCalledWith("profile-1", 30);
+      expect(state.overlayShowProfileTier).not.toHaveBeenCalled();
+      expect(state.overlayShowProfileStats).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ id: "profile-1", nickname: "FixturePlayer" }),
+        { status: "loading" },
+      );
+      expect(state.overlayShowProfileStats).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: "profile-1" }),
+        expect.objectContaining({ status: "ready", data: [] }),
+      );
+
+      state.overlaySyncProfileStats.mockClear();
+      state.domMutation?.();
+      await vi.waitFor(() => expect(state.overlaySyncProfileStats).toHaveBeenCalledOnce());
+    } finally {
+      controller.destroy();
+      history.replaceState(null, "", "/");
+    }
+  });
+
+  it.each([
+    "/ru/players/FixturePlayer/cs2/stats",
+    "/ru/players/FixturePlayer/cs2/history",
+  ])("does not load the summary statistics banner on %s", async (path) => {
+    history.replaceState(null, "", "/");
+    state.mode = "profile";
+    const settings = createDefaultSettings();
+    settings.showExtendedTier = false;
+    settings.interfaceVisibility.profileStatsBanner = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    try {
+      await controller.start();
+      state.playerRequested.mockClear();
+      history.replaceState(null, "", path);
+      await controller.navigate(path);
+
+      expect(state.playerRequested).not.toHaveBeenCalled();
+      expect(state.recentMatchesRequested).not.toHaveBeenCalled();
+      expect(state.overlayShowProfileStats).not.toHaveBeenCalled();
+    } finally {
+      controller.destroy();
+      history.replaceState(null, "", "/");
+    }
+  });
+
+  it("does not remount a profile banner after its deferred match history resolves on another route", async () => {
+    history.replaceState(null, "", "/");
+    state.mode = "profile";
+    state.deferRecentMatches = true;
+    const settings = createDefaultSettings();
+    settings.showExtendedTier = false;
+    settings.interfaceVisibility.profileStatsBanner = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    try {
+      await controller.start();
+      history.replaceState(null, "", "/ru/players/FixturePlayer/cs2");
+      const profileNavigation = controller.navigate(location.pathname);
+      await vi.waitFor(() => expect(state.recentMatchesRequested).toHaveBeenCalledOnce());
+      expect(state.overlayShowProfileStats).toHaveBeenCalledOnce();
+
+      history.replaceState(null, "", "/ru/matchmaking");
+      await controller.navigate(location.pathname);
+      for (const resolve of state.recentMatchesResolvers.splice(0)) resolve({});
+      await profileNavigation;
+
+      expect(state.overlayShowProfileStats).toHaveBeenCalledOnce();
+      expect(state.overlaySyncProfileStats).not.toHaveBeenCalled();
     } finally {
       controller.destroy();
       history.replaceState(null, "", "/");
