@@ -492,6 +492,29 @@ export class EloScopeSettingsPanel {
       stats
     ));
 
+    const mapWinRateWindow = node("select", "es-settings-control") as HTMLSelectElement;
+    mapWinRateWindow.setAttribute("aria-label", "Окно WR по картам");
+    for (const value of STATS_WINDOWS) {
+      const option = node("option") as HTMLOptionElement;
+      option.value = String(value);
+      option.textContent = `${value} матчей`;
+      option.selected = value === settings.mapWinRateWindow;
+      mapWinRateWindow.append(option);
+    }
+    mapWinRateWindow.value = String(settings.mapWinRateWindow);
+    mapWinRateWindow.addEventListener("change", () => {
+      if (!this.#draft) return;
+      this.#draft = {
+        ...this.#draft,
+        mapWinRateWindow: Number(mapWinRateWindow.value) as StatsWindow
+      };
+    });
+    grid.append(this.#controlRow(
+      "Окно WR по картам",
+      "Последние завершённые матчи каждого игрока для расчёта WR по картам",
+      mapWinRateWindow
+    ));
+
     grid.append(this.#switchRow(
       "Расширенная шкала 1–20",
       "На matchmaking, в профиле и комнате уровень 11–20 занимает место штатной иконки; официальный level остаётся в подсказке",

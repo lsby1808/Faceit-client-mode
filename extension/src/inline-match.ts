@@ -17,6 +17,7 @@ import {
   type StatsWindow,
 } from "@eloscope/core";
 import { MatchMapWinRateChartRenderer } from "./map-winrate-chart";
+import { buildRecentPlayerMapStats } from "./recent-map-stats";
 
 export { INLINE_MAP_WINRATE_ATTRIBUTE } from "./map-winrate-chart";
 
@@ -317,6 +318,7 @@ const TEAM_STYLES = `
 
 export type InlineMatchSettings = Readonly<{
   statsWindow: StatsWindow;
+  mapWinRateWindow: StatsWindow;
   showExtendedTier: boolean;
   showPlayerRoles: boolean;
   showMapWinRates: boolean;
@@ -1016,10 +1018,21 @@ export class InlineMatchRenderer {
     settings: InlineMatchSettings,
     viewerTeamId?: string,
   ): InlineMatchRenderResult {
+    const recentMapStats = settings.showMapWinRates
+      ? buildRecentPlayerMapStats(playerMatches, settings.mapWinRateWindow)
+      : undefined;
     const discovery = this.#discover(match);
     if (discovery.status === "incompatible") {
-      if (settings.showMapWinRates) this.#mapWinRateChart.render(match, playerMapStats, viewerTeamId);
-      else this.#mapWinRateChart.cleanup();
+      if (recentMapStats) {
+        this.#mapWinRateChart.render(
+          match,
+          recentMapStats,
+          viewerTeamId,
+          settings.mapWinRateWindow,
+        );
+      } else {
+        this.#mapWinRateChart.cleanup();
+      }
       this.#cleanupRosterEnhancements();
       return discovery;
     }
@@ -1027,8 +1040,13 @@ export class InlineMatchRenderer {
       ...match,
       teams: discovery.teams.map(({ team }) => team),
     };
-    const chartUpdated = settings.showMapWinRates
-      ? this.#mapWinRateChart.render(visibleMatch, playerMapStats, viewerTeamId).updated
+    const chartUpdated = recentMapStats
+      ? this.#mapWinRateChart.render(
+        visibleMatch,
+        recentMapStats,
+        viewerTeamId,
+        settings.mapWinRateWindow,
+      ).updated
       : this.#mapWinRateChart.cleanup();
 
     const expectedPlayerIds = new Set(discovery.teams.flatMap((team) => team.players.map(({ player }) => player.id)));

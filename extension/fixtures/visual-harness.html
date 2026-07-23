@@ -37,6 +37,7 @@
       .native-level { width: 30px; height: 30px; color: #ff2854; }
       .center { min-height: 430px; padding: 12px; border: 1px solid #ffffff12; border-radius: 8px; background: #111419; color: #929aa5; }
       .preference { margin-top: 10px; padding: 14px; border-radius: 5px; background: #202226; color: #fff; font-weight: 700; }
+      .native-connect { display: block; margin-top: 28px; padding: 12px; border-radius: 5px; background: #ff5a00; color: #fff; font-size: 13px; font-weight: 800; text-align: center; text-decoration: none; }
       .chat { position: absolute; left: -9999px; }
     </style>
   </head>
@@ -75,6 +76,12 @@
           <div class="preference">🇩🇪 Germany</div>
           <strong>Карта</strong>
           <div class="preference" data-testid="selected-map" data-map-id="mirage" data-eloscope-visible="true">Mirage selected</div>
+          <a
+            class="native-connect"
+            data-testid="connect-to-server"
+            data-eloscope-visible="true"
+            href="steam://connect/127.0.0.1:27015"
+          >Подключиться к серверу</a>
         </section>
         <section class="Roster__Group-sc-fixture-right">
           <h2>Игроки</h2>

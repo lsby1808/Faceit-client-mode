@@ -515,6 +515,34 @@ describe("controller lifecycle", () => {
     controller.destroy();
   });
 
+  it.each([
+    [5, 5, true, 30],
+    [100, 5, true, 100],
+    [5, 100, true, 100],
+    [5, 100, false, 30],
+  ] as const)(
+    "uses stats=%i, map window=%i, map WR enabled=%s -> request %i",
+    async (statsWindow, mapWinRateWindow, showMapWinRates, expectedLimit) => {
+      const settings = createDefaultSettings();
+      settings.statsWindow = statsWindow;
+      settings.mapWinRateWindow = mapWinRateWindow;
+      settings.showMapWinRates = showMapWinRates;
+      settings.interfaceVisibility.matchRoom = true;
+      await saveSettings(settings);
+      const controller = new EloScopeController();
+      await controller.start();
+      state.mode = "match";
+      state.recentMatchesRequested.mockClear();
+
+      await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+      expect(state.recentMatchesRequested).toHaveBeenCalledTimes(2);
+      expect(state.recentMatchesRequested).toHaveBeenCalledWith("player-a", expectedLimit);
+      expect(state.recentMatchesRequested).toHaveBeenCalledWith("player-b", expectedLimit);
+      controller.destroy();
+    },
+  );
+
   it("retries a transient bootstrap failure for a newly-created room without caching the error", async () => {
     vi.useFakeTimers();
     try {

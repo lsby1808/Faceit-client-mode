@@ -60,7 +60,7 @@ describe("DOM contract fixtures", () => {
     expect(nativeWrapper?.querySelector("button")?.textContent).toContain("Show more");
   });
 
-  it("models the unique finished-room map chart anchor before native actions", () => {
+  it("models the unique finished-room map card and native back CTA in one validated container", () => {
     loadFixture("finished-room");
     const containers = document.querySelectorAll<HTMLElement>('[class*="Finished__Container-sc-"]');
     const sections = document.querySelectorAll<HTMLElement>('[class*="Finished__Section-sc-"]');
@@ -96,6 +96,9 @@ describe("DOM contract fixtures", () => {
     expect(mapCards[0]?.textContent).toBe("Dust2");
     expect(mapCards[0]?.parentElement).toBe(preferences);
     expect(mapCards[0]?.previousElementSibling?.parentElement).toBe(preferences);
+    expect(matchmaking?.matches('[data-testid="back-to-matchmaking"]')).toBe(true);
+    expect(matchmaking?.parentElement).toBe(container);
+    expect(container?.contains(mapCards[0] ?? null)).toBe(true);
     expect(demo?.previousElementSibling).toBe(section);
     expect(matchmaking?.previousElementSibling).toBe(demo);
     expect(container?.querySelectorAll('[class*="Finished__Action-sc-"]')).toHaveLength(2);

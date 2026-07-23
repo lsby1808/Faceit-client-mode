@@ -57,7 +57,12 @@ function mountExplicit(map = "dust2"): HTMLElement {
   document.body.innerHTML = `
     <main id="center">
       <div id="selected" data-testid="selected-map" data-map-id="${map}" data-eloscope-visible="true">${map}</div>
-      <a id="native-action" href="#queue">Native action</a>
+      <a
+        id="native-action"
+        data-testid="connect-to-server"
+        data-eloscope-visible="true"
+        href="steam://connect/127.0.0.1:27015"
+      >Connect to server</a>
     </main>
   `;
   return document.querySelector<HTMLElement>("#selected") as HTMLElement;
@@ -78,19 +83,21 @@ function selectedWinsSummary(): HTMLElement {
 }
 
 describe("MatchMapWinRateChartRenderer", () => {
-  it("mounts after the selected map and renders selected-first weighted team comparisons", () => {
+  it("mounts after the native connect CTA and renders selected-first weighted team comparisons", () => {
     const selected = mountExplicit();
     const match = matchContext();
     const renderer = new MatchMapWinRateChartRenderer();
 
-    expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 1 });
+    expect(renderer.render(match, mapRows(match), undefined, 30)).toEqual({ status: "rendered", updated: 1 });
     const host = chartHost();
-    expect(selected.nextElementSibling).toBe(host);
+    const nativeAction = document.querySelector("#native-action");
+    expect(selected.nextElementSibling).toBe(nativeAction);
     expect(selected.lastElementChild).toBe(selectedWinsHost());
-    expect(host?.nextElementSibling?.id).toBe("native-action");
+    expect(nativeAction?.nextElementSibling).toBe(host);
     expect(host?.getAttribute(INLINE_MAP_WINRATE_ATTRIBUTE)).toBe(match.id);
 
     const chart = host?.shadowRoot?.querySelector<HTMLElement>("[data-es-map-winrates]");
+    expect(chart?.querySelector(".footnote")?.textContent).toContain("последним 30 матчам");
     const winsSummary = selectedWinsSummary();
     expect(winsSummary.dataset.esSelectedMapWins).toBe("dust2");
     expect(winsSummary.querySelector<HTMLElement>('[data-es-wins-team-id="left"] .wins-label')?.textContent)
@@ -201,7 +208,7 @@ describe("MatchMapWinRateChartRenderer", () => {
     expect(mapRowsNodes[0]?.dataset.esMapRow).toBe("mirage");
   });
 
-  it("uses only the validated live Finished > Section > Preferences chain", () => {
+  it("mounts after the native back-to-matchmaking CTA in the validated finished container", () => {
     document.body.innerHTML = `
       <div class="Finished__Container-sc-live">
         <section class="Finished__Section-sc-live">
@@ -211,18 +218,117 @@ describe("MatchMapWinRateChartRenderer", () => {
           </div>
         </section>
         <button id="demo">Demo</button>
+        <div id="native-actions">
+          <a
+            id="native-action"
+            data-testid="back-to-matchmaking"
+            data-eloscope-visible="true"
+            href="/en/matchmaking/cs2"
+          >Back to matchmaking</a>
+        </div>
       </div>
     `;
-    const match = matchContext();
+    const match = matchContext({ status: "finished" });
     const renderer = new MatchMapWinRateChartRenderer();
     expect(renderer.render(match, mapRows(match)).status).toBe("rendered");
 
-    const preferences = document.querySelector("#preferences");
+    const nativeAction = document.querySelector("#native-action");
+    const nativeActions = document.querySelector("#native-actions");
     const host = chartHost();
-    expect(preferences?.nextElementSibling).toBe(host);
+    expect(nativeAction?.parentElement).toBe(nativeActions);
+    expect(nativeActions?.nextElementSibling).toBe(host);
     expect(document.querySelector('[data-testid="matchPreference"]')?.lastElementChild).toBe(selectedWinsHost());
-    expect(host?.parentElement?.matches('[class*="Finished__Section"]')).toBe(true);
-    expect(document.querySelector("#demo")?.previousElementSibling?.matches('[class*="Finished__Section"]')).toBe(true);
+    expect(host?.parentElement?.matches('[class*="Finished__Container"]')).toBe(true);
+    expect(document.querySelector("#demo")?.nextElementSibling).toBe(nativeActions);
+  });
+
+  it("ignores a hidden native CTA clone when one visible CTA matches the selected-map container", () => {
+    const selected = mountExplicit();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<aside hidden>
+        <a data-testid="connect-to-server" href="steam://connect/127.0.0.2:27015">Hidden clone</a>
+      </aside>`,
+    );
+    const match = matchContext();
+    const renderer = new MatchMapWinRateChartRenderer();
+
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 1 });
+    expect(document.querySelector("#native-action")?.nextElementSibling).toBe(chartHost());
+    expect(selected.lastElementChild).toBe(selectedWinsHost());
+  });
+
+  it("fails closed when more than one matching native CTA is visible", () => {
+    mountExplicit();
+    document.querySelector("#center")?.insertAdjacentHTML(
+      "beforeend",
+      `<a
+        id="native-action-duplicate"
+        data-testid="connect-to-server"
+        data-eloscope-visible="true"
+        href="steam://connect/127.0.0.2:27015"
+      >Duplicate connect</a>`,
+    );
+    const match = matchContext();
+    const renderer = new MatchMapWinRateChartRenderer();
+
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "incompatible", updated: 0 });
+    expect(chartHost()).toBeNull();
+    expect(selectedWinsHost()).toBeNull();
+  });
+
+  it("ignores non-rendered native CTA clones with opacity zero or no layout box", () => {
+    const selected = mountExplicit();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<aside>
+        <a
+          data-testid="connect-to-server"
+          href="steam://connect/127.0.0.2:27015"
+          style="opacity: 0"
+        >Transparent clone</a>
+        <a
+          data-testid="connect-to-server"
+          href="steam://connect/127.0.0.3:27015"
+        >Zero-size fixture clone</a>
+      </aside>`,
+    );
+    const match = matchContext();
+    const renderer = new MatchMapWinRateChartRenderer();
+
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 1 });
+    expect(document.querySelector("#native-action")?.nextElementSibling).toBe(chartHost());
+    expect(selected.lastElementChild).toBe(selectedWinsHost());
+  });
+
+  it("fails closed for an explicit selected-map contract under a broad root container", () => {
+    document.body.innerHTML = `
+      <div data-testid="selected-map" data-map-id="dust2" data-eloscope-visible="true">dust2</div>
+      <a
+        data-testid="connect-to-server"
+        data-eloscope-visible="true"
+        href="steam://connect/127.0.0.1:27015"
+      >Connect elsewhere</a>
+    `;
+    const match = matchContext();
+    const renderer = new MatchMapWinRateChartRenderer();
+
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "incompatible", updated: 0 });
+    expect(chartHost()).toBeNull();
+    expect(selectedWinsHost()).toBeNull();
+  });
+
+  it("fails closed when the native CTA is outside the selected-map container", () => {
+    mountExplicit();
+    const action = document.querySelector("#native-action");
+    document.body.insertAdjacentHTML("beforeend", '<aside id="wrong-container"></aside>');
+    document.querySelector("#wrong-container")?.append(action as Element);
+    const match = matchContext();
+    const renderer = new MatchMapWinRateChartRenderer();
+
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "incompatible", updated: 0 });
+    expect(chartHost()).toBeNull();
+    expect(selectedWinsHost()).toBeNull();
   });
 
   it("fails closed on map mismatch or more than one visible selected-map candidate", () => {
@@ -265,8 +371,33 @@ describe("MatchMapWinRateChartRenderer", () => {
     expect(chartHost()).not.toBe(originalHost);
     expect(document.querySelectorAll(`[${INLINE_MAP_WINRATE_ATTRIBUTE}]`)).toHaveLength(1);
     expect(document.querySelectorAll(`[${INLINE_SELECTED_MAP_WINS_ATTRIBUTE}]`)).toHaveLength(1);
-    expect(document.querySelector("#selected-2")?.nextElementSibling).toBe(chartHost());
+    expect(document.querySelector("#native-action")?.nextElementSibling).toBe(chartHost());
     expect(document.querySelector("#selected-2")?.lastElementChild).toBe(selectedWinsHost());
+  });
+
+  it("remounts after React replaces the native CTA and keeps the chart directly below it", () => {
+    const selected = mountExplicit();
+    const match = matchContext();
+    const renderer = new MatchMapWinRateChartRenderer();
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 1 });
+    const originalHost = chartHost();
+    const originalWinsHost = selectedWinsHost();
+
+    const replacement = document.createElement("a");
+    replacement.id = "native-action-replacement";
+    replacement.dataset.testid = "connect-to-server";
+    replacement.dataset.eloscopeVisible = "true";
+    replacement.href = "steam://connect/127.0.0.3:27015";
+    replacement.textContent = "Connect after React render";
+    document.querySelector("#native-action")?.replaceWith(replacement);
+
+    expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 1 });
+    expect(chartHost()).not.toBe(originalHost);
+    expect(selectedWinsHost()).not.toBe(originalWinsHost);
+    expect(replacement.nextElementSibling).toBe(chartHost());
+    expect(selected.lastElementChild).toBe(selectedWinsHost());
+    expect(document.querySelectorAll(`[${INLINE_MAP_WINRATE_ATTRIBUTE}]`)).toHaveLength(1);
+    expect(document.querySelectorAll(`[${INLINE_SELECTED_MAP_WINS_ATTRIBUTE}]`)).toHaveLength(1);
   });
 
   it("ignores hidden responsive clones and preserves the same host for unchanged data", () => {
@@ -280,7 +411,7 @@ describe("MatchMapWinRateChartRenderer", () => {
 
     expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 1 });
     const originalHost = chartHost();
-    expect(selected.nextElementSibling).toBe(originalHost);
+    expect(document.querySelector("#native-action")?.nextElementSibling).toBe(originalHost);
     expect(renderer.render(match, mapRows(match))).toEqual({ status: "rendered", updated: 0 });
     expect(chartHost()).toBe(originalHost);
 
@@ -321,6 +452,7 @@ describe("MatchMapWinRateChartRenderer", () => {
     const renderer = new InlineMatchRenderer();
     const baseSettings = {
       statsWindow: 30 as const,
+      mapWinRateWindow: 30 as const,
       showExtendedTier: false,
       showPlayerRoles: false,
       showMapWinRates: true,

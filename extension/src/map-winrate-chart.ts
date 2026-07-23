@@ -4,6 +4,7 @@ import {
   type MapWinRateComparison,
   type MatchContext,
   type PlayerMapStats,
+  type StatsWindow,
   type TeamMapWinRateAggregate,
 } from "@eloscope/core";
 
@@ -12,6 +13,8 @@ const LIVE_VETO_SELECTOR = '[data-testid="mapsVetoHistory"]';
 const LIVE_PREFERENCES_CONTAINER_SELECTOR = '[class*="Preferences__Container"]';
 const LIVE_FINISHED_SECTION_SELECTOR = '[class*="Finished__Section"]';
 const LIVE_FINISHED_CONTAINER_SELECTOR = '[class*="Finished__Container"]';
+const LIVE_CONNECT_SELECTOR = 'a[data-testid="connect-to-server"][href^="steam://connect/"]';
+const LIVE_BACK_TO_MATCHMAKING_SELECTOR = '[data-testid="back-to-matchmaking"]';
 const EXPLICIT_MAP_SELECTORS = [
   '[data-testid="selected-map"][data-map-id]',
   '[data-testid="map-voting-result"][data-map]',
@@ -276,9 +279,18 @@ function isRendered(element: Element): boolean {
   for (let current: Element | null = element; current; current = current.parentElement) {
     if ((current instanceof HTMLElement && current.hidden) || current.getAttribute("aria-hidden") === "true") return false;
     const style = view?.getComputedStyle(current);
-    if (style?.display === "none" || style?.visibility === "hidden") return false;
+    if (
+      style?.display === "none"
+      || style?.visibility === "hidden"
+      || (style !== undefined && style.opacity !== "" && Number.parseFloat(style.opacity) === 0)
+    ) return false;
   }
   return true;
+}
+
+function hasRenderedBox(element: HTMLElement): boolean {
+  if (element.dataset.eloscopeVisible === "true") return true;
+  return [...element.getClientRects()].some(({ width, height }) => width > 0 && height > 0);
 }
 
 function domMapId(value: string | undefined): string | undefined {
@@ -291,9 +303,33 @@ function uniqueElements(elements: readonly HTMLElement[]): HTMLElement[] {
   return [...new Set(elements)];
 }
 
+function actionSelector(match: MatchContext): string {
+  const status = match.status.trim().toLowerCase();
+  return status === "finished" || status === "cancelled"
+    ? LIVE_BACK_TO_MATCHMAKING_SELECTOR
+    : LIVE_CONNECT_SELECTOR;
+}
+
+function uniqueVisibleAction(ownerDocument: Document, match: MatchContext): HTMLElement | undefined {
+  const candidates = Array.from(
+    ownerDocument.querySelectorAll<HTMLElement>(actionSelector(match)),
+  ).filter((candidate) => isRendered(candidate) && hasRenderedBox(candidate));
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+function directChildWithin(element: HTMLElement, container: HTMLElement): HTMLElement | undefined {
+  let current = element;
+  while (current.parentElement && current.parentElement !== container) {
+    current = current.parentElement;
+  }
+  return current.parentElement === container ? current : undefined;
+}
+
 function discoverChartAnchor(ownerDocument: Document, match: MatchContext): ChartAnchor | undefined {
   const expectedMap = domMapId(match.selectedMap);
   if (!expectedMap || match.teams.length !== 2) return undefined;
+  const action = uniqueVisibleAction(ownerDocument, match);
+  if (!action) return undefined;
 
   const explicit = EXPLICIT_MAP_SELECTORS.flatMap((selector) =>
     Array.from(ownerDocument.querySelectorAll<HTMLElement>(selector)).filter(isRendered));
@@ -307,8 +343,18 @@ function discoverChartAnchor(ownerDocument: Document, match: MatchContext): Char
   const isExplicit = EXPLICIT_MAP_SELECTORS.some((selector) => selected.matches(selector));
   if (isExplicit) {
     const declaredMap = selected.dataset.mapId ?? selected.dataset.map;
-    if (domMapId(declaredMap) !== expectedMap || !selected.parentElement) return undefined;
-    return { container: selected.parentElement, after: selected, selected };
+    const declaredContainer = selected.closest<HTMLElement>('[data-eloscope-contract="match-center"]');
+    const container = declaredContainer ?? selected.parentElement;
+    if (
+      domMapId(declaredMap) !== expectedMap
+      || !container
+      || container === ownerDocument.body
+      || container === ownerDocument.documentElement
+      || !container.contains(action)
+      || (!declaredContainer && action.parentElement !== container)
+    ) return undefined;
+    const after = directChildWithin(action, container);
+    return after ? { container, after, selected } : undefined;
   }
 
   if (domMapId(selected.textContent ?? undefined) !== expectedMap) return undefined;
@@ -325,7 +371,9 @@ function discoverChartAnchor(ownerDocument: Document, match: MatchContext): Char
     || preferences.parentElement !== section
     || section.parentElement !== finished
   ) return undefined;
-  return { container: section, after: preferences, selected };
+  if (!finished.contains(action)) return undefined;
+  const after = directChildWithin(action, finished);
+  return after ? { container: finished, after, selected } : undefined;
 }
 
 function teamName(comparison: MapWinRateComparison, index: number, match: MatchContext): string {
@@ -583,6 +631,7 @@ function renderChart(
   shadow: ShadowRoot,
   match: MatchContext,
   comparisons: readonly MapWinRateComparison[],
+  window: StatsWindow,
 ): void {
   const ownerDocument = shadow.ownerDocument;
   const style = ownerDocument.createElement("style");
@@ -618,7 +667,7 @@ function renderChart(
 
   const footnote = ownerDocument.createElement("footer");
   footnote.className = "footnote";
-  footnote.textContent = "WR взвешен по матчам игроков · X/5 — покрытие состава";
+  footnote.textContent = `WR по последним ${window} матчам каждого игрока · X/5 — покрытие состава`;
   chart.append(footnote);
   shadow.replaceChildren(style, chart);
 }
@@ -637,8 +686,8 @@ function renderSelectedWins(
 
 /**
  * Mounts a fail-closed total inside the selected-map card and the comparison
- * chart below FACEIT's preferences. It never guesses between ambiguous DOM
- * contracts or mismatched maps.
+ * chart below FACEIT's connect/back-to-matchmaking action. It never guesses
+ * between ambiguous DOM contracts, actions, or mismatched maps.
  */
 export class MatchMapWinRateChartRenderer {
   readonly #document: Document;
@@ -650,8 +699,9 @@ export class MatchMapWinRateChartRenderer {
 
   render(
     match: MatchContext,
-    playerMapStats: ReadonlyMap<string, PlayerMapStats[]>,
+    playerMapStats: ReadonlyMap<string, readonly PlayerMapStats[]>,
     viewerTeamId?: string,
+    window: StatsWindow = 30,
   ): MapWinRateChartRenderResult {
     const perspective = matchFromViewerPerspective(match, viewerTeamId);
     const visibleMatch = perspective.match;
@@ -670,6 +720,7 @@ export class MatchMapWinRateChartRenderer {
       matchId: visibleMatch.id,
       selectedMap: domMapId(visibleMatch.selectedMap),
       viewerTeamId: perspective.viewerTeamId,
+      window,
       teamNames: visibleMatch.teams.map(({ id, name }) => [id, name]),
       comparisons,
     });
@@ -691,7 +742,7 @@ export class MatchMapWinRateChartRenderer {
       const host = this.#document.createElement("div");
       host.setAttribute(INLINE_MAP_WINRATE_ATTRIBUTE, visibleMatch.id);
       const shadow = host.attachShadow({ mode: "open" });
-      renderChart(shadow, visibleMatch, comparisons);
+      renderChart(shadow, visibleMatch, comparisons, window);
       const winsHost = this.#document.createElement("span");
       winsHost.setAttribute(INLINE_SELECTED_MAP_WINS_ATTRIBUTE, visibleMatch.id);
       const winsShadow = winsHost.attachShadow({ mode: "open" });
@@ -701,7 +752,7 @@ export class MatchMapWinRateChartRenderer {
       updated = 1;
     } else if (mount.signature !== signature) {
       mount.host.setAttribute(INLINE_MAP_WINRATE_ATTRIBUTE, visibleMatch.id);
-      renderChart(mount.host.shadowRoot as ShadowRoot, visibleMatch, comparisons);
+      renderChart(mount.host.shadowRoot as ShadowRoot, visibleMatch, comparisons, window);
       mount.winsHost.setAttribute(INLINE_SELECTED_MAP_WINS_ATTRIBUTE, visibleMatch.id);
       renderSelectedWins(
         mount.winsHost.shadowRoot as ShadowRoot,

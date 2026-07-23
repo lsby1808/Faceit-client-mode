@@ -9,6 +9,8 @@ import { STATS_WINDOWS, isStatsWindow } from "./protocol";
 
 export type ExtensionSettings = {
   statsWindow: StatsWindow;
+  /** Independent recent-match window used for match-room map win rates. */
+  mapWinRateWindow: StatsWindow;
   showExtendedTier: boolean;
   showPlayerRoles: boolean;
   showMapWinRates: boolean;
@@ -112,6 +114,7 @@ function canonicalizePositionSettings(
 export function createDefaultSettings(): ExtensionSettings {
   return {
     statsWindow: 30,
+    mapWinRateWindow: 30,
     showExtendedTier: false,
     showPlayerRoles: true,
     showMapWinRates: true,
@@ -140,6 +143,9 @@ export function parseSettings(value: unknown): ExtensionSettings {
 
   return {
     statsWindow: isStatsWindow(value.statsWindow) ? value.statsWindow : defaults.statsWindow,
+    mapWinRateWindow: isStatsWindow(value.mapWinRateWindow)
+      ? value.mapWinRateWindow
+      : defaults.mapWinRateWindow,
     showExtendedTier: typeof value.showExtendedTier === "boolean" ? value.showExtendedTier : false,
     showPlayerRoles: typeof value.showPlayerRoles === "boolean"
       ? value.showPlayerRoles
@@ -170,7 +176,8 @@ function needsSettingsMigration(value: unknown): boolean {
   if (!isRecord(value) || !isRecord(value.interfaceVisibility)) return true;
   return value.interfaceVisibility.profile !== false
     || value.interfaceVisibility.history !== false
-    || typeof value.interfaceVisibility.profileStatsBanner !== "boolean";
+    || typeof value.interfaceVisibility.profileStatsBanner !== "boolean"
+    || !isStatsWindow(value.mapWinRateWindow);
 }
 
 export async function loadSettings(): Promise<ExtensionSettings> {

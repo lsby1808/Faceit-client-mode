@@ -30,8 +30,8 @@ export type ControllerOptions = {
   onMapPoolChange?: (mapIds: readonly MapId[]) => void;
 };
 
-function requestedWindow(window: StatsWindow): StatsWindow {
-  return window < 30 ? 30 : window;
+function requestedWindow(...windows: readonly StatsWindow[]): StatsWindow {
+  return Math.max(30, ...windows) as StatsWindow;
 }
 
 const AUTOMATIC_POSITION_MATCH_STATES = new Set(["voting", "configuring", "ready"]);
@@ -458,7 +458,9 @@ export class EloScopeController {
     this.#currentMatch = match;
     this.#publishMapPool(match.mapPool);
     if (match.status === "finished") this.#cache.set(`match:${matchId}`, matchState, CACHE_TTLS.finishedMatch);
-    const limit = requestedWindow(this.#settings.statsWindow);
+    const limit = this.#settings.showMapWinRates
+      ? requestedWindow(this.#settings.statsWindow, this.#settings.mapWinRateWindow)
+      : requestedWindow(this.#settings.statsWindow);
     const players = match.teams.flatMap((team) => team.players);
     await Promise.all(players.map((player) => this.#snapshots.recordPlayer(player)));
     if (!this.#isCurrent(revision)) return;

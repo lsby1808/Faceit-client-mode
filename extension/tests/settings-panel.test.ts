@@ -54,6 +54,13 @@ describe("EloScope settings panel", () => {
     expect(panel.shadow.activeElement).toBe(dialog);
     expect(panel.launcher.tabIndex).toBe(-1);
     expect(panel.shadow.textContent).toContain("Окно статистики");
+    expect(panel.shadow.textContent).toContain("Окно WR по картам");
+    expect(panel.shadow.textContent).toContain(
+      "Последние завершённые матчи каждого игрока для расчёта WR по картам"
+    );
+    expect(
+      panel.shadow.querySelector<HTMLSelectElement>('[aria-label="Окно WR по картам"]')?.value
+    ).toBe("30");
     expect(panel.shadow.textContent).toContain("Расширенная шкала 1–20");
     expect(panel.shadow.textContent).toContain("Роли игроков");
     expect(panel.shadow.textContent).toContain("все пять оценок при наведении на статистику");
@@ -122,6 +129,7 @@ describe("EloScope settings panel", () => {
 
     const shadow = panel.shadow;
     change(shadow.querySelector('[aria-label="Окно статистики"]') as HTMLSelectElement, "50");
+    change(shadow.querySelector('[aria-label="Окно WR по картам"]') as HTMLSelectElement, "100");
     change(shadow.querySelector("#eloscope-show-extended-tier") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-show-player-roles") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-map-win-rates") as HTMLInputElement, false);
@@ -151,6 +159,7 @@ describe("EloScope settings panel", () => {
 
     const stored = await loadSettings();
     expect(stored.statsWindow).toBe(50);
+    expect(stored.mapWinRateWindow).toBe(100);
     expect(stored.showExtendedTier).toBe(true);
     expect(stored.showPlayerRoles).toBe(false);
     expect(stored.showMapWinRates).toBe(false);

@@ -172,6 +172,7 @@ export class EloScopeOverlay {
   ): InlineMatchRenderResult {
     return this.#inlineMatch.render(match, playerMatches, playerMapStats, {
       statsWindow: this.#settings.statsWindow,
+      mapWinRateWindow: this.#settings.mapWinRateWindow,
       showExtendedTier: this.#settings.showExtendedTier,
       showPlayerRoles: this.#settings.showPlayerRoles,
       showMapWinRates: this.#settings.showMapWinRates,

@@ -21,6 +21,7 @@ import {
 
 const settings: InlineMatchSettings = {
   statsWindow: 30,
+  mapWinRateWindow: 30,
   showExtendedTier: true,
   showPlayerRoles: true,
   showMapWinRates: true,
@@ -1392,7 +1393,14 @@ describe("InlineMatchRenderer", () => {
   it("renders the ten visible cards when an API team also contains a reserve player", () => {
     mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
     const mapAnchor = document.createElement("div");
-    mapAnchor.innerHTML = '<span data-testid="selected-map" data-map-id="dust2" data-eloscope-visible="true">dust2</span>';
+    mapAnchor.innerHTML = `
+      <span data-testid="selected-map" data-map-id="dust2" data-eloscope-visible="true">dust2</span>
+      <a
+        data-testid="connect-to-server"
+        data-eloscope-visible="true"
+        href="steam://connect/127.0.0.1:27015"
+      >Connect</a>
+    `;
     document.body.prepend(mapAnchor);
     const base = matchContext();
     const alpha = base.teams[0] as MatchContext["teams"][number];
@@ -1419,6 +1427,50 @@ describe("InlineMatchRenderer", () => {
     const chart = document.querySelector<HTMLElement>(`[${INLINE_MAP_WINRATE_ATTRIBUTE}]`)?.shadowRoot;
     expect(chart?.querySelector('[data-es-team-id="team-alpha"]')?.textContent).toContain("5/5");
     expect(chart?.textContent).not.toContain("6/6");
+  });
+
+  it("calculates map win rates from the dedicated recent-match window instead of lifetime rows", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const mapAnchor = document.createElement("div");
+    mapAnchor.innerHTML = `
+      <span data-testid="selected-map" data-map-id="dust2" data-eloscope-visible="true">dust2</span>
+      <a
+        data-testid="connect-to-server"
+        data-eloscope-visible="true"
+        href="steam://connect/127.0.0.1:27015"
+      >Connect</a>
+    `;
+    document.body.prepend(mapAnchor);
+    const match = matchContext();
+    const now = Date.now();
+    const rows = new Map(match.teams.flatMap((team) => team.players.map((player) => [
+      player.id,
+      Array.from({ length: 30 }, (_, index): PlayerMatch => ({
+        id: `${player.id}-map-window-${index}`,
+        playerId: player.id,
+        game: "cs2",
+        mode: "5v5",
+        status: "finished",
+        finishedAt: now - index * 60_000,
+        result: index < 5 ? "win" : "loss",
+        map: "de_dust2",
+        roundsPlayed: 20,
+        kills: 15,
+        assists: 4,
+        deaths: 12,
+        damage: 1_600,
+      })),
+    ] as const)));
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+    const chart = document.querySelector<HTMLElement>(`[${INLINE_MAP_WINRATE_ATTRIBUTE}]`)?.shadowRoot;
+    expect(chart?.querySelector('[data-es-team-id="team-alpha"] .wr')?.textContent).toBe("16.7%");
+    expect(chart?.textContent).toContain("30");
+
+    renderer.render(match, rows, playerMapRows(match), { ...settings, mapWinRateWindow: 5 });
+    expect(chart?.querySelector('[data-es-team-id="team-alpha"] .wr')?.textContent).toBe("100.0%");
+    expect(chart?.textContent).toContain("5");
   });
 
   it("does not mount on an incomplete native roster contract", () => {

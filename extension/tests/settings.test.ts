@@ -12,6 +12,7 @@ describe("extension settings", () => {
   it("keeps every automation off by default", () => {
     const settings = createDefaultSettings();
     expect(settings.statsWindow).toBe(30);
+    expect(settings.mapWinRateWindow).toBe(30);
     expect(settings.showExtendedTier).toBe(false);
     expect(settings.showPlayerRoles).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
@@ -35,6 +36,7 @@ describe("extension settings", () => {
   it("fails closed for malformed values", () => {
     const settings = parseSettings({
       statsWindow: 17,
+      mapWinRateWindow: 17,
       showExtendedTier: "yes",
       showPlayerRoles: "yes",
       showMapWinRates: "yes",
@@ -42,6 +44,7 @@ describe("extension settings", () => {
       automations: { partyAccept: "yes", readyUp: 1, autoConnect: true }
     });
     expect(settings.statsWindow).toBe(30);
+    expect(settings.mapWinRateWindow).toBe(30);
     expect(settings.showExtendedTier).toBe(false);
     expect(settings.showPlayerRoles).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
@@ -62,6 +65,48 @@ describe("extension settings", () => {
     expect(parseSettings({ showPlayerRoles: false }).showPlayerRoles).toBe(false);
     expect(parseSettings({ statsWindow: 50 }).showMapWinRates).toBe(true);
     expect(parseSettings({ showMapWinRates: false }).showMapWinRates).toBe(false);
+  });
+
+  it("migrates a missing or invalid map WR window to 30 exactly once", async () => {
+    const legacy = {
+      ...createDefaultSettings(),
+      mapWinRateWindow: 17
+    };
+    await chrome.storage.local.set({ [SETTINGS_KEY]: legacy });
+    const setSpy = vi.spyOn(chrome.storage.local, "set");
+
+    await expect(loadSettings()).resolves.toMatchObject({
+      statsWindow: 30,
+      mapWinRateWindow: 30
+    });
+    expect(setSpy).toHaveBeenCalledOnce();
+
+    setSpy.mockClear();
+    await loadSettings();
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it("adds the default map WR window to legacy settings where the key is absent", async () => {
+    const legacy = createDefaultSettings() as Partial<ReturnType<typeof createDefaultSettings>>;
+    delete legacy.mapWinRateWindow;
+    await chrome.storage.local.set({ [SETTINGS_KEY]: legacy });
+    const setSpy = vi.spyOn(chrome.storage.local, "set");
+
+    await expect(loadSettings()).resolves.toMatchObject({ mapWinRateWindow: 30 });
+    expect(setSpy).toHaveBeenCalledOnce();
+    await expect(chrome.storage.local.get(SETTINGS_KEY)).resolves.toMatchObject({
+      [SETTINGS_KEY]: { mapWinRateWindow: 30 }
+    });
+  });
+
+  it("keeps map WR and general statistics windows independent", () => {
+    expect(parseSettings({
+      statsWindow: 100,
+      mapWinRateWindow: 5
+    })).toMatchObject({
+      statsWindow: 100,
+      mapWinRateWindow: 5
+    });
   });
 
   it("migrates legacy profile and history overlays to false exactly once", async () => {
@@ -169,6 +214,7 @@ describe("extension settings", () => {
   it("persists the complete settings object with one storage write", async () => {
     const settings = settingsWithPositionMaps(createDefaultSettings(), ["mirage"]);
     settings.statsWindow = 50;
+    settings.mapWinRateWindow = 100;
     settings.showExtendedTier = true;
     settings.showPlayerRoles = false;
     settings.showMapWinRates = false;
