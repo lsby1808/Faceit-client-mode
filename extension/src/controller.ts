@@ -32,9 +32,18 @@ function requestedWindow(window: StatsWindow): StatsWindow {
 }
 
 const AUTOMATIC_POSITION_MATCH_STATES = new Set(["voting", "configuring", "ready"]);
+const MATCH_BOOTSTRAP_RETRY_DELAYS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000] as const;
 
 export function allowsAutomaticPosition(status: string): boolean {
   return AUTOMATIC_POSITION_MATCH_STATES.has(status.trim().toLowerCase());
+}
+
+export function shouldRetryMatchBootstrap(state: DataState<MatchContext>): boolean {
+  if (state.status === "restricted") return state.reason === "rate-limited";
+  if (state.status !== "error") return false;
+  return state.error.retryable
+    || state.error.code === "upstream"
+    || state.error.code === "upstream-shape";
 }
 
 export function routeIdentity(route: FaceitRoute): string {
@@ -67,6 +76,8 @@ export class EloScopeController {
   #currentViewerTeamId: string | undefined;
   #currentTierPlayer: Player | undefined;
   #routeRevision = 0;
+  #matchRetryTimer: number | undefined;
+  #matchRetryAttempt = 0;
   #stopObserver: (() => void) | undefined;
   #destroyed = false;
   readonly #lifecycle = new AbortController();
@@ -120,6 +131,7 @@ export class EloScopeController {
     this.#destroyed = true;
     this.#lifecycle.abort();
     this.#routeRevision += 1;
+    this.#cancelMatchRetry();
     window.removeEventListener("message", this.#routeMessage);
     this.#stopObserver?.();
     this.#adapter.destroy();
@@ -141,6 +153,8 @@ export class EloScopeController {
   async navigate(pathname: string): Promise<void> {
     if (this.#destroyed) return;
     const revision = ++this.#routeRevision;
+    this.#cancelMatchRetry();
+    this.#matchRetryAttempt = 0;
     const nextRoute = parseFaceitRoute(pathname);
     const nextIdentity = routeIdentity(nextRoute);
     this.#route = nextRoute;
@@ -253,8 +267,11 @@ export class EloScopeController {
     );
     if (!this.#isCurrent(revision)) return;
     if (matchState.status !== "ready" || !matchState.data) {
+      if (shouldRetryMatchBootstrap(matchState)) this.#scheduleMatchRetry(matchId, revision);
       return;
     }
+    this.#cancelMatchRetry();
+    this.#matchRetryAttempt = 0;
 
     const visibleMap = visibleSelectedMap(document);
     const match = visibleMap
@@ -281,11 +298,24 @@ export class EloScopeController {
     }
     void this.#loadMatchViewerTeam(match, revision).catch(() => undefined);
 
+    const cachedMapStats = this.#cachedPlayerMapStats(players);
+    this.#currentPlayerMatches = new Map();
+    this.#currentPlayerMapStats = cachedMapStats;
+    this.#overlay.showMatch(match, this.#currentPlayerMatches, cachedMapStats, this.#currentViewerTeamId);
+
     const states = await Promise.all(players.map(async (player) => [
       player.id,
       await this.#cached<PlayerMatch[]>(
         `matches:${player.id}:${limit}`,
-        () => this.#adapter.getRecentMatches(player.id, limit),
+        () => {
+          if (!this.#isCurrent(revision) || this.#currentMatch?.id !== match.id) {
+            return Promise.resolve({
+              status: "error",
+              error: { code: "stale-route", message: "Route changed before the request started", retryable: false },
+            } satisfies DataState<PlayerMatch[]>);
+          }
+          return this.#adapter.getRecentMatches(player.id, limit);
+        },
         CACHE_TTLS.playerStats,
       ),
     ] as const));
@@ -389,7 +419,52 @@ export class EloScopeController {
   }
 
   async #cached<T>(key: string, loader: () => Promise<DataState<T>>, ttlMs: number): Promise<DataState<T>> {
-    return this.#cache.get(key, loader as () => Promise<CachedState>, { ttlMs }) as Promise<DataState<T>>;
+    const cached = this.#cache.peek(key) as DataState<T> | undefined;
+    if (cached) return cached;
+    const state = await this.#cache.get(
+      key,
+      loader as () => Promise<CachedState>,
+      { ttlMs: 0, cache: false },
+    ) as DataState<T>;
+    if (state.status === "ready") this.#cache.set(key, state as CachedState, ttlMs);
+    return state;
+  }
+
+  #scheduleMatchRetry(matchId: string, revision: number): void {
+    if (
+      this.#destroyed
+      || !this.#isCurrent(revision)
+      || this.#route.kind !== "match"
+      || this.#route.matchId !== matchId
+      || this.#matchRetryTimer !== undefined
+      || this.#matchRetryAttempt >= MATCH_BOOTSTRAP_RETRY_DELAYS.length
+    ) return;
+
+    const delay = MATCH_BOOTSTRAP_RETRY_DELAYS[this.#matchRetryAttempt] as number;
+    this.#matchRetryAttempt += 1;
+    this.#matchRetryTimer = window.setTimeout(() => {
+      this.#matchRetryTimer = undefined;
+      if (
+        this.#destroyed
+        || !this.#isCurrent(revision)
+        || this.#route.kind !== "match"
+        || this.#route.matchId !== matchId
+      ) return;
+      this.#cache.delete(`match:${matchId}`);
+      void this.#loadMatch(
+        matchId,
+        revision,
+        this.#settings.interfaceVisibility.matchRoom,
+      ).catch(() => {
+        this.#scheduleMatchRetry(matchId, revision);
+      });
+    }, delay);
+  }
+
+  #cancelMatchRetry(): void {
+    if (this.#matchRetryTimer === undefined) return;
+    window.clearTimeout(this.#matchRetryTimer);
+    this.#matchRetryTimer = undefined;
   }
 
   async #handleDomMutation(): Promise<void> {

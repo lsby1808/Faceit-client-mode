@@ -13,6 +13,7 @@ import {
   type PlayerMapStats,
   type PlayerMatch,
   type PlayerRole,
+  type PlayerRoleAnalysis,
   type StatsWindow,
 } from "@eloscope/core";
 import { MatchMapWinRateChartRenderer } from "./map-winrate-chart";
@@ -57,6 +58,7 @@ const PLAYER_STYLES = `
   }
   *, *::before, *::after { box-sizing: border-box; }
   .card {
+    position: relative;
     width: 100%;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, .12);
@@ -66,6 +68,7 @@ const PLAYER_STYLES = `
     color: #f4f5f6;
     font-size: 10px;
     font-variant-numeric: tabular-nums;
+    outline: none;
   }
   .overall {
     display: flex;
@@ -74,13 +77,95 @@ const PLAYER_STYLES = `
     gap: 4px;
     min-width: 0;
     padding: 7px 8px;
+    transition: opacity 140ms ease, transform 140ms ease;
   }
   .stat { min-width: 0; padding: 0 5px; text-align: center; border-left: 1px solid rgba(255, 255, 255, .1); }
   .stat:first-child { border-left: 0; }
   .stat b { display: block; overflow: hidden; color: #e8eaed; font-size: 11px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
   .stat small { display: block; margin-top: 2px; color: #858b94; font-size: 9px; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; }
+  .roles {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    align-items: stretch;
+    padding: 4px 7px 5px;
+    background: rgba(8, 10, 12, .99);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: opacity 140ms ease, transform 140ms ease, visibility 0s linear 140ms;
+    visibility: hidden;
+  }
+  .role-score {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    grid-template-rows: auto 1fr 3px;
+    align-items: center;
+    padding: 0 5px;
+    border-left: 1px solid rgba(255, 255, 255, .08);
+    text-align: center;
+  }
+  .role-score:first-child { border-left: 0; }
+  .role-score small {
+    overflow: hidden;
+    color: #8b929c;
+    font-size: 7px;
+    font-weight: 800;
+    letter-spacing: .035em;
+    line-height: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .role-score b {
+    align-self: center;
+    overflow: hidden;
+    color: var(--es-role-color);
+    font-size: 18px;
+    font-weight: 950;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    text-shadow: 0 0 8px color-mix(in srgb, var(--es-role-color) 30%, transparent);
+    white-space: nowrap;
+  }
+  .role-score i {
+    display: block;
+    width: var(--es-role-score, 0%);
+    height: 3px;
+    margin-inline: auto;
+    border-radius: 999px;
+    background: var(--es-role-color);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--es-role-color) 38%, transparent);
+  }
+  .role-score[data-available="false"] { opacity: .58; }
+  .role-score[data-available="false"] i { visibility: hidden; }
+  .role-score[data-primary="true"] small { color: var(--es-role-color); }
+  .card[data-has-role-scores="true"]:hover .overall,
+  .card[data-has-role-scores="true"]:focus-visible .overall {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  .card[data-has-role-scores="true"]:hover .roles,
+  .card[data-has-role-scores="true"]:focus-visible .roles {
+    opacity: 1;
+    transform: translateY(0);
+    transition-delay: 0s;
+    visibility: visible;
+  }
+  .card[data-has-role-scores="true"]:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, .72);
+    outline-offset: -2px;
+  }
   @container (max-width: 500px) {
     .stat { padding-inline: 2px; }
+    .roles { padding-inline: 3px; }
+    .role-score { padding-inline: 2px; }
+    .role-score b { font-size: 15px; }
+    .role-score small { font-size: 6px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .overall, .roles { transition: none; }
   }
 `;
 
@@ -444,6 +529,51 @@ const ROLE_PRESENTATION: Record<PlayerRole, Readonly<{ label: string; color: str
   rifler: { label: "RIFLER", color: "#3d9cff" },
 };
 
+const ROLE_SCORE_ORDER = ["sniper", "entry", "rifler", "support", "anchor"] as const satisfies readonly PlayerRole[];
+type KnownPlayerRoleAnalysis = Extract<PlayerRoleAnalysis, Readonly<{ status: "known" }>>;
+
+function roleScorePercent(score: number | null): number | undefined {
+  if (score === null || !Number.isFinite(score)) return undefined;
+  return Math.round(Math.min(1, Math.max(0, score)) * 100);
+}
+
+function renderRoleScores(ownerDocument: Document, analysis: KnownPlayerRoleAnalysis): HTMLElement {
+  const panel = ownerDocument.createElement("div");
+  panel.className = "roles";
+  panel.dataset.esStat = "roles";
+  panel.setAttribute(
+    "aria-label",
+    `Оценки ролей по последним ${analysis.sampleSize} завершённым матчам CS2 5v5`,
+  );
+
+  for (const role of ROLE_SCORE_ORDER) {
+    const presentation = ROLE_PRESENTATION[role];
+    const score = analysis.scores[role];
+    const scorePercent = roleScorePercent(score);
+    const value = scorePercent === undefined ? "—" : String(scorePercent);
+    const tile = ownerDocument.createElement("span");
+    tile.className = "role-score";
+    tile.dataset.esRoleScore = role;
+    tile.dataset.available = String(scorePercent !== undefined);
+    tile.dataset.primary = String(role === analysis.role);
+    tile.style.setProperty("--es-role-color", presentation.color);
+    tile.style.setProperty("--es-role-score", `${scorePercent ?? 0}%`);
+    tile.title = scorePercent === undefined
+      ? `${presentation.label}: недостаточно подтверждённых данных`
+      : `${presentation.label}: ${value}/100 · расчёт по последним ${analysis.sampleSize} матчам`;
+
+    const label = ownerDocument.createElement("small");
+    label.textContent = presentation.label;
+    const number = ownerDocument.createElement("b");
+    number.textContent = value;
+    const bar = ownerDocument.createElement("i");
+    bar.setAttribute("aria-hidden", "true");
+    tile.append(label, number, bar);
+    panel.append(tile);
+  }
+  return panel;
+}
+
 function roleTitle(role: PlayerRole, confidence: number): string {
   const percent = Math.round(confidence <= 1 ? confidence * 100 : confidence);
   return `Предполагаемая роль: ${ROLE_PRESENTATION[role].label} · последние 20 матчей · уверенность ${percent}%`;
@@ -542,6 +672,7 @@ function playerSignature(
   rows: readonly PlayerMatch[],
   totalMatches: number | undefined,
   settings: InlineMatchSettings,
+  roleAnalysis: PlayerRoleAnalysis | undefined,
 ): string {
   return JSON.stringify({
     id: player.id,
@@ -549,6 +680,7 @@ function playerSignature(
     statsWindow: settings.statsWindow,
     totalMatches,
     rows: matchRowsSignature(rows),
+    roleAnalysis,
   });
 }
 
@@ -558,12 +690,21 @@ function renderPlayer(
   rows: readonly PlayerMatch[],
   totalMatches: number | undefined,
   settings: InlineMatchSettings,
+  roleAnalysis: PlayerRoleAnalysis | undefined,
 ): void {
   const style = document.createElement("style");
   style.textContent = PLAYER_STYLES;
   const card = document.createElement("section");
   card.className = "card";
-  card.setAttribute("aria-label", `Расширенная статистика ${player.nickname}`);
+  const knownRoleAnalysis = roleAnalysis?.status === "known" ? roleAnalysis : undefined;
+  card.dataset.hasRoleScores = String(knownRoleAnalysis !== undefined);
+  card.setAttribute(
+    "aria-label",
+    knownRoleAnalysis
+      ? `Расширенная статистика ${player.nickname}. Наведите указатель или установите фокус для оценок ролей`
+      : `Расширенная статистика ${player.nickname}`,
+  );
+  if (knownRoleAnalysis) card.tabIndex = 0;
 
   const validRows = eligibleMatches(rows);
   const aggregate = validRows.length ? aggregatePlayerMatches(validRows, settings.statsWindow) : undefined;
@@ -583,6 +724,7 @@ function renderPlayer(
   appendMetric(overall, aggregate ? format(aggregate.kr, 2) : "—", "K/R");
   appendMetric(overall, aggregate ? format(aggregate.adr, 0) : "—", "ADR");
   card.append(overall);
+  if (knownRoleAnalysis) card.append(renderRoleScores(shadow.ownerDocument, knownRoleAnalysis));
   shadow.replaceChildren(style, card);
 }
 
@@ -756,6 +898,13 @@ function rosterPlayerStructures(roster: HTMLElement): PlayerStructure[] {
   return structures;
 }
 
+function areIndependentPlayerHolders(holders: readonly HTMLElement[]): boolean {
+  if (new Set(holders).size !== holders.length) return false;
+  return holders.every((holder, index) =>
+    holders.every((candidate, candidateIndex) =>
+      index === candidateIndex || (!holder.contains(candidate) && !candidate.contains(holder))));
+}
+
 /**
  * Mounts compact stats only after the complete live FACEIT roster contract has
  * been validated. Any ambiguity removes existing mounts instead of guessing a
@@ -839,7 +988,8 @@ export class InlineMatchRenderer {
       for (const anchor of teamAnchor.players) {
         const rows = eligibleMatches(playerMatches.get(anchor.player.id) ?? []);
         const totalMatches = lifetimeMatchCount(playerMapStats.get(anchor.player.id));
-        const signature = playerSignature(anchor.player, rows, totalMatches, settings);
+        const roleAnalysis = settings.showPlayerRoles ? classifyPlayerRole(rows) : undefined;
+        const signature = playerSignature(anchor.player, rows, totalMatches, settings, roleAnalysis);
         let mount = this.#playerMounts.get(anchor.player.id);
         if (!mount || !mount.host.isConnected || mount.host.parentElement !== anchor.holder) {
           mount?.host.remove();
@@ -848,11 +998,18 @@ export class InlineMatchRenderer {
           const shadow = host.attachShadow({ mode: "open" });
           mount = { host, signature: "" };
           this.#playerMounts.set(anchor.player.id, mount);
-          renderPlayer(shadow, anchor.player, rows, totalMatches, settings);
+          renderPlayer(shadow, anchor.player, rows, totalMatches, settings, roleAnalysis);
           mount.signature = signature;
           updated += 1;
         } else if (mount.signature !== signature) {
-          renderPlayer(mount.host.shadowRoot as ShadowRoot, anchor.player, rows, totalMatches, settings);
+          renderPlayer(
+            mount.host.shadowRoot as ShadowRoot,
+            anchor.player,
+            rows,
+            totalMatches,
+            settings,
+            roleAnalysis,
+          );
           mount.signature = signature;
           updated += 1;
         }
@@ -861,7 +1018,7 @@ export class InlineMatchRenderer {
         }
         updated += this.#syncBattery(anchor, rows);
         updated += this.#syncTier(anchor, settings);
-        updated += this.#syncRole(anchor, rows, settings);
+        updated += this.#syncRole(anchor, roleAnalysis);
       }
     }
 
@@ -1002,9 +1159,8 @@ export class InlineMatchRenderer {
     mount.host.remove();
   }
 
-  #syncRole(anchor: PlayerAnchor, rows: readonly PlayerMatch[], settings: InlineMatchSettings): number {
+  #syncRole(anchor: PlayerAnchor, analysis: PlayerRoleAnalysis | undefined): number {
     const id = anchor.player.id;
-    const analysis = settings.showPlayerRoles ? classifyPlayerRole(rows) : undefined;
     if (
       analysis?.status !== "known"
       || !anchor.avatarHolder
@@ -1154,12 +1310,13 @@ export class InlineMatchRenderer {
           if (structures[0]) players.push({ player, structure: structures[0] });
         }
         if (ambiguous || players.length !== 5) continue;
-        const holders = new Set(players.map(({ structure }) => structure.holder));
-        if (holders.size !== 5 || structuresForRoster.some(({ holder }) => !holders.has(holder))) continue;
-        const parent = players[0]?.structure.holder.parentElement;
-        if (!parent || !roster.contains(parent) || players.some(({ structure }) => structure.holder.parentElement !== parent)) {
-          continue;
-        }
+        const holderList = players.map(({ structure }) => structure.holder);
+        const holders = new Set(holderList);
+        if (
+          holders.size !== 5
+          || structuresForRoster.some(({ holder }) => !holders.has(holder))
+          || !areIndependentPlayerHolders(holderList)
+        ) continue;
         candidates.push({
           team: teamForVisiblePlayers(team, players.map(({ player }) => player)),
           roster,

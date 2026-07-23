@@ -42,7 +42,8 @@ describe("EloScope settings panel", () => {
     expect(panel.launcher.tabIndex).toBe(-1);
     expect(panel.shadow.textContent).toContain("Окно статистики");
     expect(panel.shadow.textContent).toContain("Расширенная шкала 1–20");
-    expect(panel.shadow.textContent).toContain("Иконки ролей вместо аватаров");
+    expect(panel.shadow.textContent).toContain("Роли игроков");
+    expect(panel.shadow.textContent).toContain("все пять оценок при наведении на статистику");
     expect(panel.shadow.textContent).toContain("Сравнение карт");
     expect(panel.shadow.textContent).toContain("Винрейт обеих команд по картам");
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-map-win-rates")?.checked).toBe(true);

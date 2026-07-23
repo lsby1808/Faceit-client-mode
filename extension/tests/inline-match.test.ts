@@ -1,8 +1,10 @@
 import {
+  classifyPlayerRole,
   getEloTierPresentation,
   type MatchContext,
   type PlayerMapStats,
   type PlayerMatch,
+  type PlayerRole,
 } from "@eloscope/core";
 import { describe, expect, it } from "vitest";
 
@@ -103,8 +105,47 @@ function mountNativeRoom(
   `;
 }
 
+function applyMixedPremadeLayout(): void {
+  const rosters = Array.from(document.querySelectorAll<HTMLElement>('[class*="Roster__Group"]'));
+  for (const [rosterIndex, roster] of rosters.entries()) {
+    const list = roster.querySelector<HTMLElement>(".team-list");
+    const holders = list
+      ? Array.from(list.children).filter((child): child is HTMLElement =>
+          child instanceof HTMLElement && child.matches('[class*="styles__Holder"]'))
+      : [];
+    if (!list || holders.length !== 5) throw new Error("fixture roster is incomplete");
+
+    const party = (partyIndex: number, first: HTMLElement, second: HTMLElement): HTMLElement => {
+      const container = document.createElement("div");
+      container.className = `RosterParty__Container-sc-live-${rosterIndex}-${partyIndex}`;
+      const start = document.createElement("div");
+      start.className = "RosterParty__PartyStart-sc-live";
+      const end = document.createElement("div");
+      end.className = "RosterParty__PartyEnd-sc-live";
+      start.append(first);
+      end.append(second);
+      container.append(start, end);
+      return container;
+    };
+
+    list.replaceChildren(
+      party(0, holders[0] as HTMLElement, holders[1] as HTMLElement),
+      holders[2] as HTMLElement,
+      party(1, holders[3] as HTMLElement, holders[4] as HTMLElement),
+    );
+  }
+}
+
 const LEFT_PLAYERS = ["AlphaOne", "AlphaTwo", "AlphaThree", "AlphaFour", "AlphaFive"] as const;
 const RIGHT_PLAYERS = ["BravoOne", "BravoTwo", "BravoThree", "BravoFour", "BravoFive"] as const;
+const ROLE_SCORE_ORDER = ["sniper", "entry", "rifler", "support", "anchor"] as const satisfies readonly PlayerRole[];
+const ROLE_SCORE_LABELS: Readonly<Record<PlayerRole, string>> = {
+  sniper: "SNIPER",
+  entry: "ENTRY",
+  rifler: "RIFLER",
+  support: "SUPPORT",
+  anchor: "ANCHOR",
+};
 const EXTENDED_TIER_FLOORS = [
   { tier: 11, elo: 2_251 },
   { tier: 12, elo: 2_501 },
@@ -311,6 +352,127 @@ describe("InlineMatchRenderer", () => {
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("coverage");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("2000–2511");
     expect(document.querySelectorAll(`[class*="Roster__Group-sc-"] [${INLINE_TEAM_ATTRIBUTE}]`)).toHaveLength(0);
+  });
+
+  it("keeps five 20-match role scores beside the aggregate and swaps panels through hover and focus CSS only", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = matchRows(match);
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    const host = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`);
+    const shadow = host?.shadowRoot;
+    const card = shadow?.querySelector<HTMLElement>('.card[data-has-role-scores="true"]');
+    const overall = card?.querySelector<HTMLElement>('[data-es-stat="overall"]');
+    const roles = card?.querySelector<HTMLElement>('[data-es-stat="roles"]');
+    const tiles = Array.from(roles?.querySelectorAll<HTMLElement>("[data-es-role-score]") ?? []);
+    const analysis = classifyPlayerRole(rows.get("alpha-one") ?? []);
+
+    expect(card?.tabIndex).toBe(0);
+    expect(overall).not.toBeNull();
+    expect(roles).not.toBeNull();
+    expect(tiles.map(({ dataset }) => dataset.esRoleScore)).toEqual(ROLE_SCORE_ORDER);
+    expect(tiles.map((tile) => tile.querySelector("small")?.textContent)).toEqual(
+      ROLE_SCORE_ORDER.map((role) => ROLE_SCORE_LABELS[role]),
+    );
+    expect(analysis.status).toBe("known");
+    if (analysis.status === "known") {
+      expect(tiles.map((tile) => tile.querySelector("b")?.textContent)).toEqual(
+        ROLE_SCORE_ORDER.map((role) => {
+          const score = analysis.scores[role];
+          return score === null ? "—" : String(Math.round(score * 100));
+        }),
+      );
+    }
+
+    const styles = shadow?.querySelector("style")?.textContent ?? "";
+    expect(styles).toContain('.card[data-has-role-scores="true"]:hover');
+    expect(styles).toContain('.card[data-has-role-scores="true"]:focus-visible');
+
+    const originalOverall = overall;
+    const originalRoles = roles;
+    card?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+    card?.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+    card?.focus();
+    card?.blur();
+    expect(card?.querySelector('[data-es-stat="overall"]')).toBe(originalOverall);
+    expect(card?.querySelector('[data-es-stat="roles"]')).toBe(originalRoles);
+  });
+
+  it("keeps role scores fixed to the newest 20 eligible matches when the visible stats window changes", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const alphaRows = fiftyMatchesWithFixedRecentWinRate("alpha-one");
+    rows.set("alpha-one", alphaRows);
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), { ...settings, statsWindow: 5 });
+    const host = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`);
+    const readScores = (): string[] => Array.from(
+      host?.shadowRoot?.querySelectorAll<HTMLElement>('[data-es-stat="roles"] [data-es-role-score] b') ?? [],
+      (node) => node.textContent ?? "",
+    );
+    const fiveMatchWindowScores = readScores();
+
+    renderer.render(match, rows, playerMapRows(match), { ...settings, statsWindow: 50 });
+
+    expect(fiveMatchWindowScores).toHaveLength(5);
+    expect(readScores()).toEqual(fiveMatchWindowScores);
+    const analysis = classifyPlayerRole(alphaRows);
+    expect(analysis).toMatchObject({ status: "known", sampleSize: 20, requiredMatches: 20 });
+  });
+
+  it("does not invent unavailable role scores and removes the hover panel with the player-role setting", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    rows.set("alpha-one", (rows.get("alpha-one") ?? []).map((row) => {
+      const copy = { ...row };
+      delete copy.firstKills;
+      delete copy.headshots;
+      return copy;
+    }));
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    const host = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`);
+    const shadow = host?.shadowRoot;
+    const scores = shadow?.querySelector<HTMLElement>('[data-es-stat="roles"]');
+    expect(scores?.querySelector('[data-es-role-score="sniper"] b')?.textContent).toBe("—");
+    expect(scores?.querySelector('[data-es-role-score="entry"] b')?.textContent).toBe("—");
+    expect(scores?.textContent).not.toContain("NaN");
+
+    renderer.render(match, rows, playerMapRows(match), { ...settings, showPlayerRoles: false });
+
+    expect(shadow?.querySelector('[data-es-stat="roles"]')).toBeNull();
+    expect(shadow?.querySelector('[data-es-stat="overall"]')).not.toBeNull();
+  });
+
+  it("refreshes the hover scores when role-only source metrics change", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const renderer = new InlineMatchRenderer();
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    const host = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`);
+    const entryScore = (): string | null | undefined => host?.shadowRoot
+      ?.querySelector('[data-es-role-score="entry"] b')?.textContent;
+    const before = entryScore();
+    rows.set("alpha-one", (rows.get("alpha-one") ?? []).map((row) => ({
+      ...row,
+      firstKills: 0,
+      survivedRounds: row.roundsPlayed,
+    })));
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    expect(before).toBeDefined();
+    expect(entryScore()).not.toBe(before);
   });
 
   it.each(EXTENDED_TIER_FLOORS)(
@@ -594,6 +756,9 @@ describe("InlineMatchRenderer", () => {
     });
     expect(roleHosts()).toHaveLength(9);
     expect(document.querySelector(`[${INLINE_ROLE_ATTRIBUTE}="alpha-one"]`)).toBeNull();
+    const playerHost = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`);
+    expect(playerHost?.shadowRoot?.querySelector('[data-es-stat="roles"]')).toBeNull();
+    expect(playerHost?.shadowRoot?.querySelector('[data-es-stat="overall"]')).not.toBeNull();
     const nativeAvatar = document.querySelector<HTMLImageElement>(
       '[data-avatar-for="AlphaOne"]',
     ) as HTMLImageElement;
@@ -760,6 +925,57 @@ describe("InlineMatchRenderer", () => {
     expect(playerHosts()).toHaveLength(10);
     expect(batteryHosts()).toHaveLength(10);
     expect(roleHosts()).toHaveLength(10);
+  });
+
+  it("renders all players when FACEIT splits each team across mixed premade containers", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    applyMixedPremadeLayout();
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    const holderParents = new Set(
+      Array.from(document.querySelectorAll<HTMLElement>('[class*="Roster__Group-sc-left"] [class*="styles__Holder"]'))
+        .map((holder) => holder.parentElement),
+    );
+    expect(holderParents.size).toBeGreaterThan(1);
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+      teams: 2,
+    });
+    expect(playerHosts()).toHaveLength(10);
+    expect(batteryHosts()).toHaveLength(10);
+    expect(roleHosts()).toHaveLength(10);
+    expect(document.querySelector(`[${INLINE_TIER_ATTRIBUTE}="alpha-one"]`)).not.toBeNull();
+    for (const holder of Array.from(document.querySelectorAll<HTMLElement>('[class*="styles__Holder"]'))) {
+      expect(holder.querySelectorAll(`[${INLINE_PLAYER_ATTRIBUTE}]`)).toHaveLength(1);
+    }
+  });
+
+  it("keeps the same-match enhancements mounted when React regroups players into premades", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    const originalHosts = new Map(playerHosts().map((host) => [
+      host.getAttribute(INLINE_PLAYER_ATTRIBUTE),
+      host,
+    ]));
+
+    applyMixedPremadeLayout();
+
+    expect(renderer.render(match, matchRows(match), playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    expect(playerHosts()).toHaveLength(10);
+    for (const host of playerHosts()) {
+      expect(originalHosts.get(host.getAttribute(INLINE_PLAYER_ATTRIBUTE))).toBe(host);
+      expect(host.parentElement?.matches('[class*="styles__Holder"]')).toBe(true);
+    }
   });
 
   it("fails closed and removes stale stats when a full visible team roster is duplicated", () => {

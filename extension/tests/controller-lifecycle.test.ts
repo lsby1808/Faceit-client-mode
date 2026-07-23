@@ -6,7 +6,10 @@ const state = vi.hoisted(() => ({
   viewerRequested: vi.fn(),
   playerRequested: vi.fn(),
   matchRequested: vi.fn(),
+  matchFailuresRemaining: 0,
   recentMatchesRequested: vi.fn(),
+  deferRecentMatches: false,
+  recentMatchesResolvers: [] as Array<(value: unknown) => void>,
   mapStatsRequested: vi.fn(),
   deferMapStats: false,
   mapStatsResolvers: [] as Array<(value: unknown) => void>,
@@ -109,7 +112,9 @@ vi.mock("../src/bridge-client", () => ({
 
     getRecentMatches(playerId: string): Promise<unknown> {
       state.recentMatchesRequested(playerId);
-      return Promise.resolve({ status: "ready", data: [], fetchedAt: Date.now() });
+      const result = { status: "ready", data: [], fetchedAt: Date.now() };
+      if (!state.deferRecentMatches) return Promise.resolve(result);
+      return new Promise((resolve) => state.recentMatchesResolvers.push(() => resolve(result)));
     }
 
     getPlayerMapStats(playerId: string): Promise<unknown> {
@@ -126,6 +131,13 @@ vi.mock("../src/bridge-client", () => ({
     getMatch(): Promise<unknown> {
       state.matchRequested();
       if (state.mode === "match") {
+        if (state.matchFailuresRemaining > 0) {
+          state.matchFailuresRemaining -= 1;
+          return Promise.resolve({
+            status: "error",
+            error: { code: "upstream", message: "match is not ready yet", retryable: false },
+          });
+        }
         return Promise.resolve({ status: "ready", data: state.match, fetchedAt: Date.now() });
       }
       return Promise.resolve({
@@ -218,7 +230,12 @@ vi.mock("../src/ui", () => ({
   }
 }));
 
-import { allowsAutomaticPosition, EloScopeController, viewerTeamIdForMatch } from "../src/controller";
+import {
+  allowsAutomaticPosition,
+  EloScopeController,
+  shouldRetryMatchBootstrap,
+  viewerTeamIdForMatch,
+} from "../src/controller";
 import { MAIN_SOURCE, PROTOCOL_VERSION } from "../src/protocol";
 import { createDefaultSettings, saveSettings } from "../src/settings";
 
@@ -265,7 +282,10 @@ describe("controller lifecycle", () => {
     state.viewerRequested.mockClear();
     state.playerRequested.mockClear();
     state.matchRequested.mockClear();
+    state.matchFailuresRemaining = 0;
     state.recentMatchesRequested.mockClear();
+    state.deferRecentMatches = false;
+    state.recentMatchesResolvers = [];
     state.mapStatsRequested.mockClear();
     state.deferMapStats = false;
     state.mapStatsResolvers = [];
@@ -297,6 +317,24 @@ describe("controller lifecycle", () => {
     ["", false]
   ])("gates automatic positions for match status %s", (status, expected) => {
     expect(allowsAutomaticPosition(status)).toBe(expected);
+  });
+
+  it("retries only transient match bootstrap failures", () => {
+    expect(shouldRetryMatchBootstrap({
+      status: "error",
+      error: { code: "upstream", message: "not ready", retryable: false },
+    })).toBe(true);
+    expect(shouldRetryMatchBootstrap({
+      status: "error",
+      error: { code: "network", message: "offline", retryable: true },
+    })).toBe(true);
+    expect(shouldRetryMatchBootstrap({ status: "restricted", reason: "rate-limited" })).toBe(true);
+    expect(shouldRetryMatchBootstrap({ status: "restricted", reason: "logged-out" })).toBe(false);
+    expect(shouldRetryMatchBootstrap({
+      status: "ready",
+      data: state.match,
+      fetchedAt: Date.now(),
+    })).toBe(false);
   });
 
   it("invalidates an in-flight navigation before old automations can run", async () => {
@@ -374,6 +412,54 @@ describe("controller lifecycle", () => {
       state.domMutation?.();
 
       expect(state.overlaySyncMatchmakingTier).not.toHaveBeenCalled();
+      controller.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("renders the native room enhancements before all player histories finish loading", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    state.deferRecentMatches = true;
+    state.overlayShowMatch.mockClear();
+
+    const navigation = controller.navigate(`/ru/cs2/room/${state.match.id}`);
+    await vi.waitFor(() => expect(state.recentMatchesRequested).toHaveBeenCalledTimes(2));
+    expect(state.overlayShowMatch).toHaveBeenCalledOnce();
+    expect(state.overlayShowMatch.mock.calls[0]?.[1]).toEqual(new Map());
+    expect(state.overlayShowMatch.mock.calls[0]?.[2]).toEqual(new Map());
+
+    for (const resolve of state.recentMatchesResolvers.splice(0)) resolve(undefined);
+    await navigation;
+    expect(state.overlayShowMatch).toHaveBeenCalledTimes(2);
+    controller.destroy();
+  });
+
+  it("retries a transient bootstrap failure for a newly-created room without caching the error", async () => {
+    vi.useFakeTimers();
+    try {
+      const settings = createDefaultSettings();
+      settings.interfaceVisibility.matchRoom = true;
+      await saveSettings(settings);
+      const controller = new EloScopeController();
+      await controller.start();
+      state.mode = "match";
+      state.matchFailuresRemaining = 1;
+      state.matchRequested.mockClear();
+      state.overlayShowMatch.mockClear();
+
+      await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+      expect(state.matchRequested).toHaveBeenCalledOnce();
+      expect(state.overlayShowMatch).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(state.matchRequested).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(state.overlayShowMatch).toHaveBeenCalled());
       controller.destroy();
     } finally {
       vi.useRealTimers();
