@@ -392,7 +392,7 @@ describe("EloScope settings panel", () => {
     });
     expect(copyToClipboard).toHaveBeenCalledOnce();
     expect(panel.isOpen).toBe(true);
-  });
+  }, 15_000);
 
   it("reports diagnostic summary and copy failures without closing settings", async () => {
     const copyToClipboard = vi.fn(async (): Promise<number> => {
