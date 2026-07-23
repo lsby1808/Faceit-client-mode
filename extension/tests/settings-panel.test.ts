@@ -50,6 +50,9 @@ describe("EloScope settings panel", () => {
     expect(panel.shadow.querySelector("#eloscope-visibility-profile")).toBeNull();
     expect(panel.shadow.querySelector("#eloscope-visibility-history")).toBeNull();
     expect(panel.shadow.querySelector("#eloscope-visibility-matchRoom")).not.toBeNull();
+    expect(
+      panel.shadow.querySelector<HTMLInputElement>("#eloscope-visibility-quickPositionsPanel")?.checked
+    ).toBe(false);
     expect(panel.shadow.textContent).toContain("Overlay match room");
   });
 
@@ -107,6 +110,7 @@ describe("EloScope settings panel", () => {
     change(shadow.querySelector("#eloscope-show-player-roles") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-map-win-rates") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-visibility-matchRoom") as HTMLInputElement, true);
+    change(shadow.querySelector("#eloscope-visibility-quickPositionsPanel") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-automation-partyAccept") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-automation-readyUp") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-automation-autoConnect") as HTMLInputElement, true);
@@ -134,7 +138,12 @@ describe("EloScope settings panel", () => {
     expect(stored.showExtendedTier).toBe(true);
     expect(stored.showPlayerRoles).toBe(false);
     expect(stored.showMapWinRates).toBe(false);
-    expect(stored.interfaceVisibility).toEqual({ profile: false, history: false, matchRoom: true });
+    expect(stored.interfaceVisibility).toEqual({
+      profile: false,
+      history: false,
+      matchRoom: true,
+      quickPositionsPanel: true
+    });
     expect(stored.automations).toMatchObject({
       partyAccept: true,
       readyUp: true,

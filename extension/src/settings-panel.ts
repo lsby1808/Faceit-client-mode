@@ -468,7 +468,7 @@ export class EloScopeSettingsPanel {
     ));
     grid.append(this.#switchRow(
       "Overlay match room",
-      "Команды, форма и быстрые позиции",
+      "Команды, форма и сравнение карт",
       settings.interfaceVisibility.matchRoom,
       "visibility-matchRoom",
       (checked) => {
@@ -478,6 +478,22 @@ export class EloScopeSettingsPanel {
           interfaceVisibility: {
             ...this.#draft.interfaceVisibility,
             matchRoom: checked
+          }
+        };
+      }
+    ));
+    grid.append(this.#switchRow(
+      "Быстрые позиции в комнате",
+      "Показывать закреплённую панель сообщений поверх match room",
+      settings.interfaceVisibility.quickPositionsPanel,
+      "visibility-quickPositionsPanel",
+      (checked) => {
+        if (!this.#draft) return;
+        this.#draft = {
+          ...this.#draft,
+          interfaceVisibility: {
+            ...this.#draft.interfaceVisibility,
+            quickPositionsPanel: checked
           }
         };
       }

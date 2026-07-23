@@ -117,17 +117,67 @@ describe("Shadow DOM overlays", () => {
     expect(extended?.textContent).toBe("12");
     expect(extended?.title).toContain("официальный FACEIT level 10");
     expect(batteryHost?.previousElementSibling?.matches('[class*="Nickname__Container-sc-"]')).toBe(true);
-    const positionMode = overlay.shadow.querySelector<HTMLSelectElement>(".es-position-card .es-select");
-    const positionButton = overlay.shadow.querySelector<HTMLButtonElement>(".es-position-card .es-primary");
-    if (positionMode) {
-      positionMode.value = "prefill";
-      positionMode.dispatchEvent(new Event("change"));
-    }
-    expect(positionButton?.textContent).toBe("Подготовить");
+    const positions = overlay.shadow.querySelector<HTMLElement>(".es-positions");
+    expect(positions?.hidden).toBe(true);
+    expect(positions?.childElementCount).toBe(0);
+    expect(overlay.shadow.querySelector(".es-position-card")).toBeNull();
     overlay.hideRoutePanels();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
     expect(document.querySelectorAll("[data-eloscope-inline-team], [data-eloscope-inline-tier], [data-eloscope-inline-battery]")).toHaveLength(0);
     overlay.destroy();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
+  });
+
+  it("shows quick positions only after opt-in and clears them when disabled", async () => {
+    loadFixture("active-room");
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.quickPositionsPanel = true;
+    const overlayCallbacks = callbacks();
+    const overlay = new EloScopeOverlay(settings, overlayCallbacks);
+    const match = {
+      id: "match-positions",
+      game: "cs2",
+      status: "ongoing",
+      mapPool: ["mirage"],
+      selectedMap: "mirage",
+      teams: [],
+    } satisfies Parameters<EloScopeOverlay["showMatch"]>[0];
+
+    overlay.showMatch(match, new Map());
+
+    const positions = overlay.shadow.querySelector<HTMLElement>(".es-positions");
+    const card = positions?.querySelector<HTMLElement>(".es-position-card");
+    const enabled = card?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    const message = card?.querySelector<HTMLTextAreaElement>("textarea");
+    const mode = card?.querySelector<HTMLSelectElement>(".es-select");
+    const send = card?.querySelector<HTMLButtonElement>(".es-primary");
+    expect(positions?.hidden).toBe(false);
+    expect(card?.dataset.selected).toBe("true");
+    expect(send?.disabled).toBe(true);
+
+    enabled!.checked = true;
+    enabled!.dispatchEvent(new Event("change"));
+    message!.value = "I play connector";
+    message!.dispatchEvent(new Event("change"));
+    mode!.value = "prefill";
+    mode!.dispatchEvent(new Event("change"));
+    expect(send?.disabled).toBe(false);
+    expect(send?.textContent).toBe("Подготовить");
+
+    send!.click();
+    await vi.waitFor(() => {
+      expect(overlayCallbacks.onPositionSend).toHaveBeenCalledWith(
+        "mirage",
+        "I play connector",
+        "prefill",
+      );
+    });
+    expect(overlayCallbacks.onSettingsChange).toHaveBeenCalled();
+
+    overlay.updateSettings(createDefaultSettings());
+    expect(positions?.hidden).toBe(true);
+    expect(positions?.childElementCount).toBe(0);
+    expect(overlay.shadow.querySelector(".es-position-card")).toBeNull();
+    overlay.destroy();
   });
 });

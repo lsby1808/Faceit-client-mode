@@ -18,7 +18,8 @@ describe("extension settings", () => {
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
       history: false,
-      matchRoom: true
+      matchRoom: true,
+      quickPositionsPanel: false
     });
     expect(settings.automations).toMatchObject({
       partyAccept: false,
@@ -46,7 +47,8 @@ describe("extension settings", () => {
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
       history: false,
-      matchRoom: true
+      matchRoom: true,
+      quickPositionsPanel: false
     });
     expect(settings.automations.partyAccept).toBe(false);
     expect(settings.automations.readyUp).toBe(false);
@@ -69,12 +71,22 @@ describe("extension settings", () => {
     const setSpy = vi.spyOn(chrome.storage.local, "set");
 
     await expect(loadSettings()).resolves.toMatchObject({
-      interfaceVisibility: { profile: false, history: false, matchRoom: false }
+      interfaceVisibility: {
+        profile: false,
+        history: false,
+        matchRoom: false,
+        quickPositionsPanel: false
+      }
     });
     expect(setSpy).toHaveBeenCalledOnce();
     await expect(chrome.storage.local.get(SETTINGS_KEY)).resolves.toMatchObject({
       [SETTINGS_KEY]: {
-        interfaceVisibility: { profile: false, history: false, matchRoom: false }
+        interfaceVisibility: {
+          profile: false,
+          history: false,
+          matchRoom: false,
+          quickPositionsPanel: false
+        }
       }
     });
 
@@ -87,7 +99,12 @@ describe("extension settings", () => {
     const setSpy = vi.spyOn(chrome.storage.local, "set");
 
     await expect(loadSettings()).resolves.toMatchObject({
-      interfaceVisibility: { profile: false, history: false, matchRoom: true }
+      interfaceVisibility: {
+        profile: false,
+        history: false,
+        matchRoom: true,
+        quickPositionsPanel: false
+      }
     });
     expect(setSpy).toHaveBeenCalledOnce();
 
@@ -151,6 +168,7 @@ describe("extension settings", () => {
     settings.showPlayerRoles = false;
     settings.showMapWinRates = false;
     settings.interfaceVisibility.matchRoom = false;
+    settings.interfaceVisibility.quickPositionsPanel = true;
     settings.automations.positions.mirage = {
       enabled: true,
       message: "I play connector",

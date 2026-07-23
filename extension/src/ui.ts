@@ -89,6 +89,7 @@ export class EloScopeOverlay {
   updateSettings(settings: ExtensionSettings): void {
     this.#settings = settings;
     if (!settings.showExtendedTier) this.#nativeTiers.cleanup();
+    if (!settings.interfaceVisibility.quickPositionsPanel) this.#hidePositions();
   }
 
   setCompatibility(status: CompatibilityStatus): void {
@@ -99,15 +100,13 @@ export class EloScopeOverlay {
     this.#inlineMatch.cleanup();
     this.#nativeTiers.cleanup();
     this.#nativeTierSurface = undefined;
-    this.#positions.hidden = true;
-    this.#positions.replaceChildren();
+    this.#hidePositions();
   }
 
   showMatchmakingTier(player: Player): void {
     this.#inlineMatch.cleanup();
     this.#nativeTiers.cleanup();
-    this.#positions.hidden = true;
-    this.#positions.replaceChildren();
+    this.#hidePositions();
     this.#nativeTierSurface = "matchmaking";
     this.#nativeTiers.syncMatchmaking(player, this.#settings.showExtendedTier);
   }
@@ -136,7 +135,8 @@ export class EloScopeOverlay {
     this.#nativeTiers.cleanup();
     this.#nativeTierSurface = undefined;
     this.syncMatchInline(match, playerMatches, playerMapStats, viewerTeamId);
-    this.showPositions(match);
+    if (this.#settings.interfaceVisibility.quickPositionsPanel) this.showPositions(match);
+    else this.#hidePositions();
   }
 
   syncMatchInline(
@@ -172,6 +172,11 @@ export class EloScopeOverlay {
     const grid = element("div", { className: "es-position-grid" });
     for (const map of match.mapPool) grid.append(this.#positionCard(match, map));
     this.#positions.replaceChildren(head, grid);
+  }
+
+  #hidePositions(): void {
+    this.#positions.hidden = true;
+    this.#positions.replaceChildren();
   }
 
   #positionCard(match: MatchContext, map: string): HTMLElement {

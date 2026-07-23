@@ -11,7 +11,8 @@ describe("interface visibility", () => {
     settings.interfaceVisibility = {
       profile: true,
       history: true,
-      matchRoom: false
+      matchRoom: false,
+      quickPositionsPanel: false
     };
 
     expect(isOverlayVisibleForPath(settings, "/en/players/player")).toBe(false);

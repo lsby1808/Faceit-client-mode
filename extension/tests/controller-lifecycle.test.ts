@@ -696,6 +696,27 @@ describe("controller lifecycle", () => {
     }
   });
 
+  it("keeps automatic position sending active while the quick-positions panel is hidden", async () => {
+    const settings = createDefaultSettings();
+    expect(settings.interfaceVisibility.quickPositionsPanel).toBe(false);
+    settings.automations.positions.mirage = {
+      enabled: true,
+      message: "I play connector",
+      mode: "auto"
+    };
+    await saveSettings(settings);
+    state.mode = "match";
+    state.visibleMap = "mirage";
+    state.match.status = "voting";
+    const controller = new EloScopeController();
+
+    await controller.start();
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+    expect(state.positionSend).toHaveBeenCalledOnce();
+    controller.destroy();
+  });
+
   it("never auto-sends a configured position in a finished room", async () => {
     const settings = createDefaultSettings();
     settings.automations.positions.mirage = {

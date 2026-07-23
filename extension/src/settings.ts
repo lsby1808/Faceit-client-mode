@@ -18,6 +18,7 @@ export type ExtensionSettings = {
     /** @deprecated History data panels were retired; kept false for v1 storage compatibility. */
     history: boolean;
     matchRoom: boolean;
+    quickPositionsPanel: boolean;
   };
   automations: AutomationSettings;
 };
@@ -115,7 +116,8 @@ export function createDefaultSettings(): ExtensionSettings {
     interfaceVisibility: {
       profile: false,
       history: false,
-      matchRoom: true
+      matchRoom: true,
+      quickPositionsPanel: false
     },
     automations: createDefaultAutomationSettings()
   };
@@ -149,7 +151,10 @@ export function parseSettings(value: unknown): ExtensionSettings {
       history: false,
       matchRoom: typeof interfaceVisibility.matchRoom === "boolean"
         ? interfaceVisibility.matchRoom
-        : defaults.interfaceVisibility.matchRoom
+        : defaults.interfaceVisibility.matchRoom,
+      quickPositionsPanel: typeof interfaceVisibility.quickPositionsPanel === "boolean"
+        ? interfaceVisibility.quickPositionsPanel
+        : defaults.interfaceVisibility.quickPositionsPanel
     },
     automations: canonicalizePositionSettings(value.automations)
   };
