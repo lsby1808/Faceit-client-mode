@@ -490,6 +490,28 @@ describe("InlineMatchRenderer", () => {
     expect(document.querySelectorAll(`[class*="Roster__Group-sc-"] [${INLINE_TEAM_ATTRIBUTE}]`)).toHaveLength(0);
   });
 
+  it("lays out all six overall player metrics in equal-width columns", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, matchRows(match), playerMapRows(match), settings);
+
+    const shadow = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)
+      ?.shadowRoot;
+    expect(shadow).not.toBeNull();
+    if (!shadow) throw new Error("Missing alpha-one inline ShadowRoot");
+
+    const overall = shadow.querySelector<HTMLElement>('[data-es-stat="overall"]');
+    expect(overall).not.toBeNull();
+    expect(
+      Array.from(overall?.children ?? []).filter((child) => child.matches(".stat")),
+    ).toHaveLength(6);
+    expect(shadow.querySelector("style")?.textContent).toMatch(
+      /\.overall\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(6,\s*minmax\(0,\s*1fr\)\);/s,
+    );
+  });
+
   it("shows unknown team values instead of invented zeros and removes summaries with the toggle", () => {
     mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
     const matchWithElo = matchContext();

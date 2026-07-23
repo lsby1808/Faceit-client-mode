@@ -87,20 +87,38 @@ const PLAYER_STYLES = `
     outline: none;
   }
   .overall {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     align-items: center;
-    justify-content: space-between;
-    gap: 4px;
+    gap: 0;
     min-width: 0;
     padding: 7px 8px;
     transition: opacity 140ms ease, transform 140ms ease;
   }
-  .stat { min-width: 0; padding: 0 5px; text-align: center; border-left: 1px solid rgba(255, 255, 255, .1); }
+  .stat {
+    display: grid;
+    min-width: 0;
+    place-items: center;
+    padding: 0 5px;
+    text-align: center;
+    border-left: 1px solid rgba(255, 255, 255, .1);
+  }
   .stat:first-child { border-left: 0; }
   .stat b { display: block; overflow: hidden; color: #e8eaed; font-size: 11px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
   .stat b[data-tone="bad"] { color: #ff4655; }
   .stat b[data-tone="good"] { color: #21d07a; }
-  .stat small { display: block; margin-top: 2px; color: #858b94; font-size: 9px; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; }
+  .stat small {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    margin-top: 2px;
+    color: #858b94;
+    font-size: 9px;
+    letter-spacing: .02em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
   .roles {
     position: absolute;
     inset: 0;
