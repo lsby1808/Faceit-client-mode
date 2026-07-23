@@ -11,13 +11,17 @@ inspects, injects into, monitors or modifies FACEIT Anti-Cheat.
 
 Match rooms can show inline player metrics, inferred roles, form batteries,
 extended Elo tiers, current win/loss streaks of at least two matches and a
-compact team win-rate comparison for every map in the current pool. Streak
-indicators are independently switchable in settings; a run that fills the
-entire bounded 100-match sample is labeled `100+`. Missing or restricted
-statistics are displayed as unavailable, never as a fabricated zero. The
-player-card win rate always uses the latest 20 completed CS2 5v5 matches; AVG
-KILLS, K/D, K/R and ADR use the selected statistics window. When the signed-in
-viewer and another room player have
+compact team outlook above each roster. The outlook shows complementary
+heuristic win chances, aggregate form, FIREPOWER, AVG KILLS and K/D, with an
+accessible explanation of the signals and coverage used. It is independently
+switchable in settings and is never presented as an official FACEIT
+prediction. Match rooms also include a team win-rate comparison for every map
+in the current pool. Streak indicators are independently switchable in
+settings; a run that fills the entire bounded 100-match sample is labeled
+`100+`. Missing or restricted statistics are displayed as unavailable, never
+as a fabricated zero. The player-card win rate always uses the latest 20
+completed CS2 5v5 matches; AVG KILLS, K/D, K/R and ADR use the selected
+statistics window. When the signed-in viewer and another room player have
 verifiable shared match ids, compact teammate/opponent indicators summarize
 the overlap found in each player's available history, capped at 100 eligible
 matches per player. This bounded sample is labeled explicitly and is never
@@ -30,7 +34,7 @@ MVP, clutch, utility, flash and multi-kill values are not fabricated.
 
 ## Workspace
 
-- `packages/core` — shared types, statistics, 20-match role inference, form battery, settings, and cache.
+- `packages/core` — shared types, statistics, team outlook, 20-match role inference, form battery, settings, and cache.
 - `extension` — Manifest V3 bridge and Shadow DOM enhancements.
 - `src-tauri` — Tauri 2 Windows shell and WebView2 policy.
 

@@ -15,6 +15,8 @@ export type ExtensionSettings = {
   showPlayerRoles: boolean;
   /** Shows the current consecutive win/loss run beside match-room player names. */
   showPlayerStreak: boolean;
+  /** Shows the compact team chance/form summary above each match-room roster. */
+  showTeamSummary: boolean;
   showMapWinRates: boolean;
   interfaceVisibility: {
     /** @deprecated Profile data panels were retired; kept false for v1 storage compatibility. */
@@ -120,6 +122,7 @@ export function createDefaultSettings(): ExtensionSettings {
     showExtendedTier: false,
     showPlayerRoles: true,
     showPlayerStreak: true,
+    showTeamSummary: true,
     showMapWinRates: true,
     interfaceVisibility: {
       profile: false,
@@ -156,6 +159,9 @@ export function parseSettings(value: unknown): ExtensionSettings {
     showPlayerStreak: typeof value.showPlayerStreak === "boolean"
       ? value.showPlayerStreak
       : defaults.showPlayerStreak,
+    showTeamSummary: typeof value.showTeamSummary === "boolean"
+      ? value.showTeamSummary
+      : defaults.showTeamSummary,
     showMapWinRates: typeof value.showMapWinRates === "boolean"
       ? value.showMapWinRates
       : defaults.showMapWinRates,
@@ -184,7 +190,8 @@ function needsSettingsMigration(value: unknown): boolean {
     || value.interfaceVisibility.history !== false
     || typeof value.interfaceVisibility.profileStatsBanner !== "boolean"
     || !isStatsWindow(value.mapWinRateWindow)
-    || typeof value.showPlayerStreak !== "boolean";
+    || typeof value.showPlayerStreak !== "boolean"
+    || typeof value.showTeamSummary !== "boolean";
 }
 
 export async function loadSettings(): Promise<ExtensionSettings> {

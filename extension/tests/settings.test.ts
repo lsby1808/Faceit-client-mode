@@ -16,6 +16,7 @@ describe("extension settings", () => {
     expect(settings.showExtendedTier).toBe(false);
     expect(settings.showPlayerRoles).toBe(true);
     expect(settings.showPlayerStreak).toBe(true);
+    expect(settings.showTeamSummary).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
@@ -41,6 +42,7 @@ describe("extension settings", () => {
       showExtendedTier: "yes",
       showPlayerRoles: "yes",
       showPlayerStreak: "yes",
+      showTeamSummary: "yes",
       showMapWinRates: "yes",
       interfaceVisibility: { profile: false, history: "no", matchRoom: true },
       automations: { partyAccept: "yes", readyUp: 1, autoConnect: true }
@@ -50,6 +52,7 @@ describe("extension settings", () => {
     expect(settings.showExtendedTier).toBe(false);
     expect(settings.showPlayerRoles).toBe(true);
     expect(settings.showPlayerStreak).toBe(true);
+    expect(settings.showTeamSummary).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
@@ -68,6 +71,8 @@ describe("extension settings", () => {
     expect(parseSettings({ showPlayerRoles: false }).showPlayerRoles).toBe(false);
     expect(parseSettings({ statsWindow: 50 }).showPlayerStreak).toBe(true);
     expect(parseSettings({ showPlayerStreak: false }).showPlayerStreak).toBe(false);
+    expect(parseSettings({ statsWindow: 50 }).showTeamSummary).toBe(true);
+    expect(parseSettings({ showTeamSummary: false }).showTeamSummary).toBe(false);
     expect(parseSettings({ statsWindow: 50 }).showMapWinRates).toBe(true);
     expect(parseSettings({ showMapWinRates: false }).showMapWinRates).toBe(false);
   });
@@ -119,6 +124,41 @@ describe("extension settings", () => {
     setSpy.mockClear();
     await loadSettings();
     expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it("adds the enabled team summary to legacy settings exactly once", async () => {
+    const legacy = createDefaultSettings() as Partial<ReturnType<typeof createDefaultSettings>>;
+    delete legacy.showTeamSummary;
+    await chrome.storage.local.set({ [SETTINGS_KEY]: legacy });
+    const setSpy = vi.spyOn(chrome.storage.local, "set");
+
+    await expect(loadSettings()).resolves.toMatchObject({ showTeamSummary: true });
+    expect(setSpy).toHaveBeenCalledOnce();
+    await expect(chrome.storage.local.get(SETTINGS_KEY)).resolves.toMatchObject({
+      [SETTINGS_KEY]: { showTeamSummary: true }
+    });
+
+    setSpy.mockClear();
+    await loadSettings();
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it("preserves an explicit disabled team summary while migrating another legacy key", async () => {
+    const legacy = createDefaultSettings() as Partial<ReturnType<typeof createDefaultSettings>>;
+    legacy.showTeamSummary = false;
+    delete legacy.showPlayerStreak;
+    await chrome.storage.local.set({ [SETTINGS_KEY]: legacy });
+
+    await expect(loadSettings()).resolves.toMatchObject({
+      showTeamSummary: false,
+      showPlayerStreak: true,
+    });
+    await expect(chrome.storage.local.get(SETTINGS_KEY)).resolves.toMatchObject({
+      [SETTINGS_KEY]: {
+        showTeamSummary: false,
+        showPlayerStreak: true,
+      },
+    });
   });
 
   it("keeps map WR and general statistics windows independent", () => {
@@ -240,6 +280,7 @@ describe("extension settings", () => {
     settings.showExtendedTier = true;
     settings.showPlayerRoles = false;
     settings.showPlayerStreak = false;
+    settings.showTeamSummary = false;
     settings.showMapWinRates = false;
     settings.interfaceVisibility.matchRoom = false;
     settings.interfaceVisibility.quickPositionsPanel = true;

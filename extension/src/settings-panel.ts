@@ -543,6 +543,15 @@ export class EloScopeSettingsPanel {
       }
     ));
     grid.append(this.#switchRow(
+      "Сводка команд",
+      "Шансы, общая форма, FIREPOWER, AVG KILLS и K/D в комнате матча",
+      settings.showTeamSummary,
+      "show-team-summary",
+      (checked) => {
+        if (this.#draft) this.#draft = { ...this.#draft, showTeamSummary: checked };
+      }
+    ));
+    grid.append(this.#switchRow(
       "Сравнение карт",
       "Винрейт обеих команд по картам в комнате матча",
       settings.showMapWinRates,

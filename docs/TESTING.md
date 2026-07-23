@@ -23,6 +23,9 @@ clicks**. Quick positions must send at most once per `matchId + map + message`.
 The map-comparison fixture also verifies the exact finished-room hierarchy,
 selected-map agreement, placement before native actions, responsive clones,
 late statistics, React remounts and cleanup.
+The roster fixture verifies two complementary team outlooks, native-flow
+placement, no one-sided mount, unknown-data rendering, accessible chance
+details and layouts down to a 280 px roster width.
 
 ## Manual beta smoke test
 

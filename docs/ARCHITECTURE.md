@@ -39,6 +39,18 @@ match. The match-room indicator is shown only for a run of at least two and has
 an independent interface toggle. A series that exhausts the full 100-row sample
 is rendered as `100+`; conflicting duplicate match ids suppress the indicator.
 
+Team outlooks are calculated locally from the two verified five-player rosters.
+Each player has equal weight. FIREPOWER is a bounded 0–100 composite of AVG
+KILLS (25%), K/R (30%), ADR (25%) and K/D (20%); team K/D uses aggregate
+kills-per-match divided by deaths-per-match rather than averaging ratios.
+Win-chance log odds combine only the signals available for both teams:
+standard ELO odds, recent win rate and FIREPOWER, and the existing 7/90-day
+form battery, each scaled by source coverage. At least three of five players
+must have a trustworthy component. The two displayed chances always total
+100%, the current room result is excluded, and insufficient coverage produces
+`—` rather than `50/50`. The UI identifies the value as a heuristic estimate,
+lists the signals used and exposes a separate settings toggle.
+
 ```mermaid
 flowchart LR
     Page["FACEIT page"] -->|visible DOM| Content["Isolated MV3 content script"]

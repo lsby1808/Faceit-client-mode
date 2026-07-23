@@ -16,6 +16,7 @@ import {
   INLINE_ROLE_ATTRIBUTE,
   INLINE_STREAK_ATTRIBUTE,
   INLINE_TEAM_ATTRIBUTE,
+  INLINE_TEAM_SUMMARY_ATTRIBUTE,
   INLINE_TIER_ATTRIBUTE,
   InlineMatchRenderer,
   type InlineMatchSettings,
@@ -27,6 +28,7 @@ const settings: InlineMatchSettings = {
   showExtendedTier: true,
   showPlayerRoles: true,
   showPlayerStreak: true,
+  showTeamSummary: true,
   showMapWinRates: true,
 };
 
@@ -303,6 +305,10 @@ function teamHosts(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}]`));
 }
 
+function teamSummaryHosts(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_TEAM_SUMMARY_ATTRIBUTE}]`));
+}
+
 function batteryHosts(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}]`));
 }
@@ -392,11 +398,33 @@ describe("InlineMatchRenderer", () => {
       status: "rendered",
       players: 10,
       teams: 2,
-      updated: 44,
+      updated: 46,
     });
     expect(playerHosts()).toHaveLength(10);
     expect(teamHosts()).toHaveLength(2);
+    expect(teamSummaryHosts()).toHaveLength(2);
     expect(streakHosts()).toHaveLength(10);
+
+    const alphaSummary = document.querySelector<HTMLElement>(
+      `[${INLINE_TEAM_SUMMARY_ATTRIBUTE}="team-alpha"]`,
+    );
+    const bravoSummary = document.querySelector<HTMLElement>(
+      `[${INLINE_TEAM_SUMMARY_ATTRIBUTE}="team-bravo"]`,
+    );
+    const alphaChance = alphaSummary?.shadowRoot?.querySelector<HTMLElement>("[data-es-team-chance]");
+    const bravoChance = bravoSummary?.shadowRoot?.querySelector<HTMLElement>("[data-es-team-chance]");
+    expect(alphaSummary?.parentElement?.classList.contains("team-list")).toBe(true);
+    expect(alphaSummary?.nextElementSibling?.matches('[class*="styles__Holder"]')).toBe(true);
+    expect(bravoSummary?.nextElementSibling?.matches('[class*="styles__Holder"]')).toBe(true);
+    expect(alphaChance?.dataset.esTeamChance).toBe("89");
+    expect(bravoChance?.dataset.esTeamChance).toBe("11");
+    expect(Number(alphaChance?.dataset.esTeamChance) + Number(bravoChance?.dataset.esTeamChance)).toBe(100);
+    expect(alphaSummary?.shadowRoot?.textContent).toContain("FIREPOWER");
+    expect(alphaSummary?.shadowRoot?.textContent).toContain("AVG KILLS");
+    expect(alphaSummary?.shadowRoot?.textContent).toContain("K/D");
+    expect(alphaSummary?.shadowRoot?.querySelector("[data-es-team-form]")).not.toBeNull();
+    expect(alphaChance?.getAttribute("aria-describedby")).toBeTruthy();
+    expect(alphaSummary?.shadowRoot?.querySelector(".tooltip")?.textContent).toContain("Вероятностная оценка");
 
     const alphaHost = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`);
     const nativeCard = alphaHost?.previousElementSibling;
@@ -459,6 +487,40 @@ describe("InlineMatchRenderer", () => {
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("coverage");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("2000–2511");
     expect(document.querySelectorAll(`[class*="Roster__Group-sc-"] [${INLINE_TEAM_ATTRIBUTE}]`)).toHaveLength(0);
+  });
+
+  it("shows unknown team values instead of invented zeros and removes summaries with the toggle", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const matchWithElo = matchContext();
+    const match = {
+      ...matchWithElo,
+      teams: matchWithElo.teams.map((team) => ({
+        ...team,
+        players: team.players.map(({ elo: _elo, ...player }) => player),
+      })),
+    };
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, new Map(), playerMapRows(match), settings);
+    expect(teamSummaryHosts()).toHaveLength(2);
+    for (const host of teamSummaryHosts()) {
+      const shadow = host.shadowRoot as ShadowRoot;
+      expect(shadow.querySelector<HTMLElement>("[data-es-team-chance]")?.dataset.esTeamChance).toBe("unknown");
+      expect(shadow.querySelector<HTMLElement>("[data-es-team-chance] b")?.textContent).toBe("—");
+      expect(shadow.textContent).toContain("Недостаточно достоверных данных");
+      expect(shadow.querySelector(".summary")?.textContent).not.toContain("0%");
+      expect(shadow.querySelector<HTMLElement>("[data-es-team-form]")?.dataset.esTeamForm).toBe("unknown");
+    }
+
+    expect(renderer.render(
+      matchWithElo,
+      new Map(),
+      playerMapRows(match),
+      { ...settings, showTeamSummary: false },
+    )).toMatchObject({ status: "rendered" });
+    expect(teamSummaryHosts()).toHaveLength(0);
+    expect(playerHosts()).toHaveLength(10);
+    expect(teamHosts()).toHaveLength(2);
   });
 
   it("mounts verified teammate and opponent counts before native ELO controls and exposes an accessible rich tooltip", () => {
@@ -1654,6 +1716,11 @@ describe("InlineMatchRenderer", () => {
     expect(playerHosts()).toHaveLength(10);
     expect(batteryHosts()).toHaveLength(10);
     expect(roleHosts()).toHaveLength(10);
+    expect(teamSummaryHosts()).toHaveLength(2);
+    for (const host of teamSummaryHosts()) {
+      expect(host.parentElement?.classList.contains("team-list")).toBe(true);
+      expect(host.nextElementSibling?.matches('[class*="RosterParty__Container"], [class*="styles__Holder"]')).toBe(true);
+    }
     expect(document.querySelector(`[${INLINE_TIER_ATTRIBUTE}="alpha-one"]`)).not.toBeNull();
     for (const holder of Array.from(document.querySelectorAll<HTMLElement>('[class*="styles__Holder"]'))) {
       expect(holder.querySelectorAll(`[${INLINE_PLAYER_ATTRIBUTE}]`)).toHaveLength(1);
@@ -1672,6 +1739,7 @@ describe("InlineMatchRenderer", () => {
       host.getAttribute(INLINE_PLAYER_ATTRIBUTE),
       host,
     ]));
+    const originalSummaryHosts = [...teamSummaryHosts()];
 
     applyMixedPremadeLayout();
 
@@ -1684,6 +1752,9 @@ describe("InlineMatchRenderer", () => {
       expect(originalHosts.get(host.getAttribute(INLINE_PLAYER_ATTRIBUTE))).toBe(host);
       expect(host.parentElement?.matches('[class*="styles__Holder"]')).toBe(true);
     }
+    expect(teamSummaryHosts()).toHaveLength(2);
+    expect(originalSummaryHosts.every((host) => !host.isConnected)).toBe(true);
+    expect(teamSummaryHosts().every((host) => host.nextElementSibling?.matches('[class*="RosterParty__Container"]'))).toBe(true);
   });
 
   it("fails closed and removes stale stats when a full visible team roster is duplicated", () => {
@@ -1697,7 +1768,7 @@ describe("InlineMatchRenderer", () => {
     const duplicate = alphaRoster.cloneNode(true) as HTMLElement;
     duplicate.className = "Roster__Group-sc-visible-copy";
     duplicate.querySelectorAll(
-      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}]`,
+      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_SUMMARY_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}]`,
     ).forEach((host) => host.remove());
     document.body.append(duplicate);
 
@@ -1707,6 +1778,7 @@ describe("InlineMatchRenderer", () => {
     });
     expect(playerHosts()).toHaveLength(0);
     expect(teamHosts()).toHaveLength(0);
+    expect(teamSummaryHosts()).toHaveLength(0);
     expect(batteryHosts()).toHaveLength(0);
     expect(tierHosts()).toHaveLength(0);
     expect(roleHosts()).toHaveLength(0);
@@ -1971,6 +2043,7 @@ describe("InlineMatchRenderer", () => {
     renderer.destroy();
     expect(playerHosts()).toHaveLength(0);
     expect(teamHosts()).toHaveLength(0);
+    expect(teamSummaryHosts()).toHaveLength(0);
     expect(batteryHosts()).toHaveLength(0);
     expect(tierHosts()).toHaveLength(0);
     expect(roleHosts()).toHaveLength(0);

@@ -3,6 +3,8 @@ import {
   buildPlayerEncounters,
   calculateFormBattery,
   calculateCurrentMatchStreak,
+  calculateTeamPerformanceSummary,
+  calculateTeamWinChances,
   classifyPlayerRole,
   eligibleMatches,
   getEloTier,
@@ -23,6 +25,7 @@ import {
   type PlayerRole,
   type PlayerRoleAnalysis,
   type StatsWindow,
+  type TeamPerformanceSummary,
 } from "@eloscope/core";
 import { MatchMapWinRateChartRenderer } from "./map-winrate-chart";
 import { buildRecentPlayerMapStats } from "./recent-map-stats";
@@ -53,6 +56,7 @@ export const INLINE_TIER_ATTRIBUTE = "data-eloscope-inline-tier";
 export const INLINE_ROLE_ATTRIBUTE = "data-eloscope-inline-role";
 export const INLINE_ENCOUNTER_ATTRIBUTE = "data-eloscope-inline-encounter";
 export const INLINE_STREAK_ATTRIBUTE = "data-eloscope-inline-streak";
+export const INLINE_TEAM_SUMMARY_ATTRIBUTE = "data-eloscope-inline-team-summary";
 
 const WIN_RATE_WINDOW: StatsWindow = 20;
 
@@ -527,12 +531,156 @@ const TEAM_STYLES = `
   }
 `;
 
+const TEAM_SUMMARY_STYLES = `
+  :host {
+    color-scheme: dark;
+    display: block !important;
+    box-sizing: border-box;
+    width: 100% !important;
+    min-width: 0;
+    flex: 0 0 100%;
+    grid-column: 1 / -1;
+    margin: 0 0 8px;
+    container-type: inline-size;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  .summary {
+    display: grid;
+    min-height: 55px;
+    grid-template-columns: 43px repeat(4, minmax(0, 1fr));
+    align-items: stretch;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, .13);
+    border-top: 2px solid #ff6b21;
+    border-radius: 6px;
+    background: rgba(10, 12, 15, .98);
+    color: #f2f4f7;
+    font-variant-numeric: tabular-nums;
+  }
+  .form,
+  .metric {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    place-content: center;
+    justify-items: center;
+    padding: 6px 4px 5px;
+    border-left: 1px solid rgba(255, 255, 255, .075);
+    text-align: center;
+  }
+  .form { border-left: 0; }
+  .metric {
+    border: 0;
+    border-left: 1px solid rgba(255, 255, 255, .075);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+  .metric small {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    color: #858c96;
+    font-size: 7px;
+    font-weight: 850;
+    letter-spacing: .055em;
+    line-height: 10px;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .metric b {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    margin-top: 1px;
+    color: #ff8b49;
+    font-size: 18px;
+    font-weight: 950;
+    line-height: 21px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chance {
+    cursor: help;
+    outline: none;
+  }
+  .chance:hover,
+  .chance:focus-visible { background: rgba(255, 255, 255, .055); }
+  .chance:focus-visible {
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .72);
+  }
+  .battery {
+    display: inline-flex;
+    width: 24px;
+    height: 13px;
+    align-items: flex-end;
+    gap: 1px;
+    padding: 2px 3px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    color: var(--es-form-color);
+  }
+  .battery::after {
+    content: "";
+    align-self: center;
+    width: 2px;
+    height: 5px;
+    margin-right: -6px;
+    border-radius: 0 2px 2px 0;
+    background: currentColor;
+  }
+  .battery i {
+    width: 3px;
+    height: 7px;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, .13);
+  }
+  .battery i[data-on="true"] { background: currentColor; }
+  .tooltip {
+    position: fixed;
+    inset: auto;
+    z-index: 2147483000;
+    display: none;
+    width: min(310px, calc(100vw - 16px));
+    margin: 0;
+    padding: 13px 14px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 6px;
+    background: #0c0e10;
+    box-shadow: 0 14px 38px rgba(0, 0, 0, .58);
+    color: #eef0f2;
+    font-size: 11px;
+    line-height: 1.4;
+    pointer-events: none;
+  }
+  .tooltip[data-open="true"] { display: block; }
+  .tooltip:popover-open { display: block; }
+  .tooltip strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+  .tooltip p { margin: 5px 0 0; }
+  .coverage { color: #9ba2ab; }
+  .disclaimer { color: #ff9a62; }
+  @container (max-width: 330px) {
+    .summary { grid-template-columns: 37px repeat(4, minmax(0, 1fr)); }
+    .form, .metric { padding-inline: 2px; }
+    .metric small { font-size: 7px; letter-spacing: 0; }
+    .metric b { font-size: 15px; }
+    .battery { transform: scale(.88); }
+  }
+`;
+
 export type InlineMatchSettings = Readonly<{
   statsWindow: StatsWindow;
   mapWinRateWindow: StatsWindow;
   showExtendedTier: boolean;
   showPlayerRoles: boolean;
   showPlayerStreak: boolean;
+  showTeamSummary: boolean;
   showMapWinRates: boolean;
 }>;
 
@@ -571,6 +719,7 @@ type TeamAnchor = Readonly<{
   team: MatchTeam;
   roster: HTMLElement;
   players: readonly PlayerAnchor[];
+  summaryAnchor?: TeamSummaryAnchor;
 }>;
 
 type TeamHeaderSide = "left" | "right";
@@ -579,6 +728,11 @@ type TeamHeaderAnchor = Readonly<{
   team: MatchTeam;
   container: HTMLElement;
   side: TeamHeaderSide;
+}>;
+
+type TeamSummaryAnchor = Readonly<{
+  container: HTMLElement;
+  before: HTMLElement;
 }>;
 
 type Mount = {
@@ -1364,6 +1518,206 @@ function renderTeam(
   shadow.replaceChildren(style, value);
 }
 
+function teamFormColor(score: number | undefined): string {
+  if (score === undefined || !Number.isFinite(score)) return "#747b84";
+  if (score < 20) return "#ff4655";
+  if (score < 40) return "#ff7a00";
+  if (score < 60) return "#f2c94c";
+  if (score < 80) return "#21d07a";
+  return "#35c9ef";
+}
+
+function teamSummaryValue(value: number | undefined, digits = 0, suffix = ""): string {
+  return value === undefined || !Number.isFinite(value) ? "—" : `${value.toFixed(digits)}${suffix}`;
+}
+
+function appendTeamSummaryMetric(
+  ownerDocument: Document,
+  parent: HTMLElement,
+  label: string,
+  value: string,
+): HTMLElement {
+  const metric = ownerDocument.createElement("span");
+  metric.className = "metric";
+  const caption = ownerDocument.createElement("small");
+  caption.textContent = label;
+  const number = ownerDocument.createElement("b");
+  number.textContent = value;
+  metric.append(caption, number);
+  parent.append(metric);
+  return metric;
+}
+
+type TeamChanceDetails = Readonly<{
+  value: number;
+  confidence: number;
+  signals: readonly ("elo" | "history" | "form")[];
+}>;
+
+function renderTeamSummary(
+  shadow: ShadowRoot,
+  team: MatchTeam,
+  summary: TeamPerformanceSummary,
+  chance: TeamChanceDetails | undefined,
+): void {
+  const ownerDocument = shadow.ownerDocument;
+  const style = ownerDocument.createElement("style");
+  style.textContent = TEAM_SUMMARY_STYLES;
+  const card = ownerDocument.createElement("section");
+  card.className = "summary";
+  card.dataset.esTeamSummary = team.id;
+  card.setAttribute(
+    "aria-label",
+    [
+      `Сводка команды ${team.name ?? team.id}`,
+      `шанс ${teamSummaryValue(chance?.value, 0, "%")}`,
+      `форма ${teamSummaryValue(summary.form)}`,
+      `firepower ${teamSummaryValue(summary.firepower)}`,
+      `средние убийства ${teamSummaryValue(summary.averageKills, 1)}`,
+      `K/D ${teamSummaryValue(summary.kd, 2)}`,
+    ].join(", "),
+  );
+
+  const form = ownerDocument.createElement("span");
+  form.className = "form";
+  const formLabel = summary.form === undefined
+    ? `Общая форма команды неизвестна · покрытие ${summary.formPlayers}/${summary.playersTotal}`
+    : `Общая форма команды ${Math.round(summary.form)}/100 · покрытие ${summary.formPlayers}/${summary.playersTotal}`;
+  form.title = formLabel;
+  form.setAttribute("role", "img");
+  form.setAttribute("aria-label", formLabel);
+  const battery = ownerDocument.createElement("span");
+  battery.className = "battery";
+  battery.dataset.esTeamForm = summary.form === undefined ? "unknown" : String(Math.round(summary.form));
+  battery.style.setProperty("--es-form-color", teamFormColor(summary.form));
+  const active = summary.form === undefined ? 0 : Math.ceil(Math.min(100, Math.max(0, summary.form)) / 20);
+  for (let index = 0; index < 5; index += 1) {
+    const bar = ownerDocument.createElement("i");
+    bar.dataset.on = String(index < active);
+    battery.append(bar);
+  }
+  form.append(battery);
+  card.append(form);
+
+  const chanceMetric = appendTeamSummaryMetric(
+    ownerDocument,
+    card,
+    "ШАНСЫ",
+    teamSummaryValue(chance?.value, 0, "%"),
+  );
+  chanceMetric.classList.add("chance");
+  chanceMetric.dataset.esTeamChance = chance === undefined ? "unknown" : String(Math.round(chance.value));
+  chanceMetric.tabIndex = 0;
+
+  const tooltip = ownerDocument.createElement("section");
+  tooltip.className = "tooltip";
+  tooltip.id = `eloscope-team-chance-${team.id.replace(/[^A-Za-z0-9_-]/gu, "-")}`;
+  tooltip.setAttribute("role", "tooltip");
+  tooltip.setAttribute("popover", "manual");
+  const heading = ownerDocument.createElement("strong");
+  heading.textContent = "Шансы на победу";
+  const explanation = ownerDocument.createElement("p");
+  const signalLabels = chance?.signals.map((signal) => {
+    if (signal === "elo") return "среднее ELO";
+    if (signal === "history") return "последние результаты и FIREPOWER";
+    return "текущую форму";
+  }) ?? [];
+  explanation.textContent = chance === undefined
+    ? "Недостаточно достоверных данных для оценки обеих команд."
+    : `Расчёт использует: ${signalLabels.join(", ")} обеих команд.`;
+  const windowText = ownerDocument.createElement("p");
+  windowText.textContent =
+    `Статистика и FIREPOWER: до ${summary.window} последних завершённых матчей CS2 5v5 каждого игрока.`;
+  const formWindow = ownerDocument.createElement("p");
+  formWindow.textContent = "Форма: до 5 матчей за 7 дней относительно базы до 25 матчей за 90 дней.";
+  const coverage = ownerDocument.createElement("p");
+  coverage.className = "coverage";
+  coverage.textContent =
+    `Покрытие: статистика ${summary.statsPlayers}/${summary.playersTotal}, `
+    + `форма ${summary.formPlayers}/${summary.playersTotal}, ELO ${summary.eloPlayers}/${summary.playersTotal}.`;
+  const confidence = ownerDocument.createElement("p");
+  confidence.className = "coverage";
+  confidence.textContent = chance === undefined
+    ? "Полнота оценки: недостаточно данных."
+    : `Полнота оценки: ${Math.round(chance.confidence * 100)}%.`;
+  const disclaimer = ownerDocument.createElement("p");
+  disclaimer.className = "disclaimer";
+  disclaimer.textContent = "Вероятностная оценка, а не гарантия результата.";
+  tooltip.append(heading, explanation, windowText, formWindow, coverage, confidence, disclaimer);
+  chanceMetric.setAttribute("aria-describedby", tooltip.id);
+  chanceMetric.setAttribute(
+    "aria-label",
+    chance === undefined
+      ? `Шанс команды ${team.name ?? team.id}: недостаточно данных`
+      : `Оценка шанса команды ${team.name ?? team.id}: ${Math.round(chance.value)} процентов`,
+  );
+
+  const closeTooltip = (): void => {
+    try {
+      if (typeof tooltip.hidePopover === "function") tooltip.hidePopover();
+    } catch {
+      // Detached/already closed popovers only need their fallback state reset.
+    }
+    delete tooltip.dataset.open;
+  };
+  let hovered = false;
+  let focused = false;
+  const syncTooltip = (): void => {
+    if (!hovered && !focused) {
+      closeTooltip();
+      return;
+    }
+    for (const host of ownerDocument.querySelectorAll<HTMLElement>(`[${INLINE_TEAM_SUMMARY_ATTRIBUTE}]`)) {
+      if (host.shadowRoot === shadow) continue;
+      const otherTooltip = host.shadowRoot?.querySelector<HTMLElement>(".tooltip");
+      if (!otherTooltip) continue;
+      try {
+        if (typeof otherTooltip.hidePopover === "function") otherTooltip.hidePopover();
+      } catch {
+        // A detached/already closed sibling tooltip only needs fallback cleanup.
+      }
+      delete otherTooltip.dataset.open;
+    }
+    tooltip.dataset.open = "true";
+    try {
+      if (typeof tooltip.showPopover === "function") tooltip.showPopover();
+    } catch {
+      // data-open remains as the fallback when Popover API is unavailable.
+    }
+    positionEncounterTooltip(chanceMetric, tooltip);
+  };
+  chanceMetric.addEventListener("mouseenter", () => {
+    hovered = true;
+    syncTooltip();
+  });
+  chanceMetric.addEventListener("mouseleave", () => {
+    hovered = false;
+    syncTooltip();
+  });
+  chanceMetric.addEventListener("focus", () => {
+    focused = true;
+    syncTooltip();
+  });
+  chanceMetric.addEventListener("blur", () => {
+    focused = false;
+    syncTooltip();
+  });
+  chanceMetric.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    hovered = false;
+    focused = false;
+    closeTooltip();
+  });
+  tooltip.addEventListener("toggle", () => {
+    if (!tooltip.matches(":popover-open")) delete tooltip.dataset.open;
+  });
+
+  appendTeamSummaryMetric(ownerDocument, card, "FIREPOWER", teamSummaryValue(summary.firepower));
+  appendTeamSummaryMetric(ownerDocument, card, "AVG KILLS", teamSummaryValue(summary.averageKills, 1));
+  appendTeamSummaryMetric(ownerDocument, card, "K/D", teamSummaryValue(summary.kd, 2));
+  shadow.replaceChildren(style, card, tooltip);
+}
+
 function exactNicknameNodes(roster: HTMLElement, nickname: string): HTMLElement[] {
   const expected = normalizedNickname(nickname);
   const matches = new Set<HTMLElement>();
@@ -1474,6 +1828,33 @@ function areIndependentPlayerHolders(holders: readonly HTMLElement[]): boolean {
       index === candidateIndex || (!holder.contains(candidate) && !candidate.contains(holder))));
 }
 
+function discoverTeamSummaryAnchor(
+  roster: HTMLElement,
+  holders: readonly HTMLElement[],
+): TeamSummaryAnchor | undefined {
+  if (holders.length !== 5 || !areIndependentPlayerHolders(holders)) return undefined;
+  let container: HTMLElement | null = holders[0]?.parentElement ?? null;
+  while (container && container !== roster && !holders.every((holder) => container?.contains(holder))) {
+    container = container.parentElement;
+  }
+  if (
+    !container
+    || (container !== roster && !roster.contains(container))
+    || container === roster.ownerDocument.body
+    || container === roster.ownerDocument.documentElement
+  ) return undefined;
+
+  const playerBranches = Array.from(container.children)
+    .filter((candidate): candidate is HTMLElement => candidate instanceof HTMLElement)
+    .filter((candidate) => holders.some((holder) => candidate === holder || candidate.contains(holder)));
+  if (!playerBranches.length) return undefined;
+  if (holders.some((holder) =>
+    playerBranches.filter((branch) => branch === holder || branch.contains(holder)).length !== 1)) {
+    return undefined;
+  }
+  return { container, before: playerBranches[0] as HTMLElement };
+}
+
 /**
  * Mounts compact stats only after the complete live FACEIT roster contract has
  * been validated. Any ambiguity removes existing mounts instead of guessing a
@@ -1483,6 +1864,7 @@ export class InlineMatchRenderer {
   readonly #document: Document;
   readonly #playerMounts = new Map<string, Mount>();
   readonly #teamMounts = new Map<string, Mount>();
+  readonly #teamSummaryMounts = new Map<string, Mount>();
   readonly #batteryMounts = new Map<string, Mount>();
   readonly #tierMounts = new Map<string, TierMount>();
   readonly #roleMounts = new Map<string, RoleMount>();
@@ -1536,21 +1918,111 @@ export class InlineMatchRenderer {
 
     const expectedPlayerIds = new Set(discovery.teams.flatMap((team) => team.players.map(({ player }) => player.id)));
     const expectedTeamIds = new Set(discovery.teams.map(({ team }) => team.id));
+    const teamSummaryEntries: Array<Readonly<{
+      anchor: TeamAnchor;
+      summaryAnchor: TeamSummaryAnchor;
+      summary: TeamPerformanceSummary;
+      chance?: TeamChanceDetails;
+    }>> = [];
+    if (
+      settings.showTeamSummary
+      && discovery.teams.length === 2
+      && discovery.teams.every(({ summaryAnchor }) => summaryAnchor !== undefined)
+    ) {
+      const histories = new Map<string, readonly PlayerMatch[]>();
+      for (const { team } of discovery.teams) {
+        for (const player of team.players) {
+          const rows = viewer?.histories?.get(player.id) ?? playerMatches.get(player.id);
+          if (rows) histories.set(player.id, rows);
+        }
+      }
+      const firstAnchor = discovery.teams[0] as TeamAnchor;
+      const secondAnchor = discovery.teams[1] as TeamAnchor;
+      const firstSummary = calculateTeamPerformanceSummary(
+        firstAnchor.team,
+        histories,
+        settings.statsWindow,
+        { currentMatchId: match.id },
+      );
+      const secondSummary = calculateTeamPerformanceSummary(
+        secondAnchor.team,
+        histories,
+        settings.statsWindow,
+        { currentMatchId: match.id },
+      );
+      const chances = calculateTeamWinChances(firstSummary, secondSummary);
+      const chanceByTeam = new Map<string, TeamChanceDetails>();
+      if (chances.status === "known") {
+        chanceByTeam.set(chances.first.teamId, {
+          value: chances.first.chance,
+          confidence: chances.confidence,
+          signals: chances.signals,
+        });
+        chanceByTeam.set(chances.second.teamId, {
+          value: chances.second.chance,
+          confidence: chances.confidence,
+          signals: chances.signals,
+        });
+      }
+      for (const [anchor, summary] of [
+        [firstAnchor, firstSummary],
+        [secondAnchor, secondSummary],
+      ] as const) {
+        if (!anchor.summaryAnchor) continue;
+        const chance = chanceByTeam.get(anchor.team.id);
+        teamSummaryEntries.push({
+          anchor,
+          summaryAnchor: anchor.summaryAnchor,
+          summary,
+          ...(chance === undefined ? {} : { chance }),
+        });
+      }
+    }
     const headerMetrics = this.#discoverHeaderTeams(discovery.teams.map(({ team }) => team)).flatMap((anchor) => {
       const metric = teamHeaderMetric(anchor.team, anchor.side);
       return metric ? [{ anchor, metric }] : [];
     });
     const expectedHeaderTeamIds = new Set(headerMetrics.map(({ anchor }) => anchor.team.id));
+    const expectedSummaryTeamIds = new Set(teamSummaryEntries.map(({ anchor }) => anchor.team.id));
     this.#removeStale(this.#playerMounts, expectedPlayerIds);
     this.#removeStale(this.#teamMounts, expectedHeaderTeamIds);
+    this.#removeStale(this.#teamSummaryMounts, expectedSummaryTeamIds);
     this.#removeStale(this.#batteryMounts, expectedPlayerIds);
     this.#removeStale(this.#encounterMounts, expectedPlayerIds);
     this.#removeStale(this.#streakMounts, expectedPlayerIds);
     this.#removeStaleTiers(expectedPlayerIds);
     this.#removeStaleRoles(expectedPlayerIds);
-    this.#removeOrphans(expectedPlayerIds, expectedHeaderTeamIds);
+    this.#removeOrphans(expectedPlayerIds, expectedHeaderTeamIds, expectedSummaryTeamIds);
 
     let updated = chartUpdated;
+    for (const { anchor, summaryAnchor, summary, chance } of teamSummaryEntries) {
+      const signature = JSON.stringify([anchor.team.name, summary, chance ?? null]);
+      let mount = this.#teamSummaryMounts.get(anchor.team.id);
+      if (
+        !mount
+        || !mount.host.isConnected
+        || mount.host.parentElement !== summaryAnchor.container
+      ) {
+        mount?.host.remove();
+        const host = this.#document.createElement("section");
+        host.setAttribute(INLINE_TEAM_SUMMARY_ATTRIBUTE, anchor.team.id);
+        const shadow = host.attachShadow({ mode: "open" });
+        mount = { host, signature: "" };
+        this.#teamSummaryMounts.set(anchor.team.id, mount);
+        renderTeamSummary(shadow, anchor.team, summary, chance);
+        mount.signature = signature;
+        summaryAnchor.container.insertBefore(host, summaryAnchor.before);
+        updated += 1;
+      } else if (mount.signature !== signature) {
+        renderTeamSummary(mount.host.shadowRoot as ShadowRoot, anchor.team, summary, chance);
+        mount.signature = signature;
+        updated += 1;
+      }
+      if (mount.host.nextElementSibling !== summaryAnchor.before) {
+        summaryAnchor.container.insertBefore(mount.host, summaryAnchor.before);
+      }
+    }
+
     for (const { anchor, metric } of headerMetrics) {
       let teamMount = this.#teamMounts.get(anchor.team.id);
       const sideChanged = teamMount?.host.getAttribute("data-eloscope-team-side") !== anchor.side;
@@ -1643,6 +2115,7 @@ export class InlineMatchRenderer {
   #cleanupRosterEnhancements(): void {
     for (const mount of this.#playerMounts.values()) mount.host.remove();
     for (const mount of this.#teamMounts.values()) mount.host.remove();
+    for (const mount of this.#teamSummaryMounts.values()) mount.host.remove();
     for (const mount of this.#batteryMounts.values()) mount.host.remove();
     for (const mount of this.#encounterMounts.values()) mount.host.remove();
     for (const mount of this.#streakMounts.values()) mount.host.remove();
@@ -1650,13 +2123,14 @@ export class InlineMatchRenderer {
     for (const mount of this.#roleMounts.values()) this.#removeRoleMount(mount);
     this.#playerMounts.clear();
     this.#teamMounts.clear();
+    this.#teamSummaryMounts.clear();
     this.#batteryMounts.clear();
     this.#encounterMounts.clear();
     this.#streakMounts.clear();
     this.#tierMounts.clear();
     this.#roleMounts.clear();
     this.#document.querySelectorAll(
-      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}], [${INLINE_ENCOUNTER_ATTRIBUTE}], [${INLINE_STREAK_ATTRIBUTE}]`,
+      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}], [${INLINE_TEAM_SUMMARY_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}], [${INLINE_ENCOUNTER_ATTRIBUTE}], [${INLINE_STREAK_ATTRIBUTE}]`,
     )
       .forEach((host) => host.remove());
   }
@@ -2095,7 +2569,16 @@ export class InlineMatchRenderer {
           ...(avatarPair ? avatarPair : {}),
         });
       }
-      teams.push({ team, roster, players });
+      const summaryAnchor = discoverTeamSummaryAnchor(
+        roster,
+        players.map(({ holder }) => holder),
+      );
+      teams.push({
+        team,
+        roster,
+        players,
+        ...(summaryAnchor ? { summaryAnchor } : {}),
+      });
     }
 
     return { status: "ready", teams };
@@ -2177,9 +2660,14 @@ export class InlineMatchRenderer {
     }
   }
 
-  #removeOrphans(expectedPlayerIds: ReadonlySet<string>, expectedTeamIds: ReadonlySet<string>): void {
+  #removeOrphans(
+    expectedPlayerIds: ReadonlySet<string>,
+    expectedTeamIds: ReadonlySet<string>,
+    expectedSummaryTeamIds: ReadonlySet<string>,
+  ): void {
     const playerHosts = new Set(Array.from(this.#playerMounts.values(), ({ host }) => host));
     const teamHosts = new Set(Array.from(this.#teamMounts.values(), ({ host }) => host));
+    const teamSummaryHosts = new Set(Array.from(this.#teamSummaryMounts.values(), ({ host }) => host));
     const batteryHosts = new Set(Array.from(this.#batteryMounts.values(), ({ host }) => host));
     const encounterHosts = new Set(Array.from(this.#encounterMounts.values(), ({ host }) => host));
     const streakHosts = new Set(Array.from(this.#streakMounts.values(), ({ host }) => host));
@@ -2192,6 +2680,10 @@ export class InlineMatchRenderer {
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_TEAM_ATTRIBUTE);
       if (!id || !expectedTeamIds.has(id) || !teamHosts.has(host)) host.remove();
+    });
+    this.#document.querySelectorAll<HTMLElement>(`[${INLINE_TEAM_SUMMARY_ATTRIBUTE}]`).forEach((host) => {
+      const id = host.getAttribute(INLINE_TEAM_SUMMARY_ATTRIBUTE);
+      if (!id || !expectedSummaryTeamIds.has(id) || !teamSummaryHosts.has(host)) host.remove();
     });
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_BATTERY_ATTRIBUTE);

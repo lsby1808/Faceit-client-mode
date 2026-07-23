@@ -184,6 +184,7 @@ export class EloScopeOverlay {
       showExtendedTier: this.#settings.showExtendedTier,
       showPlayerRoles: this.#settings.showPlayerRoles,
       showPlayerStreak: this.#settings.showPlayerStreak,
+      showTeamSummary: this.#settings.showTeamSummary,
       showMapWinRates: this.#settings.showMapWinRates,
     }, viewerTeamId, viewer);
   }

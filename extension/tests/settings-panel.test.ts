@@ -67,6 +67,11 @@ describe("EloScope settings panel", () => {
     expect(panel.shadow.textContent).toContain("Серии побед и поражений");
     expect(panel.shadow.textContent).toContain("текущую серию побед или поражений");
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-streak")?.checked).toBe(true);
+    expect(panel.shadow.textContent).toContain("Сводка команд");
+    expect(panel.shadow.textContent).toContain(
+      "Шансы, общая форма, FIREPOWER, AVG KILLS и K/D в комнате матча"
+    );
+    expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-team-summary")?.checked).toBe(true);
     expect(panel.shadow.textContent).toContain("Сравнение карт");
     expect(panel.shadow.textContent).toContain("Винрейт обеих команд по картам");
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-map-win-rates")?.checked).toBe(true);
@@ -136,6 +141,7 @@ describe("EloScope settings panel", () => {
     change(shadow.querySelector("#eloscope-show-extended-tier") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-show-player-roles") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-player-streak") as HTMLInputElement, false);
+    change(shadow.querySelector("#eloscope-show-team-summary") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-map-win-rates") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-visibility-matchRoom") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-visibility-quickPositionsPanel") as HTMLInputElement, true);
@@ -167,6 +173,7 @@ describe("EloScope settings panel", () => {
     expect(stored.showExtendedTier).toBe(true);
     expect(stored.showPlayerRoles).toBe(false);
     expect(stored.showPlayerStreak).toBe(false);
+    expect(stored.showTeamSummary).toBe(false);
     expect(stored.showMapWinRates).toBe(false);
     expect(stored.interfaceVisibility).toEqual({
       profile: false,

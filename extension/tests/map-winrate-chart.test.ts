@@ -456,6 +456,7 @@ describe("MatchMapWinRateChartRenderer", () => {
       showExtendedTier: false,
       showPlayerRoles: false,
       showPlayerStreak: false,
+      showTeamSummary: false,
       showMapWinRates: true,
     };
 

@@ -3,6 +3,7 @@ import { getEloTierPresentation } from "@eloscope/core";
 
 import { createDefaultSettings } from "../src/settings";
 import { EloScopeOverlay, type OverlayCallbacks } from "../src/ui";
+import { InlineMatchRenderer } from "../src/inline-match";
 import { loadFixture } from "./fixture";
 
 const validMatch = {
@@ -34,6 +35,36 @@ function callbacks(): OverlayCallbacks {
 }
 
 describe("Shadow DOM overlays", () => {
+  it("forwards the team-summary setting to the inline match renderer", () => {
+    const settings = createDefaultSettings();
+    settings.showTeamSummary = false;
+    const render = vi.spyOn(InlineMatchRenderer.prototype, "render").mockReturnValue({
+      status: "incompatible",
+      reason: "invalid-match-roster",
+    });
+    const overlay = new EloScopeOverlay(settings, callbacks());
+    const match = {
+      id: "match-team-summary-setting",
+      game: "cs2",
+      status: "ongoing",
+      mapPool: [],
+      teams: [],
+    } satisfies Parameters<EloScopeOverlay["syncMatchInline"]>[0];
+
+    overlay.syncMatchInline(match, new Map());
+
+    expect(render).toHaveBeenCalledWith(
+      match,
+      expect.any(Map),
+      expect.any(Map),
+      expect.objectContaining({ showTeamSummary: false }),
+      undefined,
+      undefined,
+    );
+    overlay.destroy();
+    render.mockRestore();
+  });
+
   it("replaces only the native profile tier and never mounts a large profile/history panel", () => {
     loadFixture("profile");
     const settings = { ...createDefaultSettings(), showExtendedTier: true };
