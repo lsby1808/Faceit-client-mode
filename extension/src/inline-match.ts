@@ -82,6 +82,8 @@ const PLAYER_STYLES = `
   .stat { min-width: 0; padding: 0 5px; text-align: center; border-left: 1px solid rgba(255, 255, 255, .1); }
   .stat:first-child { border-left: 0; }
   .stat b { display: block; overflow: hidden; color: #e8eaed; font-size: 11px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+  .stat b[data-tone="bad"] { color: #ff4655; }
+  .stat b[data-tone="good"] { color: #21d07a; }
   .stat small { display: block; margin-top: 2px; color: #858b94; font-size: 9px; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; }
   .roles {
     position: absolute;
@@ -466,11 +468,19 @@ function batteryTitle(battery: FormBattery): string {
   ].join("\n");
 }
 
-function appendMetric(parent: ParentNode, value: string, label: string): HTMLElement {
+type MetricTone = "bad" | "good";
+
+function thresholdTone(value: number | undefined, threshold: number): MetricTone | undefined {
+  if (value === undefined || !Number.isFinite(value)) return undefined;
+  return value < threshold ? "bad" : "good";
+}
+
+function appendMetric(parent: ParentNode, value: string, label: string, tone?: MetricTone): HTMLElement {
   const stat = document.createElement("span");
   stat.className = "stat";
   const strong = document.createElement("b");
   strong.textContent = value;
+  if (tone) strong.dataset.tone = tone;
   const small = document.createElement("small");
   small.textContent = label;
   stat.append(strong, small);
@@ -714,13 +724,31 @@ function renderPlayer(
   overall.className = "overall";
   overall.dataset.esStat = "overall";
   appendMetric(overall, totalMatches === undefined ? "—" : String(totalMatches), "матчи");
-  const wins = appendMetric(overall, winRateAggregate ? percent(winRateAggregate.winRate) : "—", "победы");
+  const wins = appendMetric(
+    overall,
+    winRateAggregate ? percent(winRateAggregate.winRate) : "—",
+    "победы",
+    thresholdTone(winRateAggregate?.winRate, 50),
+  );
   wins.dataset.esMetric = "win-rate-20";
   wins.title = winRateAggregate
     ? `Процент побед за последние ${winRateAggregate.matches} завершённых матчей CS2 5v5`
     : "Нет завершённых матчей CS2 5v5";
-  appendMetric(overall, aggregate ? format(aggregate.kills / aggregate.matches, 1) : "—", "AVG KILLS");
-  appendMetric(overall, aggregate ? format(aggregate.kd, 2) : "—", "K/D");
+  const averageKills = aggregate ? aggregate.kills / aggregate.matches : undefined;
+  const averageKillsMetric = appendMetric(
+    overall,
+    format(averageKills, 1),
+    "AVG KILLS",
+    thresholdTone(averageKills, 15),
+  );
+  averageKillsMetric.dataset.esMetric = "avg-kills";
+  const kdMetric = appendMetric(
+    overall,
+    aggregate ? format(aggregate.kd, 2) : "—",
+    "K/D",
+    thresholdTone(aggregate?.kd, 1),
+  );
+  kdMetric.dataset.esMetric = "kd";
   appendMetric(overall, aggregate ? format(aggregate.kr, 2) : "—", "K/R");
   appendMetric(overall, aggregate ? format(aggregate.adr, 0) : "—", "ADR");
   card.append(overall);

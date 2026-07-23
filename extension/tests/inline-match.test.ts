@@ -282,6 +282,25 @@ function roleHosts(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_ROLE_ATTRIBUTE}]`));
 }
 
+function thresholdMatches(
+  playerId: string,
+  values: Readonly<{ wins: number; kills: number; deaths: number }>,
+): PlayerMatch[] {
+  return playerMatches(playerId).map((match, index) => ({
+    ...match,
+    result: index < values.wins ? "win" as const : "loss" as const,
+    kills: values.kills,
+    deaths: values.deaths,
+  }));
+}
+
+function metricByLabel(shadow: ShadowRoot, label: string): HTMLElement {
+  const metric = Array.from(shadow.querySelectorAll<HTMLElement>('[data-es-stat="overall"] .stat'))
+    .find((candidate) => candidate.querySelector("small")?.textContent === label);
+  if (!metric) throw new Error(`Missing inline metric: ${label}`);
+  return metric;
+}
+
 describe("InlineMatchRenderer", () => {
   it("mounts aggregate, battery, role and extended-tier stats without a selected-map strip or removing native badges", () => {
     mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
@@ -543,6 +562,110 @@ describe("InlineMatchRenderer", () => {
       expect(wins?.title).toContain("последние 20 завершённых матчей");
     },
   );
+
+  it("colors below-threshold K/D, 20-match win rate and average kills red", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    rows.set("alpha-one", thresholdMatches("alpha-one", {
+      wins: 8,
+      kills: 14,
+      deaths: 16,
+    }));
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    const shadow = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)?.shadowRoot;
+    expect(shadow).not.toBeNull();
+    if (!shadow) throw new Error("Missing alpha-one inline ShadowRoot");
+
+    const winRate = shadow.querySelector<HTMLElement>('[data-es-metric="win-rate-20"]');
+    const averageKills = metricByLabel(shadow, "AVG KILLS");
+    const kd = metricByLabel(shadow, "K/D");
+
+    expect(winRate?.querySelector("b")).toMatchObject({
+      textContent: "40.0%",
+      dataset: expect.objectContaining({ tone: "bad" }),
+    });
+    expect(averageKills.querySelector("b")).toMatchObject({
+      textContent: "14.0",
+      dataset: expect.objectContaining({ tone: "bad" }),
+    });
+    expect(kd.querySelector("b")).toMatchObject({
+      textContent: "0.88",
+      dataset: expect.objectContaining({ tone: "bad" }),
+    });
+    expect(shadow.querySelector("style")?.textContent).toContain(
+      '.stat b[data-tone="bad"] { color: #ff4655; }',
+    );
+  });
+
+  it("colors K/D, 20-match win rate and average kills green at their inclusive thresholds", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    rows.set("alpha-one", thresholdMatches("alpha-one", {
+      wins: 10,
+      kills: 15,
+      deaths: 15,
+    }));
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    const shadow = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)?.shadowRoot;
+    expect(shadow).not.toBeNull();
+    if (!shadow) throw new Error("Missing alpha-one inline ShadowRoot");
+
+    const winRate = shadow.querySelector<HTMLElement>('[data-es-metric="win-rate-20"]');
+    const averageKills = metricByLabel(shadow, "AVG KILLS");
+    const kd = metricByLabel(shadow, "K/D");
+
+    expect(winRate?.querySelector("b")).toMatchObject({
+      textContent: "50.0%",
+      dataset: expect.objectContaining({ tone: "good" }),
+    });
+    expect(averageKills.querySelector("b")).toMatchObject({
+      textContent: "15.0",
+      dataset: expect.objectContaining({ tone: "good" }),
+    });
+    expect(kd.querySelector("b")).toMatchObject({
+      textContent: "1.00",
+      dataset: expect.objectContaining({ tone: "good" }),
+    });
+    expect(shadow.querySelector("style")?.textContent).toContain(
+      '.stat b[data-tone="good"] { color: #21d07a; }',
+    );
+  });
+
+  it("keeps unavailable K/D, win rate and average kills neutral", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    rows.set("alpha-one", []);
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    const shadow = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)?.shadowRoot;
+    expect(shadow).not.toBeNull();
+    if (!shadow) throw new Error("Missing alpha-one inline ShadowRoot");
+
+    const metrics = [
+      shadow.querySelector<HTMLElement>('[data-es-metric="win-rate-20"]'),
+      metricByLabel(shadow, "AVG KILLS"),
+      metricByLabel(shadow, "K/D"),
+    ];
+    for (const metric of metrics) {
+      const value = metric?.querySelector<HTMLElement>("b");
+      expect(value?.textContent).toBe("—");
+      expect(value?.hasAttribute("data-tone")).toBe(false);
+    }
+    expect(shadow.querySelector("style")?.textContent).toContain(
+      ".stat b { display: block; overflow: hidden; color: #e8eaed;",
+    );
+  });
 
   it("maps compact header metrics by exact team name even when native sides are reversed", () => {
     mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS, ["Bravo", "Alpha"]);
