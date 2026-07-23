@@ -14,6 +14,7 @@ import {
   INLINE_MAP_WINRATE_ATTRIBUTE,
   INLINE_PLAYER_ATTRIBUTE,
   INLINE_ROLE_ATTRIBUTE,
+  INLINE_STREAK_ATTRIBUTE,
   INLINE_TEAM_ATTRIBUTE,
   INLINE_TIER_ATTRIBUTE,
   InlineMatchRenderer,
@@ -25,6 +26,7 @@ const settings: InlineMatchSettings = {
   mapWinRateWindow: 30,
   showExtendedTier: true,
   showPlayerRoles: true,
+  showPlayerStreak: true,
   showMapWinRates: true,
 };
 
@@ -309,6 +311,10 @@ function encounterHosts(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_ENCOUNTER_ATTRIBUTE}]`));
 }
 
+function streakHosts(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_STREAK_ATTRIBUTE}]`));
+}
+
 function tierHosts(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(`[${INLINE_TIER_ATTRIBUTE}]`));
 }
@@ -386,10 +392,11 @@ describe("InlineMatchRenderer", () => {
       status: "rendered",
       players: 10,
       teams: 2,
-      updated: 34,
+      updated: 44,
     });
     expect(playerHosts()).toHaveLength(10);
     expect(teamHosts()).toHaveLength(2);
+    expect(streakHosts()).toHaveLength(10);
 
     const alphaHost = document.querySelector<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`);
     const nativeCard = alphaHost?.previousElementSibling;
@@ -423,6 +430,12 @@ describe("InlineMatchRenderer", () => {
 
     const nativeLevel = nativeCard?.querySelector<SVGSVGElement>('[class*="SkillIcon__StyledSvg-sc-"]');
     const tierHost = document.querySelector<HTMLElement>(`[${INLINE_TIER_ATTRIBUTE}="alpha-one"]`);
+    const streakHost = document.querySelector<HTMLElement>(`[${INLINE_STREAK_ATTRIBUTE}="alpha-one"]`);
+    const streak = streakHost?.shadowRoot?.querySelector<HTMLElement>("[data-es-match-streak]");
+    expect(streak?.dataset.esMatchStreak).toBe("win");
+    expect(streak?.querySelector(".count")?.textContent).toBe("2");
+    expect(streak?.getAttribute("aria-label")).toContain("Текущая серия побед: 2");
+    expect(streakHost?.nextElementSibling).toBe(tierHost);
     expect(nativeLevel?.previousElementSibling).toBe(tierHost);
     expect(nativeLevel?.style.getPropertyValue("display")).toBe("none");
     expect(nativeLevel?.getAttribute("aria-hidden")).toBe("true");
@@ -498,8 +511,12 @@ describe("InlineMatchRenderer", () => {
     const teammateNativeLevel = teammateEndSlot.querySelector<SVGSVGElement>(
       '[class*="SkillIcon__StyledSvg"]',
     ) as SVGSVGElement;
-    expect(Array.from(teammateEndSlot.children).slice(0, 3)).toEqual([
+    const teammateStreak = document.querySelector<HTMLElement>(
+      `[${INLINE_STREAK_ATTRIBUTE}="alpha-two"]`,
+    ) as HTMLElement;
+    expect(Array.from(teammateEndSlot.children).slice(0, 4)).toEqual([
       teammateHost,
+      teammateStreak,
       teammateTier,
       teammateNativeLevel,
     ]);
@@ -516,8 +533,12 @@ describe("InlineMatchRenderer", () => {
     const opponentNativeLevel = opponentHost.parentElement?.querySelector<SVGSVGElement>(
       '[class*="SkillIcon__StyledSvg"]',
     ) as SVGSVGElement;
-    expect(Array.from(opponentHost.parentElement?.children ?? []).slice(0, 2)).toEqual([
+    const opponentStreak = document.querySelector<HTMLElement>(
+      `[${INLINE_STREAK_ATTRIBUTE}="bravo-one"]`,
+    ) as HTMLElement;
+    expect(Array.from(opponentHost.parentElement?.children ?? []).slice(0, 3)).toEqual([
       opponentHost,
+      opponentStreak,
       opponentNativeLevel,
     ]);
     expect(document.querySelector(`[${INLINE_TIER_ATTRIBUTE}="bravo-one"]`)).toBeNull();
@@ -578,6 +599,136 @@ describe("InlineMatchRenderer", () => {
 
     renderer.destroy();
     expect(encounterHosts()).toHaveLength(0);
+    expect(streakHosts()).toHaveLength(0);
+  });
+
+  it("renders a red loss streak, updates it, and removes all streaks when the setting is disabled", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const alphaRows = [...(rows.get("alpha-one") ?? [])].map((row, index) => ({
+      ...row,
+      result: (index < 3 ? "loss" : index === 3 ? "win" : row.result) as PlayerMatch["result"],
+    }));
+    rows.set("alpha-one", alphaRows);
+    const renderer = new InlineMatchRenderer();
+
+    expect(renderer.render(match, rows, playerMapRows(match), settings)).toMatchObject({
+      status: "rendered",
+      players: 10,
+    });
+    const lossHost = document.querySelector<HTMLElement>(
+      `[${INLINE_STREAK_ATTRIBUTE}="alpha-one"]`,
+    ) as HTMLElement;
+    const loss = lossHost.shadowRoot?.querySelector<HTMLElement>("[data-es-match-streak]") as HTMLElement;
+    expect(loss.dataset.esMatchStreak).toBe("loss");
+    expect(loss.dataset.result).toBe("loss");
+    expect(loss.querySelector(".count")?.textContent).toBe("3");
+    expect(loss.getAttribute("aria-label")).toContain("Текущая серия поражений: 3");
+    expect(loss.shadowRoot).toBeNull();
+
+    const newestWinRows = alphaRows.map((row, index) => ({
+      ...row,
+      result: (index < 2 ? "win" : row.result) as PlayerMatch["result"],
+    }));
+    rows.set("alpha-one", newestWinRows);
+    renderer.render(match, rows, playerMapRows(match), settings);
+    const updated = lossHost.shadowRoot?.querySelector<HTMLElement>("[data-es-match-streak]") as HTMLElement;
+    expect(updated.dataset.esMatchStreak).toBe("win");
+    expect(updated.querySelector(".count")?.textContent).toBe("2");
+
+    rows.set("alpha-one", alphaRows.map((row, index) => ({
+      ...row,
+      result: (index === 0 ? "win" : "loss") as PlayerMatch["result"],
+    })));
+    renderer.render(match, rows, playerMapRows(match), settings);
+    expect(document.querySelector(`[${INLINE_STREAK_ATTRIBUTE}="alpha-one"]`)).toBeNull();
+
+    renderer.render(match, rows, playerMapRows(match), {
+      ...settings,
+      showPlayerStreak: false,
+    });
+    expect(streakHosts()).toHaveLength(0);
+  });
+
+  it("uses the full bounded history for a streak beyond the 30-row display window", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const now = Date.now();
+    const fullHistory = Array.from({ length: 40 }, (_, index): PlayerMatch => ({
+      id: `long-streak-${index}`,
+      playerId: "alpha-one",
+      game: "cs2",
+      mode: "5v5",
+      status: "finished",
+      finishedAt: now - index * 60_000,
+      result: index < 35 ? "win" : "loss",
+      map: "dust2",
+      roundsPlayed: 24,
+      kills: 18,
+      assists: 5,
+      deaths: 14,
+      damage: 1_920,
+    }));
+    rows.set("alpha-one", fullHistory.slice(0, 30));
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(
+      match,
+      rows,
+      playerMapRows(match),
+      settings,
+      undefined,
+      {
+        histories: new Map([["alpha-one", fullHistory]]),
+      },
+    );
+
+    const streak = document.querySelector<HTMLElement>(
+      `[${INLINE_STREAK_ATTRIBUTE}="alpha-one"]`,
+    )?.shadowRoot?.querySelector<HTMLElement>("[data-es-match-streak]");
+    expect(streak?.dataset.esMatchStreak).toBe("win");
+    expect(streak?.querySelector(".count")?.textContent).toBe("35");
+  });
+
+  it("marks an uninterrupted full 100-match bridge sample as a lower bound", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const now = Date.now();
+    const fullHistory = Array.from({ length: 100 }, (_, index): PlayerMatch => ({
+      id: `bounded-streak-${index}`,
+      playerId: "alpha-one",
+      game: "cs2",
+      mode: "5v5",
+      status: "finished",
+      finishedAt: now - index * 60_000,
+      result: "win",
+      map: "dust2",
+      roundsPlayed: 24,
+      kills: 18,
+      assists: 5,
+      deaths: 14,
+      damage: 1_920,
+    }));
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(
+      match,
+      matchRows(match),
+      playerMapRows(match),
+      settings,
+      undefined,
+      {
+        histories: new Map([["alpha-one", fullHistory]]),
+      },
+    );
+
+    const streak = document.querySelector<HTMLElement>(
+      `[${INLINE_STREAK_ATTRIBUTE}="alpha-one"]`,
+    )?.shadowRoot?.querySelector<HTMLElement>("[data-es-match-streak]");
+    expect(streak?.querySelector(".count")?.textContent).toBe("100+");
+    expect(streak?.getAttribute("aria-label")).toContain("не менее 100 матчей");
   });
 
   it("hides encounter UI for the viewer, missing histories and verified histories without intersections", () => {
@@ -683,6 +834,7 @@ describe("InlineMatchRenderer", () => {
       { id: "alpha-one", matches: viewerMatches },
     )).toMatchObject({ status: "rendered", players: 10 });
     expect(document.querySelector(`[${INLINE_ENCOUNTER_ATTRIBUTE}="alpha-two"]`)).toBeNull();
+    expect(document.querySelector(`[${INLINE_STREAK_ATTRIBUTE}="alpha-two"]`)).toBeNull();
     expect(document.querySelector(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-two"]`)).not.toBeNull();
     expect(document.querySelector(`[${INLINE_BATTERY_ATTRIBUTE}="alpha-two"]`)).not.toBeNull();
   });
@@ -726,6 +878,9 @@ describe("InlineMatchRenderer", () => {
     expect(original.isConnected).toBe(false);
     expect(remounted).not.toBe(original);
     expect(remounted.parentElement?.firstElementChild).toBe(remounted);
+    expect(remounted.nextElementSibling).toBe(
+      document.querySelector(`[${INLINE_STREAK_ATTRIBUTE}="alpha-two"]`),
+    );
   });
 
   it("explains the battery with actual recent, baseline and signed delta values", () => {
@@ -1248,9 +1403,10 @@ describe("InlineMatchRenderer", () => {
 
     originalHolder.replaceWith(replacementHolder);
 
-    expect(renderer.render(match, rows, maps, settings)).toMatchObject({ status: "rendered", updated: 4 });
+    expect(renderer.render(match, rows, maps, settings)).toMatchObject({ status: "rendered", updated: 5 });
     expect(document.querySelectorAll(`[${INLINE_PLAYER_ATTRIBUTE}]`)).toHaveLength(10);
     expect(batteryHosts()).toHaveLength(10);
+    expect(streakHosts()).toHaveLength(10);
     expect(tierHosts()).toHaveLength(2);
     expect(roleHosts()).toHaveLength(10);
     expect(document.querySelector(`[${INLINE_PLAYER_ATTRIBUTE}="alpha-one"]`)).not.toBe(originalAlpha);

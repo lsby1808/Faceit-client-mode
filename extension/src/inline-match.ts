@@ -2,6 +2,7 @@ import {
   aggregatePlayerMatches,
   buildPlayerEncounters,
   calculateFormBattery,
+  calculateCurrentMatchStreak,
   classifyPlayerRole,
   eligibleMatches,
   getEloTier,
@@ -10,6 +11,7 @@ import {
   readyState,
   type EloScopeTier,
   type FormBattery,
+  type CurrentMatchStreak,
   type MatchContext,
   type MatchTeam,
   type Player,
@@ -50,6 +52,7 @@ export const INLINE_BATTERY_ATTRIBUTE = "data-eloscope-inline-battery";
 export const INLINE_TIER_ATTRIBUTE = "data-eloscope-inline-tier";
 export const INLINE_ROLE_ATTRIBUTE = "data-eloscope-inline-role";
 export const INLINE_ENCOUNTER_ATTRIBUTE = "data-eloscope-inline-encounter";
+export const INLINE_STREAK_ATTRIBUTE = "data-eloscope-inline-streak";
 
 const WIN_RATE_WINDOW: StatsWindow = 20;
 
@@ -434,6 +437,66 @@ const ENCOUNTER_STYLES = `
   }
 `;
 
+const STREAK_STYLES = `
+  :host {
+    color-scheme: dark;
+    display: inline-flex !important;
+    flex: 0 0 auto;
+    align-items: center;
+    align-self: center;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  .streak {
+    position: relative;
+    display: inline-flex;
+    width: auto;
+    min-width: 22px;
+    height: 20px;
+    align-items: flex-end;
+    gap: 2px;
+    padding: 5px 1px 3px;
+    border-radius: 3px;
+    color: #21d07a;
+    line-height: 1;
+    outline: none;
+  }
+  .streak[data-result="loss"] { color: #ff5968; }
+  .streak:focus-visible {
+    background: rgba(255, 255, 255, .08);
+    outline: 2px solid rgba(255, 255, 255, .78);
+    outline-offset: 1px;
+  }
+  .bars {
+    display: inline-flex;
+    height: 11px;
+    align-items: flex-end;
+    gap: 1px;
+  }
+  .bar {
+    display: block;
+    width: 2px;
+    border-radius: 1px 1px 0 0;
+    background: currentColor;
+  }
+  .streak[data-result="win"] .bar:nth-child(1),
+  .streak[data-result="loss"] .bar:nth-child(3) { height: 4px; opacity: .62; }
+  .bar:nth-child(2) { height: 7px; opacity: .8; }
+  .streak[data-result="win"] .bar:nth-child(3),
+  .streak[data-result="loss"] .bar:nth-child(1) { height: 11px; }
+  .count {
+    position: relative;
+    top: -5px;
+    min-width: 8px;
+    color: currentColor;
+    font-size: 9px;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    line-height: 10px;
+    text-align: left;
+  }
+`;
+
 const TEAM_STYLES = `
   :host {
     color-scheme: dark;
@@ -469,11 +532,12 @@ export type InlineMatchSettings = Readonly<{
   mapWinRateWindow: StatsWindow;
   showExtendedTier: boolean;
   showPlayerRoles: boolean;
+  showPlayerStreak: boolean;
   showMapWinRates: boolean;
 }>;
 
 export type InlineMatchViewerContext = Readonly<{
-  id: string;
+  id?: string;
   matches?: readonly PlayerMatch[];
   histories?: ReadonlyMap<string, readonly PlayerMatch[]>;
 }>;
@@ -721,6 +785,40 @@ function renderBattery(shadow: ShadowRoot, matches: readonly PlayerMatch[]): voi
     bar.dataset.on = String(index < active);
     node.append(bar);
   }
+  shadow.replaceChildren(style, node);
+}
+
+function renderStreak(shadow: ShadowRoot, streak: Extract<CurrentMatchStreak, { status: "known" }>): void {
+  const ownerDocument = shadow.ownerDocument;
+  const displayedCount = `${streak.count}${streak.isLowerBound ? "+" : ""}`;
+  const streakSize = streak.isLowerBound
+    ? `не менее ${streak.count} матчей`
+    : `${streak.count} ${matchWord(streak.count)}`;
+  const title = streak.result === "win"
+    ? `Текущая серия побед: ${streakSize}`
+    : `Текущая серия поражений: ${streakSize}`;
+  const style = ownerDocument.createElement("style");
+  style.textContent = STREAK_STYLES;
+  const node = ownerDocument.createElement("span");
+  node.className = "streak";
+  node.dataset.esMatchStreak = streak.result;
+  node.dataset.result = streak.result;
+  node.title = title;
+  node.tabIndex = 0;
+  node.setAttribute("role", "img");
+  node.setAttribute("aria-label", title);
+  const bars = ownerDocument.createElement("span");
+  bars.className = "bars";
+  bars.setAttribute("aria-hidden", "true");
+  for (let index = 0; index < 3; index += 1) {
+    const bar = ownerDocument.createElement("i");
+    bar.className = "bar";
+    bars.append(bar);
+  }
+  const count = ownerDocument.createElement("span");
+  count.className = "count";
+  count.textContent = displayedCount;
+  node.append(bars, count);
   shadow.replaceChildren(style, node);
 }
 
@@ -1389,6 +1487,7 @@ export class InlineMatchRenderer {
   readonly #tierMounts = new Map<string, TierMount>();
   readonly #roleMounts = new Map<string, RoleMount>();
   readonly #encounterMounts = new Map<string, Mount>();
+  readonly #streakMounts = new Map<string, Mount>();
   readonly #mapWinRateChart: MatchMapWinRateChartRenderer;
 
   constructor(ownerDocument: Document = document) {
@@ -1446,6 +1545,7 @@ export class InlineMatchRenderer {
     this.#removeStale(this.#teamMounts, expectedHeaderTeamIds);
     this.#removeStale(this.#batteryMounts, expectedPlayerIds);
     this.#removeStale(this.#encounterMounts, expectedPlayerIds);
+    this.#removeStale(this.#streakMounts, expectedPlayerIds);
     this.#removeStaleTiers(expectedPlayerIds);
     this.#removeStaleRoles(expectedPlayerIds);
     this.#removeOrphans(expectedPlayerIds, expectedHeaderTeamIds);
@@ -1478,6 +1578,7 @@ export class InlineMatchRenderer {
       for (const anchor of teamAnchor.players) {
         const sourceRows = playerMatches.get(anchor.player.id);
         const rows = eligibleMatches(sourceRows ?? []);
+        const historyRows = viewer?.histories?.get(anchor.player.id) ?? sourceRows;
         const totalMatches = lifetimeMatchCount(playerMapStats.get(anchor.player.id));
         const roleAnalysis = settings.showPlayerRoles ? classifyPlayerRole(rows) : undefined;
         const signature = playerSignature(anchor.player, rows, totalMatches, settings, roleAnalysis);
@@ -1510,16 +1611,19 @@ export class InlineMatchRenderer {
         updated += this.#syncBattery(anchor, rows);
         updated += this.#syncTier(anchor, settings);
         updated += this.#syncRole(anchor, roleAnalysis);
-        const encounterRows = viewer?.histories?.get(anchor.player.id) ?? sourceRows;
-        const encounters = viewer
+        const encounters = viewer?.id
           ? buildPlayerEncounters(
             viewer.id,
             anchor.player.id,
             viewer.matches ? readyState(viewer.matches) : loadingState(),
-            encounterRows ? readyState(encounterRows) : loadingState(),
+            historyRows ? readyState(historyRows) : loadingState(),
           )
           : undefined;
         updated += this.#syncEncounters(anchor, encounters);
+        const streak = settings.showPlayerStreak
+          ? calculateCurrentMatchStreak(historyRows ?? [], { sampleLimit: 100 })
+          : undefined;
+        updated += this.#syncStreak(anchor, streak);
       }
     }
 
@@ -1541,16 +1645,18 @@ export class InlineMatchRenderer {
     for (const mount of this.#teamMounts.values()) mount.host.remove();
     for (const mount of this.#batteryMounts.values()) mount.host.remove();
     for (const mount of this.#encounterMounts.values()) mount.host.remove();
+    for (const mount of this.#streakMounts.values()) mount.host.remove();
     for (const mount of this.#tierMounts.values()) this.#removeTierMount(mount);
     for (const mount of this.#roleMounts.values()) this.#removeRoleMount(mount);
     this.#playerMounts.clear();
     this.#teamMounts.clear();
     this.#batteryMounts.clear();
     this.#encounterMounts.clear();
+    this.#streakMounts.clear();
     this.#tierMounts.clear();
     this.#roleMounts.clear();
     this.#document.querySelectorAll(
-      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}], [${INLINE_ENCOUNTER_ATTRIBUTE}]`,
+      `[${INLINE_PLAYER_ATTRIBUTE}], [${INLINE_TEAM_ATTRIBUTE}], [${INLINE_BATTERY_ATTRIBUTE}], [${INLINE_TIER_ATTRIBUTE}], [${INLINE_ROLE_ATTRIBUTE}], [${INLINE_ENCOUNTER_ATTRIBUTE}], [${INLINE_STREAK_ATTRIBUTE}]`,
     )
       .forEach((host) => host.remove());
   }
@@ -1633,6 +1739,43 @@ export class InlineMatchRenderer {
     if (anchor.endSlot.firstElementChild !== mount.host) {
       anchor.endSlot.insertBefore(mount.host, anchor.endSlot.firstElementChild);
     }
+    return updated;
+  }
+
+  #syncStreak(anchor: PlayerAnchor, result: CurrentMatchStreak | undefined): number {
+    const id = anchor.player.id;
+    if (result?.status !== "known" || result.count < 2 || !anchor.endSlot) {
+      const existing = this.#streakMounts.get(id);
+      if (!existing) return 0;
+      existing.host.remove();
+      this.#streakMounts.delete(id);
+      return 1;
+    }
+
+    const signature = JSON.stringify(result);
+    let mount = this.#streakMounts.get(id);
+    let updated = 0;
+    if (!mount || !mount.host.isConnected || mount.host.parentElement !== anchor.endSlot) {
+      mount?.host.remove();
+      const host = this.#document.createElement("span");
+      host.setAttribute(INLINE_STREAK_ATTRIBUTE, id);
+      const shadow = host.attachShadow({ mode: "open" });
+      mount = { host, signature: "" };
+      this.#streakMounts.set(id, mount);
+      renderStreak(shadow, result);
+      mount.signature = signature;
+      updated = 1;
+    } else if (mount.signature !== signature) {
+      renderStreak(mount.host.shadowRoot as ShadowRoot, result);
+      mount.signature = signature;
+      updated = 1;
+    }
+
+    const encounterHost = this.#encounterMounts.get(id)?.host;
+    const insertBefore = encounterHost?.parentElement === anchor.endSlot
+      ? encounterHost.nextSibling
+      : anchor.endSlot.firstChild;
+    if (insertBefore !== mount.host) anchor.endSlot.insertBefore(mount.host, insertBefore);
     return updated;
   }
 
@@ -2039,6 +2182,7 @@ export class InlineMatchRenderer {
     const teamHosts = new Set(Array.from(this.#teamMounts.values(), ({ host }) => host));
     const batteryHosts = new Set(Array.from(this.#batteryMounts.values(), ({ host }) => host));
     const encounterHosts = new Set(Array.from(this.#encounterMounts.values(), ({ host }) => host));
+    const streakHosts = new Set(Array.from(this.#streakMounts.values(), ({ host }) => host));
     const tierHosts = new Set(Array.from(this.#tierMounts.values(), ({ host }) => host));
     const roleHosts = new Set(Array.from(this.#roleMounts.values(), ({ host }) => host));
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_PLAYER_ATTRIBUTE}]`).forEach((host) => {
@@ -2056,6 +2200,10 @@ export class InlineMatchRenderer {
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_ENCOUNTER_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_ENCOUNTER_ATTRIBUTE);
       if (!id || !expectedPlayerIds.has(id) || !encounterHosts.has(host)) host.remove();
+    });
+    this.#document.querySelectorAll<HTMLElement>(`[${INLINE_STREAK_ATTRIBUTE}]`).forEach((host) => {
+      const id = host.getAttribute(INLINE_STREAK_ATTRIBUTE);
+      if (!id || !expectedPlayerIds.has(id) || !streakHosts.has(host)) host.remove();
     });
     this.#document.querySelectorAll<HTMLElement>(`[${INLINE_TIER_ATTRIBUTE}]`).forEach((host) => {
       const id = host.getAttribute(INLINE_TIER_ATTRIBUTE);

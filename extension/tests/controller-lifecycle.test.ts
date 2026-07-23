@@ -748,7 +748,15 @@ describe("controller lifecycle", () => {
 
     await controller.navigate(`/ru/cs2/room/${state.match.id}`);
 
-    expect(state.overlayShowMatch.mock.calls.at(-1)?.[4]).toBeUndefined();
+    expect(state.overlayShowMatch.mock.calls.at(-1)?.[4]).toMatchObject({
+      histories: expect.any(Map),
+    });
+    expect(state.overlayShowMatch.mock.calls.at(-1)?.[4]).not.toHaveProperty("id");
+    expect(
+      (state.overlayShowMatch.mock.calls.at(-1)?.[4] as {
+        histories: ReadonlyMap<string, readonly unknown[]>;
+      }).histories.get("player-a"),
+    ).toEqual(viewerHistory);
     state.viewerResolver?.();
     await vi.waitFor(() => {
       expect(state.overlayInlineSync.mock.calls.at(-1)?.[4]).toMatchObject({
@@ -783,7 +791,8 @@ describe("controller lifecycle", () => {
     await controller.navigate(`/ru/cs2/room/${state.match.id}`);
 
     expect(state.overlayShowMatch).toHaveBeenCalled();
-    expect(state.overlayShowMatch.mock.calls[0]?.[4]).toBeUndefined();
+    expect(state.overlayShowMatch.mock.calls[0]?.[4]).not.toHaveProperty("id");
+    expect(state.overlayShowMatch.mock.calls[0]?.[4]).not.toHaveProperty("matches");
     state.viewerResolver?.();
     await vi.waitFor(() => expect(state.overlayInlineSync.mock.calls.at(-1)?.[4]).toMatchObject({
       id: "player-b",

@@ -98,8 +98,26 @@ describe("Shadow DOM overlays", () => {
         },
       ],
     }, new Map([
-      ["alpha-ace", [{ ...validMatch, playerId: "alpha-ace", map: "dust2" }]],
-      ["alpha-two", [{ ...validMatch, playerId: "alpha-two", map: "dust2" }]],
+      ["alpha-ace", [
+        { ...validMatch, playerId: "alpha-ace", map: "dust2" },
+        {
+          ...validMatch,
+          id: "match-alpha-older",
+          playerId: "alpha-ace",
+          map: "dust2",
+          finishedAt: "2026-07-21T10:00:00.000Z",
+        },
+      ]],
+      ["alpha-two", [
+        { ...validMatch, playerId: "alpha-two", map: "dust2" },
+        {
+          ...validMatch,
+          id: "match-alpha-two-older",
+          playerId: "alpha-two",
+          map: "dust2",
+          finishedAt: "2026-07-21T10:00:00.000Z",
+        },
+      ]],
     ]), new Map([[
       "alpha-ace",
       [{ map: "dust2", matches: 416, wins: 220, kills: 7_900, assists: 1_800, deaths: 6_700, roundsPlayed: 9_800, damage: 820_000 }],
@@ -113,6 +131,7 @@ describe("Shadow DOM overlays", () => {
     const extended = tierHost?.shadowRoot?.querySelector<HTMLElement>("[data-es-tier]");
     const batteryHost = document.querySelector<HTMLElement>('[data-eloscope-inline-battery="alpha-ace"]');
     const encounterHost = document.querySelector<HTMLElement>('[data-eloscope-inline-encounter="alpha-two"]');
+    const streakHost = document.querySelector<HTMLElement>('[data-eloscope-inline-streak="alpha-ace"]');
     expect(overlay.shadow.querySelector(".es-panel")).toBeNull();
     expect(overlay.shadow.querySelector(".es-teams")).toBeNull();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(10);
@@ -126,6 +145,8 @@ describe("Shadow DOM overlays", () => {
     expect(extended?.title).toContain("официальный FACEIT level 10");
     expect(batteryHost?.previousElementSibling?.matches('[class*="Nickname__Container-sc-"]')).toBe(true);
     expect(encounterHost?.parentElement?.matches('[class*="styles__EndSlotContainer-sc-"]')).toBe(true);
+    expect(streakHost?.parentElement?.matches('[class*="styles__EndSlotContainer-sc-"]')).toBe(true);
+    expect(streakHost?.shadowRoot?.querySelector("[data-es-match-streak]")?.textContent).toContain("2");
     const positions = overlay.shadow.querySelector<HTMLElement>(".es-positions");
     expect(positions?.hidden).toBe(true);
     expect(positions?.childElementCount).toBe(0);
@@ -133,7 +154,7 @@ describe("Shadow DOM overlays", () => {
     overlay.hideRoutePanels();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);
     expect(document.querySelectorAll(
-      "[data-eloscope-inline-team], [data-eloscope-inline-tier], [data-eloscope-inline-battery], [data-eloscope-inline-encounter]",
+      "[data-eloscope-inline-team], [data-eloscope-inline-tier], [data-eloscope-inline-battery], [data-eloscope-inline-encounter], [data-eloscope-inline-streak]",
     )).toHaveLength(0);
     overlay.destroy();
     expect(document.querySelectorAll("[data-eloscope-inline-player]")).toHaveLength(0);

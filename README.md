@@ -10,11 +10,14 @@ the shell may hand Windows only FACEIT's exact `faceitac://launch` URI; it never
 inspects, injects into, monitors or modifies FACEIT Anti-Cheat.
 
 Match rooms can show inline player metrics, inferred roles, form batteries,
-extended Elo tiers and a compact team win-rate comparison for every map in the
-current pool. Missing or restricted statistics are displayed as unavailable,
-never as a fabricated zero. The player-card win rate always uses the latest 20
-completed CS2 5v5 matches; AVG KILLS, K/D, K/R and ADR use the selected
-statistics window. When the signed-in viewer and another room player have
+extended Elo tiers, current win/loss streaks of at least two matches and a
+compact team win-rate comparison for every map in the current pool. Streak
+indicators are independently switchable in settings; a run that fills the
+entire bounded 100-match sample is labeled `100+`. Missing or restricted
+statistics are displayed as unavailable, never as a fabricated zero. The
+player-card win rate always uses the latest 20 completed CS2 5v5 matches; AVG
+KILLS, K/D, K/R and ADR use the selected statistics window. When the signed-in
+viewer and another room player have
 verifiable shared match ids, compact teammate/opponent indicators summarize
 the overlap found in each player's available history, capped at 100 eligible
 matches per player. This bounded sample is labeled explicitly and is never

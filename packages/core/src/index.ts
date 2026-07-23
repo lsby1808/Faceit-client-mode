@@ -8,4 +8,5 @@ export * from "./matches.js";
 export * from "./map-winrates.js";
 export * from "./roles.js";
 export * from "./settings.js";
+export * from "./streak.js";
 export * from "./types.js";

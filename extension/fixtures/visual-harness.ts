@@ -64,7 +64,9 @@ for (const [playerIndex, player] of players.entries()) {
     mode: "5v5",
     status: "finished",
     finishedAt: now - index * 12 * 60 * 60 * 1_000,
-    result: (index + playerIndex) % 3 ? "win" : "loss",
+    result: playerIndex === 0 && index < 2
+      ? "loss"
+      : (index + playerIndex) % 3 ? "win" : "loss",
     map: index % 2 ? "nuke" : "mirage",
     ...roleProfile,
   })));

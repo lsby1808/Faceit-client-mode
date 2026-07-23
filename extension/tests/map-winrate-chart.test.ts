@@ -455,6 +455,7 @@ describe("MatchMapWinRateChartRenderer", () => {
       mapWinRateWindow: 30 as const,
       showExtendedTier: false,
       showPlayerRoles: false,
+      showPlayerStreak: false,
       showMapWinRates: true,
     };
 

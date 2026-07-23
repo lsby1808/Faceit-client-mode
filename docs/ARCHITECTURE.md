@@ -32,6 +32,13 @@ classifies equal teams as teammates and different teams as opponents. Missing,
 restricted or ambiguous histories suppress the indicator instead of producing
 a zero.
 
+Current match streaks use the same bounded raw player history, independently of
+the selected 5–100 statistics window. Core sorts and deduplicates eligible
+completed CS2 5v5 rows, then counts the uninterrupted result from the newest
+match. The match-room indicator is shown only for a run of at least two and has
+an independent interface toggle. A series that exhausts the full 100-row sample
+is rendered as `100+`; conflicting duplicate match ids suppress the indicator.
+
 ```mermaid
 flowchart LR
     Page["FACEIT page"] -->|visible DOM| Content["Isolated MV3 content script"]

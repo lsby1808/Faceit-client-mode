@@ -636,11 +636,12 @@ export class EloScopeController {
   }
 
   #matchViewerContext(): MatchViewerContext | undefined {
-    if (!this.#currentViewerId) return undefined;
-    const matches = this.#currentEncounterMatches.get(this.#currentViewerId)
-      ?? this.#currentViewerMatches;
+    const viewerId = this.#currentViewerId;
+    const matches = viewerId
+      ? this.#currentEncounterMatches.get(viewerId) ?? this.#currentViewerMatches
+      : undefined;
     return {
-      id: this.#currentViewerId,
+      ...(viewerId ? { id: viewerId } : {}),
       ...(matches ? { matches } : {}),
       histories: this.#currentEncounterMatches,
     };

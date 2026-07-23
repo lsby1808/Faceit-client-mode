@@ -55,7 +55,7 @@ export type OverlayCallbacks = {
 };
 
 export type MatchViewerContext = Readonly<{
-  id: string;
+  id?: string;
   matches?: readonly PlayerMatch[];
   histories?: ReadonlyMap<string, readonly PlayerMatch[]>;
 }>;
@@ -183,6 +183,7 @@ export class EloScopeOverlay {
       mapWinRateWindow: this.#settings.mapWinRateWindow,
       showExtendedTier: this.#settings.showExtendedTier,
       showPlayerRoles: this.#settings.showPlayerRoles,
+      showPlayerStreak: this.#settings.showPlayerStreak,
       showMapWinRates: this.#settings.showMapWinRates,
     }, viewerTeamId, viewer);
   }

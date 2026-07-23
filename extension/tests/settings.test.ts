@@ -15,6 +15,7 @@ describe("extension settings", () => {
     expect(settings.mapWinRateWindow).toBe(30);
     expect(settings.showExtendedTier).toBe(false);
     expect(settings.showPlayerRoles).toBe(true);
+    expect(settings.showPlayerStreak).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
@@ -39,6 +40,7 @@ describe("extension settings", () => {
       mapWinRateWindow: 17,
       showExtendedTier: "yes",
       showPlayerRoles: "yes",
+      showPlayerStreak: "yes",
       showMapWinRates: "yes",
       interfaceVisibility: { profile: false, history: "no", matchRoom: true },
       automations: { partyAccept: "yes", readyUp: 1, autoConnect: true }
@@ -47,6 +49,7 @@ describe("extension settings", () => {
     expect(settings.mapWinRateWindow).toBe(30);
     expect(settings.showExtendedTier).toBe(false);
     expect(settings.showPlayerRoles).toBe(true);
+    expect(settings.showPlayerStreak).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
@@ -63,6 +66,8 @@ describe("extension settings", () => {
   it("migrates legacy settings to enabled visual enhancements and preserves explicit opt-outs", () => {
     expect(parseSettings({ statsWindow: 50 }).showPlayerRoles).toBe(true);
     expect(parseSettings({ showPlayerRoles: false }).showPlayerRoles).toBe(false);
+    expect(parseSettings({ statsWindow: 50 }).showPlayerStreak).toBe(true);
+    expect(parseSettings({ showPlayerStreak: false }).showPlayerStreak).toBe(false);
     expect(parseSettings({ statsWindow: 50 }).showMapWinRates).toBe(true);
     expect(parseSettings({ showMapWinRates: false }).showMapWinRates).toBe(false);
   });
@@ -97,6 +102,23 @@ describe("extension settings", () => {
     await expect(chrome.storage.local.get(SETTINGS_KEY)).resolves.toMatchObject({
       [SETTINGS_KEY]: { mapWinRateWindow: 30 }
     });
+  });
+
+  it("adds the enabled streak indicator to legacy settings exactly once", async () => {
+    const legacy = createDefaultSettings() as Partial<ReturnType<typeof createDefaultSettings>>;
+    delete legacy.showPlayerStreak;
+    await chrome.storage.local.set({ [SETTINGS_KEY]: legacy });
+    const setSpy = vi.spyOn(chrome.storage.local, "set");
+
+    await expect(loadSettings()).resolves.toMatchObject({ showPlayerStreak: true });
+    expect(setSpy).toHaveBeenCalledOnce();
+    await expect(chrome.storage.local.get(SETTINGS_KEY)).resolves.toMatchObject({
+      [SETTINGS_KEY]: { showPlayerStreak: true }
+    });
+
+    setSpy.mockClear();
+    await loadSettings();
+    expect(setSpy).not.toHaveBeenCalled();
   });
 
   it("keeps map WR and general statistics windows independent", () => {
@@ -217,6 +239,7 @@ describe("extension settings", () => {
     settings.mapWinRateWindow = 100;
     settings.showExtendedTier = true;
     settings.showPlayerRoles = false;
+    settings.showPlayerStreak = false;
     settings.showMapWinRates = false;
     settings.interfaceVisibility.matchRoom = false;
     settings.interfaceVisibility.quickPositionsPanel = true;

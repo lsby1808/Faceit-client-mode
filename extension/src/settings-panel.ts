@@ -534,6 +534,15 @@ export class EloScopeSettingsPanel {
       }
     ));
     grid.append(this.#switchRow(
+      "Серии побед и поражений",
+      "Показывать рядом с ником текущую серию побед или поражений",
+      settings.showPlayerStreak,
+      "show-player-streak",
+      (checked) => {
+        if (this.#draft) this.#draft = { ...this.#draft, showPlayerStreak: checked };
+      }
+    ));
+    grid.append(this.#switchRow(
       "Сравнение карт",
       "Винрейт обеих команд по картам в комнате матча",
       settings.showMapWinRates,
