@@ -23,8 +23,9 @@ export interface FormBattery {
   confidence: number;
   rawScore?: number;
   recent?: FormMetrics;
+  /** Actual metrics from the sampled baseline matches. Absent when no baseline match exists. */
   baseline?: FormMetrics;
-  /** Actual recent minus baseline metrics, suitable for the battery tooltip. */
+  /** Actual recent minus actual baseline metrics. Absent when no baseline match exists. */
   delta?: FormMetrics;
 }
 
@@ -91,17 +92,6 @@ const averageMetrics = (matches: readonly PlayerMatch[], weights?: readonly numb
 
 const clamp = (candidate: number, min: number, max: number): number => Math.max(min, Math.min(max, candidate));
 
-const blendBaselineWithPrior = (sample: FormMetrics, sampleCount: number): FormMetrics => {
-  const sampleWeight = Math.min(1, sampleCount / 10);
-  const priorWeight = 1 - sampleWeight;
-  return {
-    adr: sample.adr * sampleWeight + REFERENCE_BASELINE.adr * priorWeight,
-    kr: sample.kr * sampleWeight + REFERENCE_BASELINE.kr * priorWeight,
-    kd: sample.kd * sampleWeight + REFERENCE_BASELINE.kd * priorWeight,
-    winRate: sample.winRate * sampleWeight + REFERENCE_BASELINE.winRate * priorWeight,
-  };
-};
-
 export const batteryLevelForScore = (score: number): Exclude<BatteryLevel, "unknown"> => {
   if (score < 20) return "red";
   if (score < 40) return "orange";
@@ -122,9 +112,12 @@ export const calculateFormBattery = (
   const safeNow = Number.isFinite(now) ? now : Date.now();
   const ninetyDaysAgo = safeNow - 90 * DAY_MS;
   const sevenDaysAgo = safeNow - 7 * DAY_MS;
+  const seenMatchIds = new Set<string>();
   const candidates = eligibleMatches(matches).filter((match) => {
     const finishedAt = toEpochMs(match.finishedAt);
-    return finishedAt >= ninetyDaysAgo && finishedAt <= safeNow;
+    if (finishedAt < ninetyDaysAgo || finishedAt > safeNow || seenMatchIds.has(match.id)) return false;
+    seenMatchIds.add(match.id);
+    return true;
   });
 
   const recentIndexes = candidates
@@ -148,25 +141,25 @@ export const calculateFormBattery = (
   }
 
   const recentMetrics = averageMetrics(recent, RECENT_WEIGHTS);
-  const sampledBaseline = averageMetrics(baseline);
-  const baselineMetrics = blendBaselineWithPrior(sampledBaseline, baseline.length);
-  const delta: FormMetrics = {
-    adr: recentMetrics.adr - baselineMetrics.adr,
-    kr: recentMetrics.kr - baselineMetrics.kr,
-    kd: recentMetrics.kd - baselineMetrics.kd,
-    winRate: recentMetrics.winRate - baselineMetrics.winRate,
+  const baselineMetrics = baseline.length ? averageMetrics(baseline) : undefined;
+  const scoringBaseline = baselineMetrics ?? REFERENCE_BASELINE;
+  const scoringDelta: FormMetrics = {
+    adr: recentMetrics.adr - scoringBaseline.adr,
+    kr: recentMetrics.kr - scoringBaseline.kr,
+    kd: recentMetrics.kd - scoringBaseline.kd,
+    winRate: recentMetrics.winRate - scoringBaseline.winRate,
   };
   const composite =
-    0.35 * (delta.adr / 20) +
-    0.3 * (delta.kr / 0.15) +
-    0.2 * (delta.kd / 0.3) +
-    0.15 * (delta.winRate / 0.3);
+    0.35 * (scoringDelta.adr / 20) +
+    0.3 * (scoringDelta.kr / 0.15) +
+    0.2 * (scoringDelta.kd / 0.3) +
+    0.15 * (scoringDelta.winRate / 0.3);
   const rawScore = 50 + 45 * Math.tanh(composite);
-  const confidence = Math.min(1, recent.length / 5) * Math.min(1, baseline.length / 15);
+  const confidence = Math.min(1, recent.length / 5) * Math.min(1, baseline.length / 25);
   const score = Math.round(clamp(50 + confidence * (rawScore - 50), 0, 100));
   const level = batteryLevelForScore(score);
 
-  return {
+  const result: FormBattery = {
     status: "known",
     score,
     level,
@@ -176,7 +169,10 @@ export const calculateFormBattery = (
     confidence,
     rawScore,
     recent: recentMetrics,
-    baseline: baselineMetrics,
-    delta,
   };
+  if (baselineMetrics) {
+    result.baseline = baselineMetrics;
+    result.delta = scoringDelta;
+  }
+  return result;
 };

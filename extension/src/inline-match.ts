@@ -423,6 +423,39 @@ function percent(value: number | undefined): string {
   return value === undefined || !Number.isFinite(value) ? "—" : `${value.toFixed(1)}%`;
 }
 
+function signed(value: number | undefined, digits: number): string {
+  if (value === undefined || !Number.isFinite(value)) return "—";
+  const formatted = value.toFixed(digits);
+  if (Number(formatted) === 0) return (0).toFixed(digits);
+  return `${value > 0 ? "+" : ""}${formatted}`;
+}
+
+function matchWord(count: number): string {
+  const modulo100 = Math.abs(count) % 100;
+  const modulo10 = modulo100 % 10;
+  if (modulo100 >= 11 && modulo100 <= 14) return "матчей";
+  if (modulo10 === 1) return "матч";
+  if (modulo10 >= 2 && modulo10 <= 4) return "матча";
+  return "матчей";
+}
+
+function sampleMetrics(metrics: FormBattery["recent"]): string {
+  if (!metrics) return "ADR — · K/R — · K/D — · WR —";
+  return [
+    `ADR ${format(metrics.adr, 1)}`,
+    `K/R ${format(metrics.kr, 2)}`,
+    `K/D ${format(metrics.kd, 2)}`,
+    `WR ${percent(metrics.winRate * 100)}`,
+  ].join(" · ");
+}
+
+function nextMatchesLabel(count: number): string {
+  if (count % 100 < 11 || count % 100 > 14) {
+    if (count % 10 === 1) return `${count} следующий матч`;
+  }
+  return `${count} следующих ${matchWord(count)}`;
+}
+
 function canonicalMap(value: string | undefined): string | undefined {
   return value?.trim().replace(/^de_/iu, "").toLocaleLowerCase("en-US");
 }
@@ -456,16 +489,40 @@ function lifetimeMatchCount(rows: readonly PlayerMapStats[] | undefined): number
 }
 
 function batteryTitle(battery: FormBattery): string {
+  const recentHeading =
+    `Свежие (взвешенно) — ${battery.recentCount} ${matchWord(battery.recentCount)} за 7 дней`;
+  const baselineHeading = `База — ${nextMatchesLabel(battery.baselineCount)} за 90 дней`;
   if (battery.status === "unknown") {
-    return `Форма неизвестна: ${battery.recentCount} свежих матчей (нужно минимум 2)`;
+    return [
+      `Форма неизвестна · уверенность ${Math.round(battery.confidence * 100)}%`,
+      recentHeading,
+      baselineHeading,
+      "Для расчёта нужно минимум 2 свежих матча",
+    ].join("\n");
   }
+
   const delta = battery.delta;
-  return [
+  const lines = [
     `Форма ${battery.score}/100 · уверенность ${Math.round(battery.confidence * 100)}%`,
-    `ADR ${format(delta?.adr, 1)} · K/R ${format(delta?.kr, 2)}`,
-    `K/D ${format(delta?.kd, 2)} · WR ${delta ? percent(delta.winRate * 100) : "—"}`,
-    `${battery.recentCount} recent / ${battery.baselineCount} baseline`,
-  ].join("\n");
+    recentHeading,
+    sampleMetrics(battery.recent),
+    baselineHeading,
+    sampleMetrics(battery.baseline),
+  ];
+  if (delta) {
+    lines.push(
+      "Изменение (свежие − база)",
+      [
+        `ADR ${signed(delta.adr, 1)}`,
+        `K/R ${signed(delta.kr, 2)}`,
+        `K/D ${signed(delta.kd, 2)}`,
+        `WR ${signed(delta.winRate * 100, 1)} п.п.`,
+      ].join(" · "),
+    );
+  } else {
+    lines.push("Изменение (свежие − база): недостаточно данных");
+  }
+  return lines.join("\n");
 }
 
 type MetricTone = "bad" | "good";
@@ -500,7 +557,7 @@ function renderBattery(shadow: ShadowRoot, matches: readonly PlayerMatch[]): voi
   node.title = title;
   node.tabIndex = 0;
   node.setAttribute("role", "img");
-  node.setAttribute("aria-label", title.replaceAll("\n", ". "));
+  node.setAttribute("aria-label", title);
   const active = battery.score === null ? 0 : Math.ceil(battery.score / 20);
   for (let index = 0; index < 5; index += 1) {
     const bar = document.createElement("i");

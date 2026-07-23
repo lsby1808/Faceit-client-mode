@@ -294,6 +294,46 @@ function thresholdMatches(
   }));
 }
 
+function batteryTooltipMatches(playerId: string): PlayerMatch[] {
+  const now = Date.now();
+  const match = (
+    id: string,
+    daysAgo: number,
+    result: PlayerMatch["result"],
+    values: Readonly<{ damage: number; kills: number; deaths: number }>,
+  ): PlayerMatch => ({
+    id,
+    playerId,
+    game: "cs2",
+    mode: "5v5",
+    status: "finished",
+    finishedAt: now - daysAgo * 24 * 60 * 60 * 1_000,
+    result,
+    map: "dust2",
+    roundsPlayed: 20,
+    kills: values.kills,
+    assists: 5,
+    deaths: values.deaths,
+    damage: values.damage,
+    headshots: 8,
+    firstKills: 3,
+    survivedRounds: 7,
+  });
+  const recent = Array.from({ length: 5 }, (_, index) => match(
+    `${playerId}-battery-recent-${index}`,
+    index + 1,
+    index === 0 ? "win" : "loss",
+    { damage: 1_800, kills: 16, deaths: 10 },
+  ));
+  const baseline = Array.from({ length: 4 }, (_, index) => match(
+    `${playerId}-battery-baseline-${index}`,
+    index + 10,
+    "win",
+    { damage: 1_400, kills: 12, deaths: 15 },
+  ));
+  return [...baseline.reverse(), ...recent.reverse()];
+}
+
 function metricByLabel(shadow: ShadowRoot, label: string): HTMLElement {
   const metric = Array.from(shadow.querySelectorAll<HTMLElement>('[data-es-stat="overall"] .stat'))
     .find((candidate) => candidate.querySelector("small")?.textContent === label);
@@ -371,6 +411,80 @@ describe("InlineMatchRenderer", () => {
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("coverage");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("2000–2511");
     expect(document.querySelectorAll(`[class*="Roster__Group-sc-"] [${INLINE_TEAM_ATTRIBUTE}]`)).toHaveLength(0);
+  });
+
+  it("explains the battery with actual recent, baseline and signed delta values", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const batteryRows = batteryTooltipMatches("alpha-one");
+    const duplicate = batteryRows.find(({ id }) => id.endsWith("recent-0"));
+    if (!duplicate) throw new Error("Missing duplicate battery fixture row");
+    rows.set("alpha-one", [...batteryRows, { ...duplicate }]);
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    const battery = document.querySelector<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}="alpha-one"]`)
+      ?.shadowRoot?.querySelector<HTMLElement>("[data-es-form-battery]");
+    const title = battery?.title ?? "";
+
+    expect(title).toContain("Форма ");
+    expect(title).toContain("· уверенность ");
+    expect(title).toContain("Свежие (взвешенно) — 5 матчей за 7 дней");
+    expect(title).toContain("ADR 90.0 · K/R 0.80 · K/D 1.60 · WR 29.7%");
+    expect(title).toContain("База — 4 следующих матча за 90 дней");
+    expect(title).toContain("ADR 70.0 · K/R 0.60 · K/D 0.80 · WR 100.0%");
+    expect(title).toContain("Изменение (свежие − база)");
+    expect(title).toContain("ADR +20.0 · K/R +0.20 · K/D +0.80 · WR -70.3 п.п.");
+    expect(title).not.toContain("recent");
+    expect(title).not.toContain("baseline");
+    expect(battery?.getAttribute("aria-label")).toBe(title);
+  });
+
+  it("explains why the battery is unknown and keeps its accessible label in sync", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    rows.set("alpha-one", batteryTooltipMatches("alpha-one").filter((row) =>
+      row.id.includes("baseline") || row.id.endsWith("recent-0")));
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    const battery = document.querySelector<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}="alpha-one"]`)
+      ?.shadowRoot?.querySelector<HTMLElement>("[data-es-form-battery]");
+    const title = battery?.title ?? "";
+
+    expect(title).toContain("Форма неизвестна · уверенность 0%");
+    expect(title).toContain("Свежие (взвешенно) — 1 матч за 7 дней");
+    expect(title).toContain("База — 4 следующих матча за 90 дней");
+    expect(title).toContain("Для расчёта нужно минимум 2 свежих матча");
+    expect(title).not.toContain("ADR —");
+    expect(battery?.getAttribute("aria-label")).toBe(title);
+  });
+
+  it("renders a zero battery delta without a misleading positive or negative sign", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    rows.set("alpha-one", batteryTooltipMatches("alpha-one").map((row) => ({
+      ...row,
+      result: "win" as const,
+      damage: 1_400,
+      kills: 12,
+      deaths: 15,
+    })));
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(match, rows, playerMapRows(match), settings);
+
+    const title = document.querySelector<HTMLElement>(`[${INLINE_BATTERY_ATTRIBUTE}="alpha-one"]`)
+      ?.shadowRoot?.querySelector<HTMLElement>("[data-es-form-battery]")?.title ?? "";
+
+    expect(title).toContain("ADR 0.0 · K/R 0.00 · K/D 0.00 · WR 0.0 п.п.");
+    expect(title).not.toContain("+0.0");
+    expect(title).not.toContain("-0.0");
   });
 
   it("keeps five 20-match role scores beside the aggregate and swaps panels through hover and focus CSS only", () => {
