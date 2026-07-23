@@ -1,19 +1,26 @@
 mod debug_log;
 mod diagnostics;
 mod policy;
+mod shell_settings;
 mod updater;
 
 use debug_log::DebugEventKind;
 use getrandom::fill as fill_random;
-use policy::{is_safe_download_url, NavigationDecision, RequestContext, SessionPolicy};
+use policy::{
+    is_safe_download_url, NavigationDecision, RequestContext, SessionPolicy, ShellSettingsRequest,
+};
 use serde::Deserialize;
+use shell_settings::ShellSettings;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Mutex;
 use tauri::menu::MenuBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::{DownloadEvent, NewWindowFeatures, NewWindowResponse, WebviewWindowBuilder};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, Wry};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WindowEvent, Wry};
+use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 const FACEIT_HOME: &str = "https://www.faceit.com/";
@@ -23,20 +30,35 @@ const ABOUT_TEXT: &str = "EloScope is an independent enhancement client. It is n
 static POPUP_COUNTER: AtomicU64 = AtomicU64::new(1);
 static FACEIT_ANTI_CHEAT_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
 
+const AUTOSTART_ARGUMENT: &str = "--autostart";
+const TRAY_ID: &str = "eloscope-tray";
+
+#[derive(Default)]
+struct ShellRuntimeState {
+    settings: Mutex<ShellSettings>,
+    tray: Mutex<Option<TrayIcon<Wry>>>,
+    exiting: AtomicBool,
+}
+
 pub fn run() {
     debug_log::record(DebugEventKind::ApplicationStarting);
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !is_autostart_launch(&args) {
+                debug_log::record(DebugEventKind::SingleInstanceRestored);
+                restore_main_window(app);
+            }
+        }))
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name(EXTENSION_NAME)
+                .arg(AUTOSTART_ARGUMENT)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .menu(|app| {
-            MenuBuilder::new(app)
-                .text("about", "About EloScope")
-                .text("check-updates", "Check for updates")
-                .text("export-diagnostics", "Export redacted diagnostics")
-                .separator()
-                .quit()
-                .build()
-        })
+        .manage(ShellRuntimeState::default())
+        .on_window_event(handle_window_event)
         .setup(setup);
 
     builder
@@ -53,6 +75,18 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         env!("CARGO_PKG_VERSION"),
     )?;
     debug_log::record(DebugEventKind::ExtensionManifestValidated);
+
+    let mut runtime_settings = load_shell_settings(app.handle());
+    if set_autostart_enabled(app.handle(), runtime_settings.autostart).is_err() {
+        debug_log::record(DebugEventKind::ShellSettingsApplyFailed);
+    }
+    if runtime_settings.minimize_to_tray && set_tray_enabled(app.handle(), true).is_err() {
+        debug_log::record(DebugEventKind::ShellSettingsApplyFailed);
+        runtime_settings.minimize_to_tray = false;
+    }
+    set_current_shell_settings(app.handle(), runtime_settings);
+    let launch_args = std::env::args().collect::<Vec<_>>();
+    let start_hidden = runtime_settings.minimize_to_tray && is_autostart_launch(&launch_args);
 
     let profile_path = app.path().app_local_data_dir()?.join("webview-profile");
     fs::create_dir_all(&profile_path)?;
@@ -76,6 +110,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .title("EloScope")
         .inner_size(1440.0, 900.0)
         .min_inner_size(1024.0, 700.0)
+        .visible(!start_hidden)
         .resizable(true)
         .data_directory(profile_path)
         .browser_extensions_enabled(true)
@@ -103,62 +138,247 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         FACEIT_HOME,
     )?;
 
-    let extension_manifest_present = extension_path.join("manifest.json").is_file();
-    let app_handle = app.handle().clone();
-    app.on_menu_event(move |_app, event| match event.id().as_ref() {
-        "about" => {
-            debug_log::record(DebugEventKind::MenuAboutSelected);
-            app_handle
-                .dialog()
-                .message(ABOUT_TEXT)
-                .title("About EloScope")
-                .kind(MessageDialogKind::Info)
-                .show(|_| {});
-        }
-        "check-updates" => {
-            debug_log::record(DebugEventKind::MenuUpdateCheckSelected);
-            updater::check_manually(app_handle.clone());
-        }
-        "export-diagnostics" => {
-            debug_log::record(DebugEventKind::MenuDiagnosticsExportSelected);
-            match diagnostics::export(
-                &app_handle,
-                extension_manifest_present,
-                updater::is_configured(),
-            ) {
-                Ok(path) => {
-                    debug_log::record(DebugEventKind::DiagnosticsExportSucceeded);
-                    let parent = path.parent().map(Path::to_path_buf);
-                    app_handle
-                        .dialog()
-                        .message(format!(
-                            "A redacted diagnostic report was written to:\n{}",
-                            path.display()
-                        ))
-                        .title("Diagnostics exported")
-                        .kind(MessageDialogKind::Info)
-                        .show(move |_| {
-                            if let Some(parent) = parent {
-                                let _ = open::that_detached(parent);
-                            }
-                        });
-                }
-                Err(_) => {
-                    debug_log::record(DebugEventKind::DiagnosticsExportFailed);
-                    app_handle
-                        .dialog()
-                        .message("The local diagnostic report could not be written.")
-                        .title("Diagnostics export failed")
-                        .kind(MessageDialogKind::Error)
-                        .show(|_| {});
-                }
-            }
-        }
-        _ => {}
-    });
-
     updater::start_periodic_checks(app.handle().clone());
     debug_log::record(DebugEventKind::SetupCompleted);
+    Ok(())
+}
+
+fn load_shell_settings(app: &AppHandle<Wry>) -> ShellSettings {
+    let path = match shell_settings_path(app) {
+        Ok(path) => path,
+        Err(_) => {
+            debug_log::record(DebugEventKind::ShellSettingsLoadFailed);
+            return ShellSettings::default();
+        }
+    };
+
+    match shell_settings::load(&path) {
+        Ok(settings) => {
+            debug_log::record(DebugEventKind::ShellSettingsLoaded);
+            settings
+        }
+        Err(_) => {
+            debug_log::record(DebugEventKind::ShellSettingsLoadFailed);
+            ShellSettings::default()
+        }
+    }
+}
+
+fn shell_settings_path(app: &AppHandle<Wry>) -> tauri::Result<PathBuf> {
+    Ok(app.path().app_config_dir()?.join("shell-settings.json"))
+}
+
+fn lock_state<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn current_shell_settings(app: &AppHandle<Wry>) -> ShellSettings {
+    *lock_state(&app.state::<ShellRuntimeState>().settings)
+}
+
+fn set_current_shell_settings(app: &AppHandle<Wry>, settings: ShellSettings) {
+    *lock_state(&app.state::<ShellRuntimeState>().settings) = settings;
+}
+
+fn is_autostart_launch(args: &[String]) -> bool {
+    args.iter().any(|argument| argument == AUTOSTART_ARGUMENT)
+}
+
+fn set_autostart_enabled(app: &AppHandle<Wry>, enabled: bool) -> Result<(), Box<dyn Error>> {
+    let manager = app.autolaunch();
+    if manager.is_enabled()? == enabled {
+        return Ok(());
+    }
+    if enabled {
+        manager.enable()?;
+    } else {
+        manager.disable()?;
+    }
+    Ok(())
+}
+
+fn set_tray_enabled(app: &AppHandle<Wry>, enabled: bool) -> Result<(), Box<dyn Error>> {
+    let state = app.state::<ShellRuntimeState>();
+    let mut tray_slot = lock_state(&state.tray);
+    if let Some(tray) = tray_slot.as_ref() {
+        tray.set_visible(enabled)?;
+        return Ok(());
+    }
+    if !enabled {
+        return Ok(());
+    }
+
+    let menu = MenuBuilder::new(app)
+        .text("tray-open", "Open EloScope")
+        .text("tray-about", "About EloScope")
+        .text("tray-check-updates", "Check for updates")
+        .text("tray-export-diagnostics", "Export redacted diagnostics")
+        .separator()
+        .text("tray-exit", "Exit")
+        .build()?;
+    let mut builder = TrayIconBuilder::with_id(TRAY_ID)
+        .menu(&menu)
+        .tooltip(EXTENSION_NAME)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "tray-open" => restore_main_window(app),
+            "tray-about" => show_about_dialog(app),
+            "tray-check-updates" => {
+                debug_log::record(DebugEventKind::MenuUpdateCheckSelected);
+                debug_log::record(DebugEventKind::TrayUpdateCheckSelected);
+                updater::check_manually(app.clone());
+            }
+            "tray-export-diagnostics" => export_diagnostics_report(app),
+            "tray-exit" => {
+                debug_log::record(DebugEventKind::TrayExitSelected);
+                app.state::<ShellRuntimeState>()
+                    .exiting
+                    .store(true, Ordering::SeqCst);
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                restore_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon);
+    }
+    *tray_slot = Some(builder.build(app)?);
+    Ok(())
+}
+
+fn restore_main_window(app: &AppHandle<Wry>) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+    debug_log::record(DebugEventKind::TrayWindowRestored);
+}
+
+fn show_about_dialog(app: &AppHandle<Wry>) {
+    debug_log::record(DebugEventKind::MenuAboutSelected);
+    app.dialog()
+        .message(ABOUT_TEXT)
+        .title("About EloScope")
+        .kind(MessageDialogKind::Info)
+        .show(|_| {});
+}
+
+fn export_diagnostics_report(app: &AppHandle<Wry>) {
+    debug_log::record(DebugEventKind::MenuDiagnosticsExportSelected);
+    let extension_manifest_present = resolve_extension_path(app)
+        .map(|path| path.join("manifest.json").is_file())
+        .unwrap_or(false);
+    match diagnostics::export(app, extension_manifest_present, updater::is_configured()) {
+        Ok(path) => {
+            debug_log::record(DebugEventKind::DiagnosticsExportSucceeded);
+            let parent = path.parent().map(Path::to_path_buf);
+            app.dialog()
+                .message(format!(
+                    "A redacted diagnostic report was written to:\n{}",
+                    path.display()
+                ))
+                .title("Diagnostics exported")
+                .kind(MessageDialogKind::Info)
+                .show(move |_| {
+                    if let Some(parent) = parent {
+                        let _ = open::that_detached(parent);
+                    }
+                });
+        }
+        Err(_) => {
+            debug_log::record(DebugEventKind::DiagnosticsExportFailed);
+            app.dialog()
+                .message("The local diagnostic report could not be written.")
+                .title("Diagnostics export failed")
+                .kind(MessageDialogKind::Error)
+                .show(|_| {});
+        }
+    }
+}
+
+fn handle_window_event(window: &tauri::Window<Wry>, event: &WindowEvent) {
+    if window.label() != "main" {
+        return;
+    }
+    let app = window.app_handle();
+    let state = app.state::<ShellRuntimeState>();
+    if state.exiting.load(Ordering::SeqCst) || !current_shell_settings(app).minimize_to_tray {
+        return;
+    }
+
+    match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            if window.hide().is_ok() {
+                debug_log::record(DebugEventKind::TrayWindowHidden);
+            }
+        }
+        WindowEvent::Resized(_)
+            if window.is_minimized().unwrap_or(false) && window.hide().is_ok() =>
+        {
+            debug_log::record(DebugEventKind::TrayWindowHidden);
+        }
+        _ => {}
+    }
+}
+
+fn apply_shell_settings(app: &AppHandle<Wry>, request: ShellSettingsRequest) {
+    debug_log::record(DebugEventKind::ShellSettingsApplyRequested);
+    let desired = ShellSettings {
+        autostart: request.autostart,
+        minimize_to_tray: request.minimize_to_tray,
+    };
+
+    if try_apply_shell_settings(app, desired).is_ok() {
+        debug_log::record(DebugEventKind::ShellSettingsApplySucceeded);
+        return;
+    }
+
+    debug_log::record(DebugEventKind::ShellSettingsApplyFailed);
+    app.dialog()
+        .message(
+            "EloScope could not apply Windows startup or tray settings. The previous settings are still active.",
+        )
+        .title("EloScope settings")
+        .kind(MessageDialogKind::Error)
+        .show(|_| {});
+}
+
+fn try_apply_shell_settings(
+    app: &AppHandle<Wry>,
+    desired: ShellSettings,
+) -> Result<(), Box<dyn Error>> {
+    let path = shell_settings_path(app)?;
+    let previous = current_shell_settings(app);
+    let previous_autostart = app.autolaunch().is_enabled()?;
+
+    set_autostart_enabled(app, desired.autostart)?;
+    if let Err(error) = set_tray_enabled(app, desired.minimize_to_tray) {
+        let _ = set_autostart_enabled(app, previous_autostart);
+        return Err(error);
+    }
+    if let Err(error) = shell_settings::save(&path, desired) {
+        let _ = set_tray_enabled(app, previous.minimize_to_tray);
+        let _ = set_autostart_enabled(app, previous_autostart);
+        return Err(Box::new(error));
+    }
+
+    set_current_shell_settings(app, desired);
     Ok(())
 }
 
@@ -307,6 +527,10 @@ fn handle_navigation(
         NavigationDecision::OpenFaceitAntiCheat { sanitized_url } => {
             debug_log::record(DebugEventKind::NavigationAntiCheatRequested);
             confirm_faceit_anti_cheat_launch(app, sanitized_url);
+            false
+        }
+        NavigationDecision::ApplyShellSettings { settings } => {
+            apply_shell_settings(app, settings);
             false
         }
         NavigationDecision::Deny => {
@@ -558,11 +782,43 @@ fn trusted_click_script(nonce: &str) -> String {
   'use strict';
   const host = location.hostname.toLowerCase().replace(/\.$/, '');
   if (host !== 'faceit.com' && !host.endsWith('.faceit.com')) return;
+  const markNativeShell = () => {{
+    if (document.documentElement) {{
+      document.documentElement.dataset.eloscopeNativeShell = '1';
+    }}
+  }};
+  markNativeShell();
+  document.addEventListener('DOMContentLoaded', markNativeShell, {{ once: true }});
+
+  const armSettingsSave = (button) => {{
+    if (button instanceof HTMLButtonElement &&
+        button.dataset.eloscopeSettingsSave === 'true') {{
+      button.dataset.eloscopeSettingsGesture = '{nonce}';
+    }}
+  }};
+
+  document.addEventListener('keydown', (event) => {{
+    if (!event.isTrusted || event.key !== 'Enter' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const target = event.target;
+    if (target instanceof HTMLTextAreaElement) return;
+    if (!(target instanceof Element)) return;
+    if (!target.closest('#eloscope-settings-root')) return;
+    const save = document
+      .getElementById('eloscope-settings-root')
+      ?.shadowRoot
+      ?.querySelector('button[data-eloscope-settings-save="true"]');
+    armSettingsSave(save);
+  }}, true);
 
   document.addEventListener('click', (event) => {{
     if (event.button !== 0) return;
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (event.isTrusted) {{
+      for (const item of event.composedPath()) {{
+        armSettingsSave(item);
+      }}
+    }}
     const link = target.closest('a[href^="steam://connect/"]');
     if (!(link instanceof HTMLAnchorElement)) return;
     const armedAutoConnect = !event.isTrusted && link.dataset.eloscopeAutoConnect === 'armed';

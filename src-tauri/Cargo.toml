@@ -1,6 +1,6 @@
 [package]
 name = "eloscope"
-version = "0.1.0-beta.30"
+version = "0.1.0-beta.31"
 description = "A lightweight, independent FACEIT enhancement client"
 authors = ["EloScope contributors"]
 edition = "2021"
@@ -25,8 +25,10 @@ getrandom = "0.3.4"
 open = "5.3.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-tauri = { version = "2.11.5", features = [] }
+tauri = { version = "2.11.5", features = ["tray-icon"] }
+tauri-plugin-autostart = "2.5.1"
 tauri-plugin-dialog = "2.7.2"
+tauri-plugin-single-instance = "2.4.3"
 tauri-plugin-updater = "2.10.1"
 tokio = { version = "1.49.0", features = ["time"] }
 url = "2.5.8"

@@ -42,7 +42,13 @@ export type ExtensionSettings = {
     matchRoom: boolean;
     quickPositionsPanel: boolean;
   };
+  shell: ShellSettings;
   automations: AutomationSettings;
+};
+
+export type ShellSettings = {
+  autostart: boolean;
+  minimizeToTray: boolean;
 };
 
 export const SETTINGS_KEY = "eloscope:settings:v1";
@@ -152,6 +158,10 @@ export function createDefaultSettings(): ExtensionSettings {
       matchRoom: true,
       quickPositionsPanel: false
     },
+    shell: {
+      autostart: false,
+      minimizeToTray: false
+    },
     automations: createDefaultAutomationSettings()
   };
 }
@@ -167,6 +177,7 @@ export function parseSettings(value: unknown): ExtensionSettings {
   const interfaceVisibility = isRecord(value.interfaceVisibility)
     ? value.interfaceVisibility
     : {};
+  const shell = isRecord(value.shell) ? value.shell : {};
 
   return {
     statsWindow: isStatsWindow(value.statsWindow) ? value.statsWindow : defaults.statsWindow,
@@ -222,12 +233,21 @@ export function parseSettings(value: unknown): ExtensionSettings {
         ? interfaceVisibility.quickPositionsPanel
         : defaults.interfaceVisibility.quickPositionsPanel
     },
+    shell: {
+      autostart: typeof shell.autostart === "boolean"
+        ? shell.autostart
+        : defaults.shell.autostart,
+      minimizeToTray: typeof shell.minimizeToTray === "boolean"
+        ? shell.minimizeToTray
+        : defaults.shell.minimizeToTray
+    },
     automations: canonicalizePositionSettings(value.automations)
   };
 }
 
 function needsSettingsMigration(value: unknown): boolean {
   if (!isRecord(value) || !isRecord(value.interfaceVisibility)) return true;
+  const shell = isRecord(value.shell) ? value.shell : {};
   return value.interfaceVisibility.profile !== false
     || value.interfaceVisibility.history !== false
     || typeof value.interfaceVisibility.profileStatsBanner !== "boolean"
@@ -240,7 +260,9 @@ function needsSettingsMigration(value: unknown): boolean {
     || typeof value.showTeamAverageElo !== "boolean"
     || typeof value.showEloStake !== "boolean"
     || typeof value.showTeamSummary !== "boolean"
-    || typeof value.showSelectedMapWins !== "boolean";
+    || typeof value.showSelectedMapWins !== "boolean"
+    || typeof shell.autostart !== "boolean"
+    || typeof shell.minimizeToTray !== "boolean";
 }
 
 export async function loadSettings(): Promise<ExtensionSettings> {

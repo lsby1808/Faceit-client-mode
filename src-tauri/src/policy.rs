@@ -20,12 +20,19 @@ pub enum RequestContext {
     Popup,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ShellSettingsRequest {
+    pub autostart: bool,
+    pub minimize_to_tray: bool,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NavigationDecision {
     AllowInWebView,
     OpenExternal,
     OpenSteam { sanitized_url: String },
     OpenFaceitAntiCheat { sanitized_url: String },
+    ApplyShellSettings { settings: ShellSettingsRequest },
     Deny,
 }
 
@@ -66,6 +73,7 @@ impl SessionPolicy {
             }
             "steam" => self.classify_steam(url),
             "faceitac" if context == RequestContext::MainFrame => classify_faceit_anti_cheat(url),
+            "eloscope" if context == RequestContext::MainFrame => self.classify_shell_settings(url),
             _ => NavigationDecision::Deny,
         }
     }
@@ -75,15 +83,7 @@ impl SessionPolicy {
             return NavigationDecision::Deny;
         }
 
-        let trusted_click = url.fragment().is_some_and(|fragment| {
-            fragment
-                .strip_prefix("eloscope-gesture=")
-                .is_some_and(|value| {
-                    constant_time_eq(value.as_bytes(), self.click_nonce.as_bytes())
-                })
-        });
-
-        if !trusted_click {
+        if !self.has_trusted_gesture(url) {
             return NavigationDecision::Deny;
         }
 
@@ -92,6 +92,60 @@ impl SessionPolicy {
         NavigationDecision::OpenSteam {
             sanitized_url: sanitized.into(),
         }
+    }
+
+    fn classify_shell_settings(&self, url: &Url) -> NavigationDecision {
+        if !url
+            .host_str()
+            .is_some_and(|host| host.eq_ignore_ascii_case("settings"))
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.port().is_some()
+            || url.path() != "/apply"
+            || !self.has_trusted_gesture(url)
+        {
+            return NavigationDecision::Deny;
+        }
+
+        let mut autostart = None;
+        let mut minimize_to_tray = None;
+        let mut count = 0_u8;
+        for (key, value) in url.query_pairs() {
+            count = count.saturating_add(1);
+            let parsed = match value.as_ref() {
+                "0" => false,
+                "1" => true,
+                _ => return NavigationDecision::Deny,
+            };
+            match key.as_ref() {
+                "autostart" if autostart.is_none() => autostart = Some(parsed),
+                "minimize_to_tray" if minimize_to_tray.is_none() => minimize_to_tray = Some(parsed),
+                _ => return NavigationDecision::Deny,
+            }
+        }
+        if count != 2 {
+            return NavigationDecision::Deny;
+        }
+
+        match (autostart, minimize_to_tray) {
+            (Some(autostart), Some(minimize_to_tray)) => NavigationDecision::ApplyShellSettings {
+                settings: ShellSettingsRequest {
+                    autostart,
+                    minimize_to_tray,
+                },
+            },
+            _ => NavigationDecision::Deny,
+        }
+    }
+
+    fn has_trusted_gesture(&self, url: &Url) -> bool {
+        url.fragment().is_some_and(|fragment| {
+            fragment
+                .strip_prefix("eloscope-gesture=")
+                .is_some_and(|value| {
+                    constant_time_eq(value.as_bytes(), self.click_nonce.as_bytes())
+                })
+        })
     }
 }
 
@@ -306,6 +360,49 @@ mod tests {
                 sanitized_url: "steam://connect/127.0.0.1:27015".to_owned()
             }
         );
+    }
+
+    #[test]
+    fn shell_settings_require_exact_values_and_a_trusted_gesture() {
+        let request = url(
+            "eloscope://settings/apply?autostart=1&minimize_to_tray=0#eloscope-gesture=test-nonce",
+        );
+        assert_eq!(
+            policy().classify(&request, RequestContext::MainFrame),
+            NavigationDecision::ApplyShellSettings {
+                settings: ShellSettingsRequest {
+                    autostart: true,
+                    minimize_to_tray: false,
+                }
+            }
+        );
+        assert_eq!(
+            policy().classify(&request, RequestContext::Popup),
+            NavigationDecision::Deny
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_or_untrusted_shell_settings_requests() {
+        for denied in [
+            "eloscope://settings/apply?autostart=1&minimize_to_tray=1",
+            "eloscope://settings/apply?autostart=1&minimize_to_tray=1#eloscope-gesture=wrong",
+            "eloscope://settings/apply?autostart=1#eloscope-gesture=test-nonce",
+            "eloscope://settings/apply?autostart=1&autostart=0&minimize_to_tray=1#eloscope-gesture=test-nonce",
+            "eloscope://settings/apply?autostart=2&minimize_to_tray=1#eloscope-gesture=test-nonce",
+            "eloscope://settings/apply?autostart=1&minimize_to_tray=true#eloscope-gesture=test-nonce",
+            "eloscope://settings/apply?autostart=1&minimize_to_tray=1&extra=1#eloscope-gesture=test-nonce",
+            "eloscope://other/apply?autostart=1&minimize_to_tray=1#eloscope-gesture=test-nonce",
+            "eloscope://settings/other?autostart=1&minimize_to_tray=1#eloscope-gesture=test-nonce",
+            "eloscope://user@settings/apply?autostart=1&minimize_to_tray=1#eloscope-gesture=test-nonce",
+            "eloscope://settings:123/apply?autostart=1&minimize_to_tray=1#eloscope-gesture=test-nonce",
+        ] {
+            assert_eq!(
+                policy().classify(&url(denied), RequestContext::MainFrame),
+                NavigationDecision::Deny,
+                "{denied} should be denied"
+            );
+        }
     }
 
     #[test]

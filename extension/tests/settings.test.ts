@@ -32,6 +32,10 @@ describe("extension settings", () => {
       matchRoom: true,
       quickPositionsPanel: false
     });
+    expect(settings.shell).toEqual({
+      autostart: false,
+      minimizeToTray: false
+    });
     expect(settings.automations).toMatchObject({
       partyAccept: false,
       readyUp: false,
@@ -59,6 +63,7 @@ describe("extension settings", () => {
       showMapWinRates: "yes",
       showSelectedMapWins: "yes",
       interfaceVisibility: { profile: false, history: "no", matchRoom: true },
+      shell: { autostart: "yes", minimizeToTray: 1 },
       automations: { partyAccept: "yes", readyUp: 1, autoConnect: true }
     });
     expect(settings.statsWindow).toBe(30);
@@ -81,6 +86,10 @@ describe("extension settings", () => {
       profileStatsBanner: true,
       matchRoom: true,
       quickPositionsPanel: false
+    });
+    expect(settings.shell).toEqual({
+      autostart: false,
+      minimizeToTray: false
     });
     expect(settings.automations.partyAccept).toBe(false);
     expect(settings.automations.readyUp).toBe(false);

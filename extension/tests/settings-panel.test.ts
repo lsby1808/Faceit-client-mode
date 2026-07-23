@@ -54,6 +54,9 @@ describe("EloScope settings panel", () => {
     expect(panel.shadow.activeElement).toBe(dialog);
     expect(panel.launcher.tabIndex).toBe(-1);
     expect(panel.shadow.textContent).toContain("Окно статистики");
+    expect(panel.shadow.textContent).toContain("Приложение Windows");
+    expect(panel.shadow.textContent).toContain("Запускать вместе с Windows");
+    expect(panel.shadow.textContent).toContain("Сворачивать в системный трей");
     expect(panel.shadow.textContent).toContain("Окно WR по картам");
     expect(panel.shadow.textContent).toContain(
       "Количество последних матчей каждого игрока для расчёта сравнения карт"
@@ -78,6 +81,8 @@ describe("EloScope settings panel", () => {
     expect(
       panel.shadow.querySelector<HTMLSelectElement>('[aria-label="Окно статистики профиля"]')?.value
     ).toBe("20");
+    expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-shell-autostart")?.checked).toBe(false);
+    expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-shell-minimize-to-tray")?.checked).toBe(false);
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-stats")?.checked).toBe(true);
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-form-battery")?.checked).toBe(true);
     expect(panel.shadow.textContent).toContain("Роли игроков");
@@ -181,13 +186,16 @@ describe("EloScope settings panel", () => {
 
   it("saves interface and every automation control then refreshes the client", async () => {
     const onSaved = vi.fn(async () => undefined);
-    const panel = createPanel({ onSaved, mapIds: () => ["mirage"] });
+    const shellApply = vi.fn(() => true);
+    const panel = createPanel({ onSaved, mapIds: () => ["mirage"], shell: { apply: shellApply } });
     await panel.open();
 
     const shadow = panel.shadow;
     change(shadow.querySelector('[aria-label="Окно статистики"]') as HTMLSelectElement, "50");
     change(shadow.querySelector('[aria-label="Окно статистики профиля"]') as HTMLSelectElement, "10");
     change(shadow.querySelector('[aria-label="Окно WR по картам"]') as HTMLSelectElement, "100");
+    change(shadow.querySelector("#eloscope-shell-autostart") as HTMLInputElement, true);
+    change(shadow.querySelector("#eloscope-shell-minimize-to-tray") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-show-extended-tier") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-show-player-stats") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-player-form-battery") as HTMLInputElement, false);
@@ -218,6 +226,8 @@ describe("EloScope settings panel", () => {
     servers.value = "warsaw, frankfurt";
     servers.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
 
+    const save = shadow.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    save.dataset.eloscopeSettingsGesture = "0123456789abcdef0123456789abcdef0123456789abcdef";
     const form = shadow.querySelector("form")!;
     form.dispatchEvent(new SubmitEvent("submit", { bubbles: true, cancelable: true, composed: true }));
     await vi.waitFor(() => expect(panel.isOpen).toBe(false));
@@ -238,6 +248,10 @@ describe("EloScope settings panel", () => {
     expect(stored.showTeamSummary).toBe(false);
     expect(stored.showMapWinRates).toBe(false);
     expect(stored.showSelectedMapWins).toBe(false);
+    expect(stored.shell).toEqual({
+      autostart: true,
+      minimizeToTray: true
+    });
     expect(stored.interfaceVisibility).toEqual({
       profile: false,
       history: false,
@@ -253,6 +267,7 @@ describe("EloScope settings panel", () => {
       mapVeto: { enabled: true, banOrder: ["mirage", "nuke"], pickOrder: ["ancient"] },
       serverVeto: { enabled: true, order: ["warsaw", "frankfurt"] }
     });
+    expect(shellApply).toHaveBeenCalledWith(stored.shell, "0123456789abcdef0123456789abcdef0123456789abcdef");
   });
 
   it("edits dynamic quick positions and keeps confirm as the safe default", async () => {

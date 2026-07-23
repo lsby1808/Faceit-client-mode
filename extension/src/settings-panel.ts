@@ -7,13 +7,15 @@ import type {
 import type { DomRoot } from "./dom";
 import { debugLog } from "./debug-log";
 import { visibleSelectedMap } from "./positions";
+import { requestNativeShellSettings } from "./shell-settings-bridge";
 import {
   loadSettings,
   parseSettings,
   saveSettings,
   settingsWithPositionMaps,
   STATS_WINDOWS,
-  type ExtensionSettings
+  type ExtensionSettings,
+  type ShellSettings
 } from "./settings";
 
 export const SETTINGS_PANEL_HOST_ID = "eloscope-settings-root";
@@ -394,10 +396,15 @@ export type DiagnosticsPanelPort = {
   clear(): Promise<void>;
 };
 
+export type ShellSettingsPanelPort = {
+  apply(settings: ShellSettings, gesture?: string): boolean;
+};
+
 export type SettingsPanelOptions = {
   onSaved?: (settings: ExtensionSettings) => void | Promise<void>;
   mapIds?: () => readonly MapId[];
   diagnostics?: DiagnosticsPanelPort;
+  shell?: ShellSettingsPanelPort;
 };
 
 type Focusable = HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
@@ -485,6 +492,7 @@ export class EloScopeSettingsPanel {
   readonly #backdrop: HTMLDivElement;
   readonly #options: SettingsPanelOptions;
   readonly #diagnostics: DiagnosticsPanelPort;
+  readonly #shell: ShellSettingsPanelPort;
   #draft: ExtensionSettings | undefined;
   #activeSection: SettingsSectionId = "general";
   #opening = false;
@@ -493,6 +501,7 @@ export class EloScopeSettingsPanel {
   constructor(options: SettingsPanelOptions = {}) {
     this.#options = options;
     this.#diagnostics = options.diagnostics ?? debugLog;
+    this.#shell = options.shell ?? { apply: requestNativeShellSettings };
     this.host = node("div");
     this.host.id = SETTINGS_PANEL_HOST_ID;
     this.shadow = this.host.attachShadow({ mode: "open" });
@@ -688,6 +697,7 @@ export class EloScopeSettingsPanel {
       "Сохранить"
     ) as HTMLButtonElement;
     save.type = "submit";
+    save.dataset.eloscopeSettingsSave = "true";
     footer.append(status, reset, cancel, save);
     form.append(disclaimer, footer);
     form.addEventListener("submit", (event) => {
@@ -754,6 +764,38 @@ export class EloScopeSettingsPanel {
 
   #generalSection(settings: ExtensionSettings): HTMLElement {
     const wrapper = node("div");
+    const app = this.#fieldset("Приложение Windows");
+    const appGrid = node("div", "es-settings-grid");
+    appGrid.append(
+      this.#switchRow(
+        "Запускать вместе с Windows",
+        "Добавляет EloScope в автозапуск Windows. Если трей включён, клиент стартует свернутым.",
+        settings.shell.autostart,
+        "shell-autostart",
+        (checked) => {
+          if (!this.#draft) return;
+          this.#draft = {
+            ...this.#draft,
+            shell: { ...this.#draft.shell, autostart: checked }
+          };
+        },
+      ),
+      this.#switchRow(
+        "Сворачивать в системный трей",
+        "Кнопки свернуть и закрыть будут прятать окно. Полный выход доступен из меню трея.",
+        settings.shell.minimizeToTray,
+        "shell-minimize-to-tray",
+        (checked) => {
+          if (!this.#draft) return;
+          this.#draft = {
+            ...this.#draft,
+            shell: { ...this.#draft.shell, minimizeToTray: checked }
+          };
+        },
+      ),
+    );
+    app.append(appGrid);
+
     const profile = this.#fieldset("Профиль и уровни");
     const grid = node("div", "es-settings-grid");
     grid.append(this.#controlRow(
@@ -789,7 +831,7 @@ export class EloScopeSettingsPanel {
       },
     ));
     profile.append(grid);
-    wrapper.append(profile);
+    wrapper.append(app, profile);
     return wrapper;
   }
 
@@ -1419,6 +1461,9 @@ export class EloScopeSettingsPanel {
     try {
       const safe = parseSettings(this.#draft);
       await saveSettings(safe);
+      const gesture = save.dataset.eloscopeSettingsGesture;
+      delete save.dataset.eloscopeSettingsGesture;
+      this.#shell.apply(safe.shell, gesture);
       await this.#options.onSaved?.(safe);
       this.#draft = safe;
       status.textContent = "Сохранено";
