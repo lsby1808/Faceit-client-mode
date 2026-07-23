@@ -18,16 +18,23 @@ function player(overrides: Partial<Player> = {}): Player {
   };
 }
 
-function skillIcon(level = 10, size = 32): string {
-  return `<svg class="SkillIcon__StyledSvg-sc-fixture-1" width="${size}" height="${size}"><title>Skill level ${level}</title></svg>`;
+function skillIcon(level = 10, size = 32, style = ""): string {
+  return `<svg class="SkillIcon__StyledSvg-sc-fixture-1" width="${size}" height="${size}"${
+    style ? ` style="${style}"` : ""
+  }><title>Skill level ${level}</title></svg>`;
 }
 
 function matchmakingWidget(extraIcon = ""): string {
   return `
     <div class="Header__Container-sc-fixture-1">
-      <div class="EloWidget-module__fixture__widgetContainer">
-        ${skillIcon(10, 106)}
-        <button class="style__EloValueRow-sc-fixture-1"><span>2 401</span></button>
+      <div
+        class="EloWidget-module__fixture__widgetContainer"
+        style="display:grid;grid-template-areas:'icon content';grid-template-columns:auto 1fr"
+      >
+        ${skillIcon(10, 106, "grid-area:icon;align-self:flex-end;justify-self:start")}
+        <button class="style__EloValueRow-sc-fixture-1" style="grid-area:content">
+          <span>2 401</span>
+        </button>
         ${extraIcon}
       </div>
     </div>
@@ -96,6 +103,9 @@ describe("NativeTierSurfaceRenderer", () => {
     expect(host.getAttribute(NATIVE_TIER_ATTRIBUTE)).toBe("matchmaking:main:player-1");
     expect(host.nextElementSibling).toBe(native);
     expect(host.style.getPropertyValue("--es-native-tier-size")).toBe("106px");
+    expect(host.style.getPropertyValue("grid-area")).toBe("icon");
+    expect(host.style.getPropertyValue("align-self")).toBe("flex-end");
+    expect(host.style.getPropertyValue("justify-self")).toBe("start");
     expect(renderedTier?.textContent).toBe("11");
     expect(renderedTier?.getAttribute("aria-label")).toContain("official FACEIT level 10");
     expect(renderedTier?.tabIndex).toBe(0);
@@ -106,13 +116,27 @@ describe("NativeTierSurfaceRenderer", () => {
 
     const displayWrites = vi.spyOn(native.style, "setProperty");
     const ariaWrites = vi.spyOn(native, "setAttribute");
+    const hostStyleWrites = vi.spyOn(host.style, "setProperty");
+    const hostStyleRemovals = vi.spyOn(host.style, "removeProperty");
     expect(renderer.syncMatchmaking(player(), true)).toBe(1);
     expect(document.querySelector(`[${NATIVE_TIER_ATTRIBUTE}]`)).toBe(host);
     expect(host.shadowRoot?.querySelector('[data-tier="11"]')).toBe(renderedTier);
     expect(displayWrites).not.toHaveBeenCalled();
     expect(ariaWrites).not.toHaveBeenCalled();
+    expect(hostStyleWrites).not.toHaveBeenCalled();
+    expect(hostStyleRemovals).not.toHaveBeenCalled();
     displayWrites.mockRestore();
     ariaWrites.mockRestore();
+    hostStyleWrites.mockRestore();
+    hostStyleRemovals.mockRestore();
+
+    native.style.setProperty("align-self", "center");
+    native.setAttribute("width", "54");
+    native.setAttribute("height", "54");
+    expect(renderer.syncMatchmaking(player(), true)).toBe(1);
+    expect(document.querySelector(`[${NATIVE_TIER_ATTRIBUTE}]`)).toBe(host);
+    expect(host.style.getPropertyValue("align-self")).toBe("center");
+    expect(host.style.getPropertyValue("--es-native-tier-size")).toBe("54px");
 
     expect(renderer.syncMatchmaking(player(), false)).toBe(0);
     expect(document.querySelector(`[${NATIVE_TIER_ATTRIBUTE}]`)).toBeNull();

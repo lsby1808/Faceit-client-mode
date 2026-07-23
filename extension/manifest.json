@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "EloScope",
   "description": "Independent FACEIT overlays for player form, match context and opt-in helpers.",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwHBlAovISb2dUzZopqhoV8umLwlh/xh7vCoJgZ56xqFiy6n3olhPH0s7Iky2h0yUOZKGAXq/QYWJXyk2A7dA25SWB12BmPw3BOyyVMW1BdIHGg6K2XHBTMBVRlH+URomEK5qr3QE+w8RnwW9Pl93yfxrrFXe/qoBPRbCTrA2LliwkGraO5b+3TTtB/ZAKaqDvkzMuu89oglW7gd4iPiWxnnUSAAlI8zmgHidW4zLNqGigYcbqX5t7qoq/FPBuZJQzWSnqdQMFx/Io6G/RL+giyxdlIOXHOjjzLqXqP/G7C2oLVjqliJm7OE9QEF/BpYPyDXfLyAyH8fejxXxpwv7XQIDAQAB",
   "minimum_chrome_version": "109",
   "permissions": ["storage", "clipboardWrite"],

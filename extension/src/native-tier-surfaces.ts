@@ -76,6 +76,12 @@ const TIER_FLOORS = [
   4_501,
 ] as const;
 
+const NATIVE_TIER_LAYOUT_PROPERTIES = [
+  "grid-area",
+  "align-self",
+  "justify-self",
+] as const;
+
 const TIER_ICON_STYLES = `
   :host {
     --es-native-tier-size: 32px;
@@ -331,6 +337,22 @@ function nativeSize(icon: SVGSVGElement): number {
   return Math.round(values[0] ?? 32);
 }
 
+function setHostStyle(host: HTMLElement, property: string, value: string): void {
+  if (host.style.getPropertyValue(property) === value) return;
+  if (value) host.style.setProperty(property, value);
+  else host.style.removeProperty(property);
+}
+
+function syncTierHostLayout(host: HTMLElement, native: SVGSVGElement): void {
+  setHostStyle(host, "--es-native-tier-size", `${nativeSize(native)}px`);
+  const view = native.ownerDocument.defaultView;
+  if (!view) return;
+  const computed = view.getComputedStyle(native);
+  for (const property of NATIVE_TIER_LAYOUT_PROPERTIES) {
+    setHostStyle(host, property, computed.getPropertyValue(property).trim());
+  }
+}
+
 function tierIconSignature(player: Player, eligible: EligibleTier): string {
   const presentation = getEloTierPresentation(eligible.tier);
   return JSON.stringify([player.id, eligible.elo, eligible.officialLevel, eligible.tier, presentation]);
@@ -574,7 +596,7 @@ export class NativeTierSurfaceRenderer {
       host.setAttribute(NATIVE_TIER_ATTRIBUTE, key);
       host.dataset.surface = surface;
       host.dataset.slot = slot;
-      host.style.setProperty("--es-native-tier-size", `${nativeSize(native)}px`);
+      syncTierHostLayout(host, native);
       const state = preservedVisibility(native);
       mount = {
         key,
@@ -593,6 +615,7 @@ export class NativeTierSurfaceRenderer {
       renderTierIcon(mount.host.shadowRoot as ShadowRoot, player, eligible);
       mount.signature = nextSignature;
     }
+    syncTierHostLayout(mount.host, native);
     hideNative(native);
     if (native.previousElementSibling !== mount.host) native.parentElement?.insertBefore(mount.host, native);
     return true;
