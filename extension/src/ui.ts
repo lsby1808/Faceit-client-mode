@@ -103,27 +103,31 @@ export class EloScopeOverlay {
     this.#hidePositions();
   }
 
-  showMatchmakingTier(player: Player): void {
+  showMatchmakingTier(player: Player): number {
     this.#inlineMatch.cleanup();
     this.#nativeTiers.cleanup();
     this.#hidePositions();
     this.#nativeTierSurface = "matchmaking";
-    this.#nativeTiers.syncMatchmaking(player, this.#settings.showExtendedTier);
+    return this.#nativeTiers.syncMatchmaking(player, this.#settings.showExtendedTier);
   }
 
-  syncMatchmakingTier(player: Player): void {
+  syncMatchmakingTier(player: Player): number {
     this.#nativeTierSurface = "matchmaking";
-    this.#nativeTiers.syncMatchmaking(player, this.#settings.showExtendedTier);
+    return this.#nativeTiers.syncMatchmaking(player, this.#settings.showExtendedTier);
   }
 
-  showProfileTier(player: Player, includeProgressRail: boolean): void {
+  showProfileTier(player: Player, includeProgressRail: boolean): number {
     if (this.#nativeTierSurface !== "profile") this.#nativeTiers.cleanup();
-    this.syncProfileTier(player, includeProgressRail);
+    return this.syncProfileTier(player, includeProgressRail);
   }
 
-  syncProfileTier(player: Player, includeProgressRail: boolean): void {
+  syncProfileTier(player: Player, includeProgressRail: boolean): number {
     this.#nativeTierSurface = "profile";
-    this.#nativeTiers.syncProfile(player, this.#settings.showExtendedTier, includeProgressRail);
+    return this.#nativeTiers.syncProfile(
+      player,
+      this.#settings.showExtendedTier,
+      includeProgressRail,
+    );
   }
 
   showMatch(
@@ -131,12 +135,13 @@ export class EloScopeOverlay {
     playerMatches: ReadonlyMap<string, PlayerMatch[]>,
     playerMapStats: ReadonlyMap<string, PlayerMapStats[]> = new Map(),
     viewerTeamId?: string,
-  ): void {
+  ): InlineMatchRenderResult {
     this.#nativeTiers.cleanup();
     this.#nativeTierSurface = undefined;
-    this.syncMatchInline(match, playerMatches, playerMapStats, viewerTeamId);
+    const result = this.syncMatchInline(match, playerMatches, playerMapStats, viewerTeamId);
     if (this.#settings.interfaceVisibility.quickPositionsPanel) this.showPositions(match);
     else this.#hidePositions();
+    return result;
   }
 
   syncMatchInline(

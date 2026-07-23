@@ -15,9 +15,31 @@ const state = vi.hoisted(() => ({
   mapStatsResolvers: [] as Array<(value: unknown) => void>,
   automationRun: vi.fn(),
   automationReset: vi.fn(),
+  automationResult: { action: null, clicked: false } as {
+    action: "partyAccept" | "readyUp" | "mapVeto" | "serverVeto" | "connect" | "copyServerData" | null;
+    clicked: boolean;
+    reason?: string;
+  },
   positionSend: vi.fn(),
   overlayShowMatch: vi.fn(),
   overlayInlineSync: vi.fn(),
+  overlayRenderResult: {
+    status: "rendered",
+    players: 2,
+    teams: 2,
+    updated: 2,
+  } as
+    | { status: "rendered"; players: number; teams: number; updated: number }
+    | {
+        status: "incompatible";
+        reason:
+          | "invalid-match-roster"
+          | "roster-contract"
+          | "team-roster-ambiguous"
+          | "nickname-ambiguous"
+          | "player-card-contract"
+          | "player-holder-contract";
+      },
   overlayShowMatchmakingTier: vi.fn(),
   overlaySyncMatchmakingTier: vi.fn(),
   overlayShowProfileTier: vi.fn(),
@@ -43,8 +65,9 @@ vi.mock("../src/automations", () => ({
       state.automationReset();
     }
 
-    run(): void {
-      state.automationRun();
+    run(...args: unknown[]): typeof state.automationResult {
+      state.automationRun(...args);
+      return state.automationResult;
     }
   }
 }));
@@ -224,8 +247,14 @@ vi.mock("../src/ui", () => ({
     syncMatchmakingTier(...args: unknown[]): void { state.overlaySyncMatchmakingTier(...args); }
     showProfileTier(...args: unknown[]): void { state.overlayShowProfileTier(...args); }
     syncProfileTier(...args: unknown[]): void { state.overlaySyncProfileTier(...args); }
-    showMatch(...args: unknown[]): void { state.overlayShowMatch(...args); }
-    syncMatchInline(...args: unknown[]): void { state.overlayInlineSync(...args); }
+    showMatch(...args: unknown[]): typeof state.overlayRenderResult {
+      state.overlayShowMatch(...args);
+      return state.overlayRenderResult;
+    }
+    syncMatchInline(...args: unknown[]): typeof state.overlayRenderResult {
+      state.overlayInlineSync(...args);
+      return state.overlayRenderResult;
+    }
     destroy(): void {}
   }
 }));
@@ -236,8 +265,41 @@ import {
   shouldRetryMatchBootstrap,
   viewerTeamIdForMatch,
 } from "../src/controller";
+import { debugLog } from "../src/debug-log";
 import { MAIN_SOURCE, PROTOCOL_VERSION } from "../src/protocol";
 import { createDefaultSettings, saveSettings } from "../src/settings";
+
+const FORBIDDEN_DEBUG_FIELDS = new Set([
+  "args",
+  "body",
+  "id",
+  "matchId",
+  "message",
+  "nickname",
+  "pathname",
+  "playerId",
+  "request",
+  "response",
+]);
+
+function expectPrivacySafeDebugEvent(event: Record<string, unknown>, secrets: readonly string[]): void {
+  const keys: string[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (typeof value !== "object" || value === null) return;
+    for (const [key, nested] of Object.entries(value)) {
+      keys.push(key);
+      visit(nested);
+    }
+  };
+  visit(event);
+  expect(keys.filter((key) => FORBIDDEN_DEBUG_FIELDS.has(key))).toEqual([]);
+  const serialized = JSON.stringify(event);
+  for (const secret of secrets) expect(serialized).not.toContain(secret);
+}
 
 describe("viewer team resolution", () => {
   it("uses an exact viewer id match even when the nickname differs", () => {
@@ -291,9 +353,16 @@ describe("controller lifecycle", () => {
     state.mapStatsResolvers = [];
     state.automationRun.mockClear();
     state.automationReset.mockClear();
+    state.automationResult = { action: null, clicked: false };
     state.positionSend.mockClear();
     state.overlayShowMatch.mockClear();
     state.overlayInlineSync.mockClear();
+    state.overlayRenderResult = {
+      status: "rendered",
+      players: 2,
+      teams: 2,
+      updated: 2,
+    };
     state.overlayShowMatchmakingTier.mockClear();
     state.overlaySyncMatchmakingTier.mockClear();
     state.overlayShowProfileTier.mockClear();
@@ -735,5 +804,137 @@ describe("controller lifecycle", () => {
 
     expect(state.positionSend).not.toHaveBeenCalled();
     controller.destroy();
+  });
+
+  it("logs route, loads, render incompatibility, automation and position results without player or match data", async () => {
+    const privateMessage = "Private connector message";
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    settings.automations.positions.mirage = {
+      enabled: true,
+      message: privateMessage,
+      mode: "auto",
+    };
+    await saveSettings(settings);
+    state.mode = "match";
+    state.visibleMap = "mirage";
+    state.match.status = "voting";
+    state.automationResult = { action: "readyUp", clicked: true };
+    state.overlayRenderResult = {
+      status: "incompatible",
+      reason: "player-card-contract",
+    };
+    const record = vi.spyOn(debugLog, "record").mockImplementation(() => undefined);
+    const controller = new EloScopeController();
+
+    try {
+      await controller.start();
+      record.mockClear();
+      await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+      await vi.waitFor(() => expect(state.mapStatsRequested).toHaveBeenCalledTimes(2));
+
+      const events = record.mock.calls.map(([event]) => event as Record<string, unknown>);
+      expect(events).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          component: "controller",
+          event: "controller.navigate",
+          route: "match",
+          revision: expect.any(Number),
+        }),
+        expect.objectContaining({
+          component: "controller",
+          event: "controller.load",
+          route: "match",
+          operation: "match",
+          status: "ready",
+          count: 2,
+        }),
+        expect.objectContaining({
+          component: "controller",
+          event: "controller.load",
+          route: "match",
+          operation: "recentMatches",
+          status: "ready",
+          count: 2,
+          total: 2,
+        }),
+        expect.objectContaining({
+          level: "warn",
+          component: "render",
+          event: "render.match",
+          route: "match",
+          status: "incompatible",
+          reason: "player-card-contract",
+        }),
+        expect.objectContaining({
+          component: "automation",
+          event: "automation.result",
+          route: "match",
+          action: "readyUp",
+          status: "clicked",
+        }),
+        expect.objectContaining({
+          component: "position",
+          event: "position.result",
+          route: "match",
+          mode: "auto",
+          status: "prepared",
+        }),
+      ]));
+
+      const secrets = [
+        privateMessage,
+        state.match.id,
+        ...state.match.teams.flatMap((team) =>
+          team.players.flatMap((player) => [player.id, player.nickname])),
+      ];
+      for (const event of events) expectPrivacySafeDebugEvent(event, secrets);
+    } finally {
+      controller.destroy();
+      record.mockRestore();
+    }
+  });
+
+  it("logs only aggregate counts for a successful match render", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    await saveSettings(settings);
+    state.mode = "match";
+    state.overlayRenderResult = {
+      status: "rendered",
+      players: 2,
+      teams: 2,
+      updated: 1,
+    };
+    const record = vi.spyOn(debugLog, "record").mockImplementation(() => undefined);
+    const controller = new EloScopeController();
+
+    try {
+      await controller.start();
+      record.mockClear();
+      await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+      const renderEvents = record.mock.calls
+        .map(([event]) => event as Record<string, unknown>)
+        .filter((event) => event.event === "render.match");
+      expect(renderEvents).toContainEqual(expect.objectContaining({
+        component: "render",
+        route: "match",
+        status: "rendered",
+        count: 2,
+        total: 2,
+        updated: 1,
+      }));
+      for (const event of renderEvents) {
+        expectPrivacySafeDebugEvent(event, [
+          state.match.id,
+          ...state.match.teams.flatMap((team) =>
+            team.players.flatMap((player) => [player.id, player.nickname])),
+        ]);
+      }
+    } finally {
+      controller.destroy();
+      record.mockRestore();
+    }
   });
 });

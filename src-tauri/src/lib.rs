@@ -1,7 +1,9 @@
+mod debug_log;
 mod diagnostics;
 mod policy;
 mod updater;
 
+use debug_log::DebugEventKind;
 use getrandom::fill as fill_random;
 use policy::{is_safe_download_url, NavigationDecision, RequestContext, SessionPolicy};
 use std::error::Error;
@@ -20,6 +22,7 @@ static POPUP_COUNTER: AtomicU64 = AtomicU64::new(1);
 static FACEIT_ANTI_CHEAT_PROMPT_OPEN: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
+    debug_log::record(DebugEventKind::ApplicationStarting);
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -40,11 +43,14 @@ pub fn run() {
 }
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
+    debug_log::record(DebugEventKind::SetupStarted);
     let extension_path = resolve_extension_path(app.handle())?;
     validate_extension(&extension_path)?;
+    debug_log::record(DebugEventKind::ExtensionManifestValidated);
 
     let profile_path = app.path().app_local_data_dir()?.join("webview-profile");
     fs::create_dir_all(&profile_path)?;
+    debug_log::record(DebugEventKind::WebviewProfileReady);
 
     let session_policy = SessionPolicy::new(generate_click_nonce()?);
     let init_script = trusted_click_script(session_policy.click_nonce());
@@ -80,12 +86,9 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
         .on_new_window(move |url, features| {
             handle_popup_request(&popup_app, &popup_policy, &popup_init_script, url, features)
         })
-        .on_download(|_, event| match event {
-            DownloadEvent::Requested { url, .. } => is_safe_download_url(&url),
-            DownloadEvent::Finished { .. } => true,
-            _ => false,
-        })
+        .on_download(|_, event| handle_download_event(event))
         .build()?;
+    debug_log::record(DebugEventKind::MainWindowCreated);
 
     install_extension_then_navigate(
         &main_window,
@@ -98,6 +101,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
     let app_handle = app.handle().clone();
     app.on_menu_event(move |_app, event| match event.id().as_ref() {
         "about" => {
+            debug_log::record(DebugEventKind::MenuAboutSelected);
             app_handle
                 .dialog()
                 .message(ABOUT_TEXT)
@@ -105,41 +109,50 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn Error>> {
                 .kind(MessageDialogKind::Info)
                 .show(|_| {});
         }
-        "check-updates" => updater::check_manually(app_handle.clone()),
-        "export-diagnostics" => match diagnostics::export(
-            &app_handle,
-            extension_manifest_present,
-            updater::is_configured(),
-        ) {
-            Ok(path) => {
-                let parent = path.parent().map(Path::to_path_buf);
-                app_handle
-                    .dialog()
-                    .message(format!(
-                        "A redacted diagnostic report was written to:\n{}",
-                        path.display()
-                    ))
-                    .title("Diagnostics exported")
-                    .kind(MessageDialogKind::Info)
-                    .show(move |_| {
-                        if let Some(parent) = parent {
-                            let _ = open::that_detached(parent);
-                        }
-                    });
+        "check-updates" => {
+            debug_log::record(DebugEventKind::MenuUpdateCheckSelected);
+            updater::check_manually(app_handle.clone());
+        }
+        "export-diagnostics" => {
+            debug_log::record(DebugEventKind::MenuDiagnosticsExportSelected);
+            match diagnostics::export(
+                &app_handle,
+                extension_manifest_present,
+                updater::is_configured(),
+            ) {
+                Ok(path) => {
+                    debug_log::record(DebugEventKind::DiagnosticsExportSucceeded);
+                    let parent = path.parent().map(Path::to_path_buf);
+                    app_handle
+                        .dialog()
+                        .message(format!(
+                            "A redacted diagnostic report was written to:\n{}",
+                            path.display()
+                        ))
+                        .title("Diagnostics exported")
+                        .kind(MessageDialogKind::Info)
+                        .show(move |_| {
+                            if let Some(parent) = parent {
+                                let _ = open::that_detached(parent);
+                            }
+                        });
+                }
+                Err(_) => {
+                    debug_log::record(DebugEventKind::DiagnosticsExportFailed);
+                    app_handle
+                        .dialog()
+                        .message("The local diagnostic report could not be written.")
+                        .title("Diagnostics export failed")
+                        .kind(MessageDialogKind::Error)
+                        .show(|_| {});
+                }
             }
-            Err(_) => {
-                app_handle
-                    .dialog()
-                    .message("The local diagnostic report could not be written.")
-                    .title("Diagnostics export failed")
-                    .kind(MessageDialogKind::Error)
-                    .show(|_| {});
-            }
-        },
+        }
         _ => {}
     });
 
     updater::start_periodic_checks(app.handle().clone());
+    debug_log::record(DebugEventKind::SetupCompleted);
     Ok(())
 }
 
@@ -155,7 +168,8 @@ fn install_extension_then_navigate(
     use windows::core::{Interface, HSTRING};
 
     let target_url = target_url.to_owned();
-    window.with_webview(move |platform_webview| {
+    debug_log::record(DebugEventKind::ExtensionInstallRequested);
+    let attach_result = window.with_webview(move |platform_webview| {
         let install = (|| -> windows::core::Result<()> {
             let controller = platform_webview.controller();
             let webview = unsafe { controller.CoreWebView2()? };
@@ -168,17 +182,25 @@ fn install_extension_then_navigate(
             let handler = ProfileAddBrowserExtensionCompletedHandler::create(Box::new(
                 move |result, extension| {
                     if result.is_ok() && extension.is_some() {
-                        if let Err(error) = unsafe {
+                        debug_log::record(DebugEventKind::ExtensionInstallSucceeded);
+                        match unsafe {
                             callback_webview.Navigate(&HSTRING::from(callback_target.as_str()))
                         } {
-                            show_extension_load_error(
-                                &callback_app,
-                                format!(
-                                    "The extension was installed, but FACEIT navigation failed ({error})."
-                                ),
-                            );
+                            Ok(()) => {
+                                debug_log::record(DebugEventKind::InitialNavigationSucceeded);
+                            }
+                            Err(error) => {
+                                debug_log::record(DebugEventKind::InitialNavigationFailed);
+                                show_extension_load_error(
+                                    &callback_app,
+                                    format!(
+                                        "The extension was installed, but FACEIT navigation failed ({error})."
+                                    ),
+                                );
+                            }
                         }
                     } else {
+                        debug_log::record(DebugEventKind::ExtensionInstallFailed);
                         show_extension_load_error(
                             &callback_app,
                             format!("WebView2 rejected the bundled extension ({result:?})."),
@@ -197,12 +219,17 @@ fn install_extension_then_navigate(
         })();
 
         if let Err(error) = install {
+            debug_log::record(DebugEventKind::ExtensionInstallFailed);
             show_extension_load_error(
                 &app,
                 format!("The WebView2 extension API is unavailable ({error})."),
             );
         }
-    })
+    });
+    if attach_result.is_err() {
+        debug_log::record(DebugEventKind::ExtensionInstallFailed);
+    }
+    attach_result
 }
 
 #[cfg(not(windows))]
@@ -212,7 +239,19 @@ fn install_extension_then_navigate(
     _extension_root: PathBuf,
     target_url: &str,
 ) -> tauri::Result<()> {
-    window.navigate(target_url.parse().map_err(tauri::Error::InvalidUrl)?)
+    debug_log::record(DebugEventKind::ExtensionInstallRequested);
+    let result = window.navigate(target_url.parse().map_err(tauri::Error::InvalidUrl)?);
+    match result {
+        Ok(()) => {
+            debug_log::record(DebugEventKind::ExtensionInstallSucceeded);
+            debug_log::record(DebugEventKind::InitialNavigationSucceeded);
+        }
+        Err(_) => {
+            debug_log::record(DebugEventKind::ExtensionInstallFailed);
+            debug_log::record(DebugEventKind::InitialNavigationFailed);
+        }
+    }
+    result
 }
 
 fn show_extension_load_error(app: &AppHandle<Wry>, detail: String) {
@@ -231,20 +270,43 @@ fn handle_navigation(
     original_url: &str,
 ) -> bool {
     match decision {
-        NavigationDecision::AllowInWebView => true,
+        NavigationDecision::AllowInWebView => {
+            debug_log::record(DebugEventKind::NavigationAllowedInWebview);
+            true
+        }
         NavigationDecision::OpenExternal => {
-            let _ = open::that_detached(original_url);
+            debug_log::record(DebugEventKind::NavigationExternalRequested);
+            match open::that_detached(original_url) {
+                Ok(()) => {
+                    debug_log::record(DebugEventKind::NavigationExternalOpenSucceeded);
+                }
+                Err(_) => {
+                    debug_log::record(DebugEventKind::NavigationExternalOpenFailed);
+                }
+            }
             false
         }
         NavigationDecision::OpenSteam { sanitized_url } => {
-            let _ = open::that_detached(sanitized_url);
+            debug_log::record(DebugEventKind::NavigationSteamRequested);
+            match open::that_detached(sanitized_url) {
+                Ok(()) => {
+                    debug_log::record(DebugEventKind::NavigationSteamOpenSucceeded);
+                }
+                Err(_) => {
+                    debug_log::record(DebugEventKind::NavigationSteamOpenFailed);
+                }
+            }
             false
         }
         NavigationDecision::OpenFaceitAntiCheat { sanitized_url } => {
+            debug_log::record(DebugEventKind::NavigationAntiCheatRequested);
             confirm_faceit_anti_cheat_launch(app, sanitized_url);
             false
         }
-        NavigationDecision::Deny => false,
+        NavigationDecision::Deny => {
+            debug_log::record(DebugEventKind::NavigationDenied);
+            false
+        }
     }
 }
 
@@ -253,9 +315,11 @@ fn confirm_faceit_anti_cheat_launch(app: &AppHandle<Wry>, sanitized_url: String)
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
     {
+        debug_log::record(DebugEventKind::AntiCheatPromptSuppressed);
         return;
     }
 
+    debug_log::record(DebugEventKind::AntiCheatPromptOpened);
     let callback_app = app.clone();
     app.dialog()
         .message("Launch the installed FACEIT Anti-Cheat application?")
@@ -264,15 +328,23 @@ fn confirm_faceit_anti_cheat_launch(app: &AppHandle<Wry>, sanitized_url: String)
         .kind(MessageDialogKind::Info)
         .show(move |confirmed| {
             FACEIT_ANTI_CHEAT_PROMPT_OPEN.store(false, Ordering::Release);
-            if confirmed && open::that_detached(&sanitized_url).is_err() {
-                callback_app
-                    .dialog()
-                    .message(
-                        "Windows could not open FACEIT Anti-Cheat. Install or repair FACEIT AC and try again.",
-                    )
-                    .title("FACEIT Anti-Cheat failed to launch")
-                    .kind(MessageDialogKind::Error)
-                    .show(|_| {});
+            if confirmed {
+                debug_log::record(DebugEventKind::AntiCheatLaunchConfirmed);
+                if open::that_detached(&sanitized_url).is_err() {
+                    debug_log::record(DebugEventKind::AntiCheatLaunchFailed);
+                    callback_app
+                        .dialog()
+                        .message(
+                            "Windows could not open FACEIT Anti-Cheat. Install or repair FACEIT AC and try again.",
+                        )
+                        .title("FACEIT Anti-Cheat failed to launch")
+                        .kind(MessageDialogKind::Error)
+                        .show(|_| {});
+                } else {
+                    debug_log::record(DebugEventKind::AntiCheatLaunchSucceeded);
+                }
+            } else {
+                debug_log::record(DebugEventKind::AntiCheatLaunchCancelled);
             }
         });
 }
@@ -286,6 +358,7 @@ fn handle_popup_request(
 ) -> NewWindowResponse<Wry> {
     match policy.classify(&url, RequestContext::Popup) {
         NavigationDecision::AllowInWebView => {
+            debug_log::record(DebugEventKind::PopupAllowedInWebview);
             let label = format!(
                 "faceit-popup-{}",
                 POPUP_COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -321,23 +394,52 @@ fn handle_popup_request(
                         nested_features,
                     )
                 })
-                .on_download(|_, event| match event {
-                    DownloadEvent::Requested { url, .. } => is_safe_download_url(&url),
-                    DownloadEvent::Finished { .. } => true,
-                    _ => false,
-                })
+                .on_download(|_, event| handle_download_event(event))
                 .on_document_title_changed(|window, title| {
                     let _ = window.set_title(&title);
                 });
 
             match builder.build() {
-                Ok(window) => NewWindowResponse::Create { window },
-                Err(_) => NewWindowResponse::Deny,
+                Ok(window) => {
+                    debug_log::record(DebugEventKind::PopupCreated);
+                    NewWindowResponse::Create { window }
+                }
+                Err(_) => {
+                    debug_log::record(DebugEventKind::PopupCreateFailed);
+                    NewWindowResponse::Deny
+                }
             }
         }
         decision => {
+            debug_log::record(DebugEventKind::PopupNotCreated);
             let _ = handle_navigation(app, decision, url.as_str());
             NewWindowResponse::Deny
+        }
+    }
+}
+
+fn handle_download_event(event: DownloadEvent<'_>) -> bool {
+    match event {
+        DownloadEvent::Requested { url, .. } => {
+            let allowed = is_safe_download_url(&url);
+            debug_log::record(if allowed {
+                DebugEventKind::DownloadAllowed
+            } else {
+                DebugEventKind::DownloadDenied
+            });
+            allowed
+        }
+        DownloadEvent::Finished { success, .. } => {
+            debug_log::record(if success {
+                DebugEventKind::DownloadFinishedSucceeded
+            } else {
+                DebugEventKind::DownloadFinishedFailed
+            });
+            true
+        }
+        _ => {
+            debug_log::record(DebugEventKind::DownloadEventIgnored);
+            false
         }
     }
 }

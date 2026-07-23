@@ -13,6 +13,15 @@ bridge to remote content and does not provide arbitrary URL fetching.
 - Request arguments and response shapes are validated before use.
 - Session material never crosses `postMessage`, extension storage, diagnostics,
   logs or crash reports.
+- The local operational logger accepts only allowlisted structured event fields.
+  It never records raw DOM or page text, input values, URLs, nicknames, match
+  identifiers, tokens, cookies, Authorization values, chat messages, Steam data
+  or connection strings.
+- The operational log is capped at 2,000 events, 1 MiB and 7 days; it is never
+  uploaded automatically and can only be copied, saved or cleared by an explicit
+  local user action.
+- Native diagnostic export remains a separate, explicit and redacted operation;
+  it does not silently bundle the operational log.
 - Extension permissions remain exactly `storage`, `clipboardWrite`, and the two
   FACEIT HTTPS host patterns checked by `scripts/verify-release.mjs`.
 - `steam://connect` is rejected by default and is only handed to Windows after a
@@ -27,11 +36,14 @@ bridge to remote content and does not provide arbitrary URL fetching.
 ## Threat review before release
 
 Run `pnpm check`, inspect the effective Tauri capability files, review generated
-MV3 permissions, test selector drift fixtures, scan an exported diagnostic, and
-verify a tampered updater artifact is rejected. Stable releases additionally
-require Windows code signing and a retained copy of written FACEIT permission.
+MV3 permissions, test selector drift fixtures, scan a copied operational log and
+an exported native diagnostic, and verify a tampered updater artifact is
+rejected. Stable releases additionally require Windows code signing and a
+retained copy of written FACEIT permission.
 
 ## Reporting
 
 Do not publish session data or an exploitable proof in a public issue. Include the
 EloScope version, Windows version, route class and redacted reproduction steps.
+Review a copied operational log before attaching it and clear it after sharing if
+you do not want to retain the local history.

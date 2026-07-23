@@ -5,6 +5,7 @@ import type {
   StatsWindow
 } from "@eloscope/core";
 import type { DomRoot } from "./dom";
+import { debugLog } from "./debug-log";
 import { visibleSelectedMap } from "./positions";
 import {
   loadSettings,
@@ -177,6 +178,24 @@ textarea:focus-visible {
 .es-position-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-top: 9px; }
 .es-settings-button { padding: 8px 12px; color: var(--es-settings-text); background: var(--es-settings-card); border: 1px solid var(--es-settings-line); border-radius: 9px; font-weight: 750; }
 .es-settings-button--primary { color: #fff; background: var(--es-settings-accent); border-color: transparent; }
+.es-settings-button--danger { color: var(--es-settings-danger); }
+.es-diagnostics-card { display: grid; gap: 10px; }
+.es-diagnostics-summary {
+  padding: 9px 10px;
+  color: #dce4ed;
+  background: #0d0f13;
+  border: 1px solid var(--es-settings-line);
+  border-radius: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.es-diagnostics-summary[data-error="true"] { color: var(--es-settings-danger); }
+.es-diagnostics-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.es-diagnostics-status {
+  min-height: 17px;
+  color: var(--es-settings-muted);
+  font-size: 11px;
+}
+.es-diagnostics-status[data-error="true"] { color: var(--es-settings-danger); }
 .es-settings-footer { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; margin: 14px -18px -18px; padding: 13px 18px; background: rgba(13,15,18,.97); border-top: 1px solid var(--es-settings-line); }
 .es-settings-status { min-width: 0; flex: 1; color: var(--es-settings-muted); font-size: 11px; }
 .es-settings-status[data-error="true"] { color: var(--es-settings-danger); }
@@ -194,9 +213,17 @@ textarea:focus-visible {
 }
 `;
 
-type SettingsPanelOptions = {
+export type DiagnosticsPanelPort = {
+  getSummary(): Promise<{ eventCount: number; oldestAt?: number; newestAt?: number }>;
+  copyToClipboard(): Promise<number>;
+  saveToFile(): Promise<"saved" | "copied">;
+  clear(): Promise<void>;
+};
+
+export type SettingsPanelOptions = {
   onSaved?: (settings: ExtensionSettings) => void | Promise<void>;
   mapIds?: () => readonly MapId[];
+  diagnostics?: DiagnosticsPanelPort;
 };
 
 type Focusable = HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
@@ -238,6 +265,29 @@ function uniqueMapIds(values: readonly string[]): string[] {
   return output;
 }
 
+function formatDiagnosticDate(value: number | undefined): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  return new Intl.DateTimeFormat("ru-RU", {
+    dateStyle: "short",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
+function diagnosticSummaryText(summary: {
+  eventCount: number;
+  oldestAt?: number;
+  newestAt?: number;
+}): string {
+  const rawEventCount = Math.trunc(summary.eventCount);
+  const eventCount = Number.isFinite(rawEventCount) ? Math.max(0, rawEventCount) : 0;
+  if (eventCount === 0) return "Событий пока нет";
+  const oldest = formatDiagnosticDate(summary.oldestAt);
+  const newest = formatDiagnosticDate(summary.newestAt);
+  if (oldest && newest) return `${eventCount} событий · ${oldest} — ${newest}`;
+  if (newest) return `${eventCount} событий · последнее: ${newest}`;
+  return `${eventCount} событий`;
+}
+
 export function discoverVisibleMapIds(root: DomRoot = document): MapId[] {
   const maps: string[] = [];
   const selectedMap = visibleSelectedMap(root);
@@ -260,12 +310,14 @@ export class EloScopeSettingsPanel {
 
   readonly #backdrop: HTMLDivElement;
   readonly #options: SettingsPanelOptions;
+  readonly #diagnostics: DiagnosticsPanelPort;
   #draft: ExtensionSettings | undefined;
   #opening = false;
   #saving = false;
 
   constructor(options: SettingsPanelOptions = {}) {
     this.#options = options;
+    this.#diagnostics = options.diagnostics ?? debugLog;
     this.host = node("div");
     this.host.id = SETTINGS_PANEL_HOST_ID;
     this.shadow = this.host.attachShadow({ mode: "open" });
@@ -381,7 +433,8 @@ export class EloScopeSettingsPanel {
     form.append(
       this.#interfaceSection(draft),
       this.#automationSection(draft),
-      this.#positionsSection(draft)
+      this.#positionsSection(draft),
+      this.#diagnosticsSection()
     );
 
     const disclaimer = node(
@@ -728,6 +781,127 @@ export class EloScopeSettingsPanel {
     controls.append(label, mode);
     card.append(head, textarea, controls);
     return card;
+  }
+
+  #diagnosticsSection(): HTMLFieldSetElement {
+    const fieldset = this.#fieldset("Диагностика");
+    const card = node("div", "es-settings-stack es-diagnostics-card");
+    const copy = describedText(
+      "Локальный журнал действий",
+      "Включён всегда. Лог хранится локально до 7 дней, автоматически очищается и обезличивается: чувствительные значения и токены удаляются."
+    );
+    const summary = node("div", "es-diagnostics-summary", "Загружаю сводку…");
+    summary.dataset.testid = "debug-log-summary";
+    summary.setAttribute("role", "status");
+    summary.setAttribute("aria-live", "polite");
+
+    const copyButton = node(
+      "button",
+      "es-settings-button",
+      "Копировать лог"
+    ) as HTMLButtonElement;
+    copyButton.type = "button";
+    copyButton.dataset.testid = "debug-log-copy";
+    const saveButton = node(
+      "button",
+      "es-settings-button",
+      "Сохранить файл"
+    ) as HTMLButtonElement;
+    saveButton.type = "button";
+    saveButton.dataset.testid = "debug-log-save";
+    const clearButton = node(
+      "button",
+      "es-settings-button es-settings-button--danger",
+      "Очистить"
+    ) as HTMLButtonElement;
+    clearButton.type = "button";
+    clearButton.dataset.testid = "debug-log-clear";
+    const buttons = [copyButton, saveButton, clearButton];
+
+    const actions = node("div", "es-diagnostics-actions");
+    actions.append(...buttons);
+    const status = node("div", "es-diagnostics-status");
+    status.dataset.testid = "debug-log-status";
+    status.setAttribute("role", "status");
+    status.setAttribute("aria-live", "polite");
+
+    copyButton.addEventListener("click", () => {
+      void this.#runDiagnosticAction(
+        status,
+        buttons,
+        "Копирую журнал…",
+        "Не удалось скопировать журнал",
+        async () => {
+          const rawEventCount = Math.trunc(await this.#diagnostics.copyToClipboard());
+          const eventCount = Number.isFinite(rawEventCount) ? Math.max(0, rawEventCount) : 0;
+          return `Скопировано событий: ${eventCount}`;
+        }
+      );
+    });
+    saveButton.addEventListener("click", () => {
+      void this.#runDiagnosticAction(
+        status,
+        buttons,
+        "Сохраняю журнал…",
+        "Не удалось сохранить журнал",
+        async () => {
+          const result = await this.#diagnostics.saveToFile();
+          return result === "saved"
+            ? "Файл диагностики сохранён"
+            : "Сохранение файла недоступно — журнал скопирован";
+        }
+      );
+    });
+    clearButton.addEventListener("click", () => {
+      void this.#runDiagnosticAction(
+        status,
+        buttons,
+        "Очищаю журнал…",
+        "Не удалось очистить журнал",
+        async () => {
+          await this.#diagnostics.clear();
+          summary.dataset.error = "false";
+          summary.textContent = "Событий пока нет";
+          return "Журнал очищен";
+        }
+      );
+    });
+
+    card.append(copy, summary, actions, status);
+    fieldset.append(card);
+    void this.#loadDiagnosticSummary(summary);
+    return fieldset;
+  }
+
+  async #loadDiagnosticSummary(summary: HTMLElement): Promise<void> {
+    try {
+      const value = await this.#diagnostics.getSummary();
+      summary.dataset.error = "false";
+      summary.textContent = diagnosticSummaryText(value);
+    } catch {
+      summary.dataset.error = "true";
+      summary.textContent = "Не удалось загрузить сводку журнала";
+    }
+  }
+
+  async #runDiagnosticAction(
+    status: HTMLElement,
+    buttons: readonly HTMLButtonElement[],
+    pendingText: string,
+    failureText: string,
+    action: () => Promise<string>
+  ): Promise<void> {
+    for (const button of buttons) button.disabled = true;
+    status.dataset.error = "false";
+    status.textContent = pendingText;
+    try {
+      status.textContent = await action();
+    } catch {
+      status.dataset.error = "true";
+      status.textContent = failureText;
+    } finally {
+      for (const button of buttons) button.disabled = false;
+    }
   }
 
   #fieldset(title: string): HTMLFieldSetElement {

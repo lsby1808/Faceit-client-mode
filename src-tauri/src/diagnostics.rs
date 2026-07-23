@@ -1,3 +1,4 @@
+use crate::debug_log::{self, DebugEvent};
 use serde::Serialize;
 use std::fs;
 use std::io;
@@ -26,6 +27,7 @@ struct DiagnosticReport<'a> {
     extension_manifest_present: bool,
     updater_configured: bool,
     security: SecuritySummary,
+    debug_events: Vec<DebugEvent>,
     note: &'a str,
 }
 
@@ -45,7 +47,7 @@ pub fn export<R: Runtime>(
     let path = diagnostics_dir.join(format!("eloscope-diagnostics-{generated_at_unix_ms}.json"));
 
     let report = DiagnosticReport {
-        schema_version: 1,
+        schema_version: 2,
         product: "EloScope",
         version: app.package_info().version.to_string(),
         generated_at_unix_ms,
@@ -61,7 +63,8 @@ pub fn export<R: Runtime>(
             telemetry_enabled: false,
             token_collection_enabled: false,
         },
-        note: "This deliberately redacted report never includes URLs, cookies, session tokens, page content, usernames, or match identifiers.",
+        debug_events: debug_log::snapshot(),
+        note: "This deliberately redacted report contains only bounded enum-based native events and never includes URLs, cookies, session tokens, page content, usernames, match identifiers, parameters, or error strings.",
     };
 
     let bytes = serde_json::to_vec_pretty(&report).map_err(io::Error::other)?;

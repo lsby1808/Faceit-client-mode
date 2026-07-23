@@ -36,6 +36,16 @@ pnpm dev
 All automations are disabled by default. Run real-site automation only with a
 test account and explicit permission from FACEIT.
 
+## Local diagnostics
+
+EloScope keeps a bounded, redacted local log of interface clicks, actions and
+outcomes to help diagnose failures. It contains no raw DOM or text, input values,
+URLs, nicknames, match identifiers, tokens, cookies, chat content, Steam data or
+connection strings, and is never uploaded automatically. Open EloScope settings
+to copy, save or clear it. The native **Export redacted diagnostics** menu command
+creates a separate report and does not silently attach this operational log. See
+`docs/PRIVACY.md` for retention limits and the complete data policy.
+
 ## Releases and updates
 
 Windows x64 releases are published at

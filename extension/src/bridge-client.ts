@@ -12,11 +12,13 @@ import {
   type ReadArguments,
   type ReadOperation
 } from "./protocol";
+import { debugLog, type DebugStatus } from "./debug-log";
 
 type Pending = {
   resolve: (result: BridgeResult) => void;
   timer: number;
   operation: ReadOperation;
+  startedAt: number;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -96,6 +98,11 @@ function asDataState<T>(result: BridgeResult): DataState<T> {
   };
 }
 
+function debugStatus(result: BridgeResult): DebugStatus {
+  if (result.status === "ok") return "ready";
+  return result.status === "restricted" ? "restricted" : "error";
+}
+
 export class FaceitBridgeAdapter implements FaceitReadAdapter {
   readonly #pending = new Map<string, Pending>();
   readonly #origin: string;
@@ -107,6 +114,11 @@ export class FaceitBridgeAdapter implements FaceitReadAdapter {
 
   destroy(): void {
     window.removeEventListener("message", this.#onMessage);
+    debugLog.record({
+      component: "bridge",
+      event: "bridge.destroy",
+      count: this.#pending.size,
+    });
     for (const pending of this.#pending.values()) {
       window.clearTimeout(pending.timer);
       pending.resolve({ status: "error", code: "network" });
@@ -131,7 +143,16 @@ export class FaceitBridgeAdapter implements FaceitReadAdapter {
     if (!pending) return;
     window.clearTimeout(pending.timer);
     this.#pending.delete(response.id);
+    const durationMs = Date.now() - pending.startedAt;
     if (!isBridgeResult(response.result)) {
+      debugLog.record({
+        level: "warn",
+        component: "bridge",
+        event: "bridge.response",
+        operation: pending.operation,
+        status: "error",
+        durationMs,
+      });
       pending.resolve({ status: "error", code: "upstream-shape" });
       return;
     }
@@ -140,9 +161,24 @@ export class FaceitBridgeAdapter implements FaceitReadAdapter {
       (!isDataForOperation(pending.operation, response.result.data) ||
         Math.abs(Date.now() - response.result.sampledAt) > 5 * 60_000)
     ) {
+      debugLog.record({
+        level: "warn",
+        component: "bridge",
+        event: "bridge.response",
+        operation: pending.operation,
+        status: "error",
+        durationMs,
+      });
       pending.resolve({ status: "error", code: "upstream-shape" });
       return;
     }
+    debugLog.record({
+      component: "bridge",
+      event: "bridge.response",
+      operation: pending.operation,
+      status: debugStatus(response.result),
+      durationMs,
+    });
     pending.resolve(response.result);
   };
 
@@ -156,13 +192,28 @@ export class FaceitBridgeAdapter implements FaceitReadAdapter {
       operation,
       args
     };
+    const startedAt = Date.now();
+    debugLog.record({
+      component: "bridge",
+      event: "bridge.request",
+      operation,
+      status: "loading",
+    });
 
     const result = new Promise<BridgeResult>((resolve) => {
       const timer = window.setTimeout(() => {
         this.#pending.delete(id);
+        debugLog.record({
+          level: "warn",
+          component: "bridge",
+          event: "bridge.timeout",
+          operation,
+          status: "timeout",
+          durationMs: Date.now() - startedAt,
+        });
         resolve({ status: "error", code: "network" });
       }, 12_000);
-      this.#pending.set(id, { resolve, timer, operation });
+      this.#pending.set(id, { resolve, timer, operation, startedAt });
     });
     window.postMessage(request, this.#origin);
     return result;

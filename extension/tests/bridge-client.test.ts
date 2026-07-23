@@ -1,6 +1,39 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FaceitBridgeAdapter } from "../src/bridge-client";
+import { debugLog } from "../src/debug-log";
+
+const FORBIDDEN_DEBUG_FIELDS = new Set([
+  "args",
+  "body",
+  "id",
+  "matchId",
+  "message",
+  "nickname",
+  "pathname",
+  "playerId",
+  "request",
+  "response",
+]);
+
+function expectPrivacySafeDebugEvent(event: Record<string, unknown>, secrets: readonly string[]): void {
+  const keys: string[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (typeof value !== "object" || value === null) return;
+    for (const [key, nested] of Object.entries(value)) {
+      keys.push(key);
+      visit(nested);
+    }
+  };
+  visit(event);
+  expect(keys.filter((key) => FORBIDDEN_DEBUG_FIELDS.has(key))).toEqual([]);
+  const serialized = JSON.stringify(event);
+  for (const secret of secrets) expect(serialized).not.toContain(secret);
+}
 
 describe("isolated bridge client", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -57,5 +90,65 @@ describe("isolated bridge client", () => {
     adapter.destroy();
     expect(state).toMatchObject(expected);
     expect(state).not.toHaveProperty("data");
+  });
+
+  it("logs only the read operation, state and duration without bridge arguments, ids or response bodies", async () => {
+    const origin = "https://www.faceit.com";
+    const nickname = "PrivateNickname-bridge";
+    const playerId = "private-player-id-bridge";
+    const record = vi.spyOn(debugLog, "record").mockImplementation(() => undefined);
+    vi.spyOn(window, "postMessage").mockImplementation(((request: unknown) => {
+      const value = request as { id?: string; operation?: string; type?: string };
+      if (value.type !== "read" || value.operation !== "player" || !value.id) return;
+      queueMicrotask(() => {
+        window.dispatchEvent(new MessageEvent("message", {
+          origin,
+          source: window,
+          data: {
+            source: "eloscope:main",
+            version: 1,
+            type: "response",
+            id: value.id,
+            result: {
+              status: "ok",
+              sampledAt: Date.now(),
+              data: {
+                id: playerId,
+                nickname,
+                game: "cs2",
+                elo: 2_511,
+                officialLevel: 10,
+              },
+            },
+          },
+        }));
+      });
+    }) as typeof window.postMessage);
+
+    const adapter = new FaceitBridgeAdapter(origin);
+    const result = await adapter.getPlayer(nickname);
+    adapter.destroy();
+
+    expect(result).toMatchObject({
+      status: "ready",
+      data: { id: playerId, nickname },
+    });
+    const events = record.mock.calls.map(([event]) => event as Record<string, unknown>);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        component: "bridge",
+        event: "bridge.request",
+        operation: "player",
+        status: "loading",
+      }),
+      expect.objectContaining({
+        component: "bridge",
+        event: "bridge.response",
+        operation: "player",
+        status: "ready",
+        durationMs: expect.any(Number),
+      }),
+    ]));
+    for (const event of events) expectPrivacySafeDebugEvent(event, [nickname, playerId]);
   });
 });

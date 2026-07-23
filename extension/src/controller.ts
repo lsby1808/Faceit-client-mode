@@ -13,7 +13,9 @@ import {
 import { VisibleDomAutomationRunner } from "./automations";
 import { FaceitBridgeAdapter } from "./bridge-client";
 import { BUILT_IN_CAPABILITIES, loadCompatibility, type Capabilities, type CompatibilityStatus } from "./compatibility";
+import { debugLog, type DebugStatus } from "./debug-log";
 import { observeScopedDom } from "./dom";
+import type { InlineMatchRenderResult } from "./inline-match";
 import { isSelectedMapVisible, QuickPositionSender, visibleSelectedMap } from "./positions";
 import { MAIN_SOURCE, PROTOCOL_VERSION, type MainMessage } from "./protocol";
 import { parseFaceitRoute, type FaceitRoute } from "./routes";
@@ -44,6 +46,13 @@ export function shouldRetryMatchBootstrap(state: DataState<MatchContext>): boole
   return state.error.retryable
     || state.error.code === "upstream"
     || state.error.code === "upstream-shape";
+}
+
+function stateStatus(state: DataState<unknown>): DebugStatus {
+  if (state.status === "ready") return "ready";
+  if (state.status === "restricted") return "restricted";
+  if (state.status === "loading") return "loading";
+  return "error";
 }
 
 export function routeIdentity(route: FaceitRoute): string {
@@ -78,6 +87,9 @@ export class EloScopeController {
   #routeRevision = 0;
   #matchRetryTimer: number | undefined;
   #matchRetryAttempt = 0;
+  #lastAutomationSignature = "";
+  #lastRenderSignature = "";
+  #lastNativeRenderSignature = "";
   #stopObserver: (() => void) | undefined;
   #destroyed = false;
   readonly #lifecycle = new AbortController();
@@ -86,6 +98,12 @@ export class EloScopeController {
 
   async start(): Promise<void> {
     if (this.#destroyed) return;
+    debugLog.record({
+      component: "controller",
+      event: "controller.start",
+      route: this.#route.kind,
+      status: "started",
+    });
     this.#settings = await loadSettings();
     if (this.#destroyed) return;
     this.#overlay = new EloScopeOverlay(this.#settings, {
@@ -103,15 +121,48 @@ export class EloScopeController {
         void this.navigate(location.pathname);
       },
       onPositionSend: async (map, message, mode) => {
-        if (this.#destroyed || this.#route.kind !== "match" || !this.#capabilities.quickPositions) return "chat-unavailable";
+        if (this.#destroyed || this.#route.kind !== "match" || !this.#capabilities.quickPositions) {
+          debugLog.record({
+            component: "position",
+            event: "position.result",
+            route: this.#route.kind,
+            mode,
+            status: "chat-unavailable",
+          });
+          return "chat-unavailable";
+        }
         const position = positionForMap(this.#settings, map);
         if (
           !this.#currentMatch?.selectedMap ||
           this.#currentMatch.selectedMap.toLowerCase() !== map.toLowerCase() ||
           !position?.enabled ||
           !isSelectedMapVisible(document, map)
-        ) return "chat-unavailable";
-        return this.#positionSender.send(document, this.#route.matchId, map, message, mode, this.#lifecycle.signal);
+        ) {
+          debugLog.record({
+            component: "position",
+            event: "position.result",
+            route: this.#route.kind,
+            mode,
+            status: "chat-unavailable",
+          });
+          return "chat-unavailable";
+        }
+        const result = await this.#positionSender.send(
+          document,
+          this.#route.matchId,
+          map,
+          message,
+          mode,
+          this.#lifecycle.signal,
+        );
+        debugLog.record({
+          component: "position",
+          event: "position.result",
+          route: this.#route.kind,
+          mode,
+          status: result,
+        });
+        return result;
       }
     });
 
@@ -120,14 +171,33 @@ export class EloScopeController {
     this.#capabilities = compatibility.capabilities;
     this.#compatibilityStatus = compatibility.status;
     this.#overlay.setCompatibility(this.#compatibilityStatus);
+    debugLog.record({
+      component: "controller",
+      event: "controller.compatibility",
+      route: this.#route.kind,
+      status: this.#compatibilityStatus,
+      count: Object.values(this.#capabilities).filter(Boolean).length,
+      total: Object.keys(this.#capabilities).length,
+    });
 
     window.addEventListener("message", this.#routeMessage);
     this.#stopObserver = observeScopedDom(() => { void this.#handleDomMutation(); });
     await this.navigate(location.pathname);
+    debugLog.record({
+      component: "controller",
+      event: "controller.ready",
+      route: this.#route.kind,
+      status: "ready",
+    });
   }
 
   destroy(): void {
     if (this.#destroyed) return;
+    debugLog.record({
+      component: "controller",
+      event: "controller.destroy",
+      route: this.#route.kind,
+    });
     this.#destroyed = true;
     this.#lifecycle.abort();
     this.#routeRevision += 1;
@@ -158,10 +228,19 @@ export class EloScopeController {
     const nextRoute = parseFaceitRoute(pathname);
     const nextIdentity = routeIdentity(nextRoute);
     this.#route = nextRoute;
+    debugLog.record({
+      component: "controller",
+      event: "controller.navigate",
+      route: nextRoute.kind,
+      revision,
+    });
     if (nextIdentity !== this.#routeIdentity) {
       this.#currentTierPlayer = undefined;
       this.#routeIdentity = nextIdentity;
       this.#automations.resetForRoute();
+      this.#lastAutomationSignature = "";
+      this.#lastRenderSignature = "";
+      this.#lastNativeRenderSignature = "";
       if (nextRoute.kind === "match") {
         this.#currentMatch = undefined;
         this.#currentPlayerMatches.clear();
@@ -209,7 +288,16 @@ export class EloScopeController {
         } else await this.#loadProfileTier(this.#route.nickname, false, revision);
         break;
       case "match":
-        if (!this.#capabilities.matchRoom) this.#overlay.hideRoutePanels();
+        if (!this.#capabilities.matchRoom) {
+          debugLog.record({
+            component: "controller",
+            event: "controller.load",
+            route: this.#route.kind,
+            operation: "match",
+            status: "disabled",
+          });
+          this.#overlay.hideRoutePanels();
+        }
         else await this.#loadMatch(
           this.#route.matchId,
           revision,
@@ -234,9 +322,19 @@ export class EloScopeController {
       () => this.#adapter.getPlayer(viewerState.data.nickname),
       CACHE_TTLS.playerStats,
     );
+    debugLog.record({
+      component: "controller",
+      event: "controller.load",
+      route: this.#route.kind,
+      operation: "player",
+      status: stateStatus(playerState),
+    });
     if (!this.#isCurrent(revision) || playerState.status !== "ready" || !playerState.data) return;
     this.#currentTierPlayer = playerState.data;
-    this.#overlay.showMatchmakingTier(playerState.data);
+    this.#recordNativeRender(
+      "render.matchmaking",
+      this.#overlay.showMatchmakingTier(playerState.data),
+    );
   }
 
   async #loadProfileTier(
@@ -251,10 +349,20 @@ export class EloScopeController {
       () => this.#adapter.getPlayer(nickname),
       CACHE_TTLS.playerStats
     );
+    debugLog.record({
+      component: "controller",
+      event: "controller.load",
+      route: this.#route.kind,
+      operation: "player",
+      status: stateStatus(playerState),
+    });
     if (!this.#isCurrent(revision)) return;
     if (playerState.status !== "ready" || !playerState.data) return;
     this.#currentTierPlayer = playerState.data;
-    this.#overlay.showProfileTier(playerState.data, includeProgressRail);
+    this.#recordNativeRender(
+      "render.profile",
+      this.#overlay.showProfileTier(playerState.data, includeProgressRail),
+    );
     await this.#snapshots.recordPlayer(playerState.data);
   }
 
@@ -266,6 +374,16 @@ export class EloScopeController {
       CACHE_TTLS.activeMatch
     );
     if (!this.#isCurrent(revision)) return;
+    debugLog.record({
+      component: "controller",
+      event: "controller.load",
+      route: this.#route.kind,
+      operation: "match",
+      status: stateStatus(matchState),
+      count: matchState.status === "ready"
+        ? matchState.data.teams.flatMap((team) => team.players).length
+        : 0,
+    });
     if (matchState.status !== "ready" || !matchState.data) {
       if (shouldRetryMatchBootstrap(matchState)) this.#scheduleMatchRetry(matchId, revision);
       return;
@@ -296,12 +414,19 @@ export class EloScopeController {
       await this.#maybeSendAutomaticPosition();
       return;
     }
-    void this.#loadMatchViewerTeam(match, revision).catch(() => undefined);
+    void this.#loadMatchViewerTeam(match, revision).catch(() => {
+      this.#recordControllerError();
+    });
 
     const cachedMapStats = this.#cachedPlayerMapStats(players);
     this.#currentPlayerMatches = new Map();
     this.#currentPlayerMapStats = cachedMapStats;
-    this.#overlay.showMatch(match, this.#currentPlayerMatches, cachedMapStats, this.#currentViewerTeamId);
+    this.#recordRender(this.#overlay.showMatch(
+      match,
+      this.#currentPlayerMatches,
+      cachedMapStats,
+      this.#currentViewerTeamId,
+    ));
 
     const states = await Promise.all(players.map(async (player) => [
       player.id,
@@ -321,11 +446,13 @@ export class EloScopeController {
     ] as const));
     if (!this.#isCurrent(revision)) return;
     const matches = new Map<string, PlayerMatch[]>();
+    let readyMatchHistories = 0;
     for (const [playerId, matchesState] of states) {
       if (matchesState.status !== "ready") {
         matches.set(playerId, []);
         continue;
       }
+      readyMatchHistories += 1;
       const hydrated = await this.#snapshots.hydrateMatchElos(playerId, matchesState.data);
       if (!this.#isCurrent(revision)) return;
       await this.#snapshots.rememberMatchElos(playerId, hydrated);
@@ -336,8 +463,24 @@ export class EloScopeController {
     const mapStats = this.#cachedPlayerMapStats(players);
     this.#currentPlayerMatches = matches;
     this.#currentPlayerMapStats = mapStats;
-    this.#overlay.showMatch(match, matches, mapStats, this.#currentViewerTeamId);
-    void this.#loadPlayerMapStats(match, players, revision).catch(() => undefined);
+    debugLog.record({
+      component: "controller",
+      event: "controller.load",
+      route: this.#route.kind,
+      operation: "recentMatches",
+      status: readyMatchHistories === players.length ? "ready" : "error",
+      count: readyMatchHistories,
+      total: players.length,
+    });
+    this.#recordRender(this.#overlay.showMatch(
+      match,
+      matches,
+      mapStats,
+      this.#currentViewerTeamId,
+    ));
+    void this.#loadPlayerMapStats(match, players, revision).catch(() => {
+      this.#recordControllerError();
+    });
     await this.#maybeSendAutomaticPosition();
   }
 
@@ -361,12 +504,12 @@ export class EloScopeController {
       ? viewerTeamIdForMatch(match, viewerState.data)
       : undefined;
     if (this.#settings.interfaceVisibility.matchRoom && this.#currentPlayerMatches.size > 0) {
-      this.#overlay.syncMatchInline(
+      this.#recordRender(this.#overlay.syncMatchInline(
         this.#currentMatch,
         this.#currentPlayerMatches,
         this.#currentPlayerMapStats,
         this.#currentViewerTeamId,
-      );
+      ));
     }
   }
 
@@ -379,17 +522,30 @@ export class EloScopeController {
     if (!this.#isCurrent(revision) || currentMatch?.id !== match.id) return;
 
     const mapStats = new Map<string, PlayerMapStats[]>();
+    let readyMapStats = 0;
     for (const [playerId, state] of states) {
-      if (state.status === "ready") mapStats.set(playerId, state.data);
+      if (state.status === "ready") {
+        mapStats.set(playerId, state.data);
+        readyMapStats += 1;
+      }
     }
     this.#currentPlayerMapStats = mapStats;
+    debugLog.record({
+      component: "controller",
+      event: "controller.load",
+      route: this.#route.kind,
+      operation: "playerMapStats",
+      status: readyMapStats === players.length ? "ready" : "error",
+      count: readyMapStats,
+      total: players.length,
+    });
     if (this.#settings.interfaceVisibility.matchRoom) {
-      this.#overlay.syncMatchInline(
+      this.#recordRender(this.#overlay.syncMatchInline(
         currentMatch,
         this.#currentPlayerMatches,
         mapStats,
         this.#currentViewerTeamId,
-      );
+      ));
     }
   }
 
@@ -442,6 +598,15 @@ export class EloScopeController {
 
     const delay = MATCH_BOOTSTRAP_RETRY_DELAYS[this.#matchRetryAttempt] as number;
     this.#matchRetryAttempt += 1;
+    debugLog.record({
+      level: "warn",
+      component: "controller",
+      event: "controller.retry",
+      route: this.#route.kind,
+      operation: "match",
+      attempt: this.#matchRetryAttempt,
+      delayMs: delay,
+    });
     this.#matchRetryTimer = window.setTimeout(() => {
       this.#matchRetryTimer = undefined;
       if (
@@ -456,6 +621,7 @@ export class EloScopeController {
         revision,
         this.#settings.interfaceVisibility.matchRoom,
       ).catch(() => {
+        this.#recordControllerError();
         this.#scheduleMatchRetry(matchId, revision);
       });
     }, delay);
@@ -472,26 +638,42 @@ export class EloScopeController {
     this.#runAutomations();
     if (this.#route.kind === "profile") {
       if (this.#currentTierPlayer) {
-        this.#overlay.syncProfileTier(this.#currentTierPlayer, /\/cs2\/stats\/?$/u.test(location.pathname));
+        this.#recordNativeRender(
+          "render.profile",
+          this.#overlay.syncProfileTier(
+            this.#currentTierPlayer,
+            /\/cs2\/stats\/?$/u.test(location.pathname),
+          ),
+        );
       }
       return;
     }
     if (this.#route.kind === "history") {
-      if (this.#currentTierPlayer) this.#overlay.syncProfileTier(this.#currentTierPlayer, false);
+      if (this.#currentTierPlayer) {
+        this.#recordNativeRender(
+          "render.profile",
+          this.#overlay.syncProfileTier(this.#currentTierPlayer, false),
+        );
+      }
       return;
     }
     if (this.#route.kind === "matchmaking") {
-      if (this.#currentTierPlayer) this.#overlay.syncMatchmakingTier(this.#currentTierPlayer);
+      if (this.#currentTierPlayer) {
+        this.#recordNativeRender(
+          "render.matchmaking",
+          this.#overlay.syncMatchmakingTier(this.#currentTierPlayer),
+        );
+      }
       return;
     }
     if (this.#route.kind !== "match" || !this.#currentMatch) return;
     if (this.#settings.interfaceVisibility.matchRoom) {
-      this.#overlay.syncMatchInline(
+      this.#recordRender(this.#overlay.syncMatchInline(
         this.#currentMatch,
         this.#currentPlayerMatches,
         this.#currentPlayerMapStats,
         this.#currentViewerTeamId,
-      );
+      ));
     }
     const selected = visibleSelectedMap(document);
     if (!selected) return;
@@ -508,12 +690,12 @@ export class EloScopeController {
     };
     this.#publishMapPool(this.#currentMatch.mapPool);
     if (this.#settings.interfaceVisibility.matchRoom) {
-      this.#overlay.showMatch(
+      this.#recordRender(this.#overlay.showMatch(
         this.#currentMatch,
         this.#currentPlayerMatches,
         this.#currentPlayerMapStats,
         this.#currentViewerTeamId,
-      );
+      ));
     }
     await this.#maybeSendAutomaticPosition();
   }
@@ -531,7 +713,7 @@ export class EloScopeController {
     ) return;
     const position = positionForMap(this.#settings, selected);
     if (position?.enabled && position.mode === "auto") {
-      await this.#positionSender.send(
+      const result = await this.#positionSender.send(
         document,
         this.#currentMatch?.id ?? "",
         selected,
@@ -539,12 +721,101 @@ export class EloScopeController {
         "auto",
         this.#lifecycle.signal
       );
+      debugLog.record({
+        component: "position",
+        event: "position.result",
+        route: this.#route.kind,
+        mode: "auto",
+        status: result,
+      });
     }
   }
 
   #runAutomations(): void {
     if (this.#destroyed) return;
-    this.#automations.run(document, this.#route, this.#settings.automations, this.#capabilities);
+    const result = this.#automations.run(
+      document,
+      this.#route,
+      this.#settings.automations,
+      this.#capabilities,
+    );
+    if (!result) {
+      this.#recordControllerError();
+      return;
+    }
+    const signature = `${result.action ?? "none"}:${result.clicked}:${result.reason ?? ""}`;
+    if (!result.action && !result.reason) {
+      this.#lastAutomationSignature = "";
+      return;
+    }
+    if (!result.clicked && signature === this.#lastAutomationSignature) return;
+    this.#lastAutomationSignature = signature;
+    debugLog.record({
+      component: "automation",
+      event: "automation.result",
+      route: this.#route.kind,
+      ...(result.action ? { action: result.action } : {}),
+      status: result.clicked ? "clicked" : "skipped",
+      ...(result.reason === "not-an-unambiguous-match-room"
+        ? { reason: result.reason }
+        : {}),
+    });
+  }
+
+  #recordNativeRender(
+    event: "render.matchmaking" | "render.profile",
+    mounted: number | undefined,
+  ): void {
+    const count = typeof mounted === "number" && Number.isFinite(mounted)
+      ? Math.max(0, Math.round(mounted))
+      : 0;
+    const signature = `${event}:${count}`;
+    if (signature === this.#lastNativeRenderSignature) return;
+    this.#lastNativeRenderSignature = signature;
+    debugLog.record({
+      level: count > 0 ? "info" : "warn",
+      component: "render",
+      event,
+      route: this.#route.kind,
+      status: count > 0 ? "rendered" : "incompatible",
+      count,
+    });
+  }
+
+  #recordRender(result: InlineMatchRenderResult | undefined): void {
+    if (!result) {
+      this.#recordControllerError();
+      return;
+    }
+    const signature = result.status === "rendered"
+      ? `${result.status}:${result.players}:${result.teams}:${result.updated}`
+      : `${result.status}:${result.reason}`;
+    if (signature === this.#lastRenderSignature) return;
+    this.#lastRenderSignature = signature;
+    debugLog.record({
+      level: result.status === "rendered" ? "info" : "warn",
+      component: "render",
+      event: "render.match",
+      route: this.#route.kind,
+      status: result.status,
+      ...(result.status === "rendered"
+        ? {
+            count: result.players,
+            total: result.teams,
+            updated: result.updated,
+          }
+        : { reason: result.reason }),
+    });
+  }
+
+  #recordControllerError(): void {
+    debugLog.record({
+      level: "error",
+      component: "controller",
+      event: "controller.error",
+      route: this.#route.kind,
+      errorCode: "controller",
+    });
   }
 
   #isCurrent(revision: number): boolean {
@@ -552,6 +823,12 @@ export class EloScopeController {
   }
 
   #publishMapPool(mapIds: readonly MapId[]): void {
+    debugLog.record({
+      component: "controller",
+      event: "controller.map-pool",
+      route: this.#route.kind,
+      count: new Set(mapIds).size,
+    });
     try {
       this.options.onMapPoolChange?.([...new Set(mapIds)]);
     } catch {

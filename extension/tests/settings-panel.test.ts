@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   EloScopeSettingsPanel,
   discoverVisibleMapIds,
-  SETTINGS_PANEL_HOST_ID
+  SETTINGS_PANEL_HOST_ID,
+  type DiagnosticsPanelPort
 } from "../src/settings-panel";
 import { loadSettings } from "../src/settings";
 
@@ -19,6 +20,18 @@ function change(element: HTMLInputElement | HTMLSelectElement, value: string | b
   if (typeof value === "boolean" && element instanceof HTMLInputElement) element.checked = value;
   else element.value = String(value);
   element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+}
+
+function diagnosticsPort(
+  overrides: Partial<DiagnosticsPanelPort> = {}
+): DiagnosticsPanelPort {
+  return {
+    getSummary: async () => ({ eventCount: 0 }),
+    copyToClipboard: async () => 0,
+    saveToFile: async () => "saved",
+    clear: async () => undefined,
+    ...overrides
+  };
 }
 
 afterEach(() => {
@@ -254,10 +267,111 @@ describe("EloScope settings panel", () => {
       composed: true
     }));
     await vi.waitFor(() => {
-      expect(panel.shadow.querySelector('[role="status"]')?.textContent).toContain("Не удалось");
+      expect(panel.shadow.querySelector(".es-settings-status")?.textContent).toContain("Не удалось");
     });
     expect(panel.isOpen).toBe(true);
     expect(panel.shadow.activeElement).toBe(panel.shadow.querySelector('button[type="submit"]'));
     storageSpy.mockRestore();
+  });
+
+  it("shows the local redacted diagnostic summary and copies it without closing", async () => {
+    const getSummary = vi.fn(async () => ({
+      eventCount: 12,
+      oldestAt: Date.UTC(2026, 6, 20, 10),
+      newestAt: Date.UTC(2026, 6, 23, 12)
+    }));
+    const copyToClipboard = vi.fn(async () => 12);
+    const panel = createPanel({
+      diagnostics: diagnosticsPort({ getSummary, copyToClipboard })
+    });
+    await panel.open();
+
+    const summary = panel.shadow.querySelector<HTMLElement>('[data-testid="debug-log-summary"]')!;
+    await vi.waitFor(() => expect(summary.textContent).toContain("12 событий"));
+    expect(panel.shadow.textContent).toContain("Локальный журнал действий");
+    expect(panel.shadow.textContent).toContain("до 7 дней");
+    expect(panel.shadow.textContent).toContain("чувствительные значения и токены удаляются");
+
+    const copy = panel.shadow.querySelector<HTMLButtonElement>('[data-testid="debug-log-copy"]')!;
+    const save = panel.shadow.querySelector<HTMLButtonElement>('[data-testid="debug-log-save"]')!;
+    const clear = panel.shadow.querySelector<HTMLButtonElement>('[data-testid="debug-log-clear"]')!;
+    expect([copy.type, save.type, clear.type]).toEqual(["button", "button", "button"]);
+
+    copy.click();
+    await vi.waitFor(() => {
+      expect(panel.shadow.querySelector('[data-testid="debug-log-status"]')?.textContent)
+        .toBe("Скопировано событий: 12");
+    });
+    expect(copyToClipboard).toHaveBeenCalledOnce();
+    expect(panel.isOpen).toBe(true);
+  });
+
+  it("reports diagnostic summary and copy failures without closing settings", async () => {
+    const copyToClipboard = vi.fn(async (): Promise<number> => {
+      throw new Error("clipboard");
+    });
+    const panel = createPanel({
+      diagnostics: diagnosticsPort({
+        getSummary: async () => {
+          throw new Error("storage");
+        },
+        copyToClipboard
+      })
+    });
+    await panel.open();
+
+    await vi.waitFor(() => {
+      expect(panel.shadow.querySelector('[data-testid="debug-log-summary"]')?.textContent)
+        .toBe("Не удалось загрузить сводку журнала");
+    });
+    panel.shadow.querySelector<HTMLButtonElement>('[data-testid="debug-log-copy"]')?.click();
+    await vi.waitFor(() => {
+      const status = panel.shadow.querySelector<HTMLElement>('[data-testid="debug-log-status"]');
+      expect(status?.textContent).toBe("Не удалось скопировать журнал");
+      expect(status?.dataset.error).toBe("true");
+    });
+    expect(panel.isOpen).toBe(true);
+  });
+
+  it("saves diagnostics and reports the clipboard fallback", async () => {
+    const outcomes: Array<"saved" | "copied"> = ["saved", "copied"];
+    const saveToFile = vi.fn(async (): Promise<"saved" | "copied"> => outcomes.shift() ?? "saved");
+    const panel = createPanel({
+      diagnostics: diagnosticsPort({ saveToFile })
+    });
+    await panel.open();
+
+    const save = panel.shadow.querySelector<HTMLButtonElement>('[data-testid="debug-log-save"]')!;
+    const status = panel.shadow.querySelector<HTMLElement>('[data-testid="debug-log-status"]')!;
+    save.click();
+    await vi.waitFor(() => expect(status.textContent).toBe("Файл диагностики сохранён"));
+    save.click();
+    await vi.waitFor(() => {
+      expect(status.textContent).toBe("Сохранение файла недоступно — журнал скопирован");
+    });
+    expect(saveToFile).toHaveBeenCalledTimes(2);
+    expect(panel.isOpen).toBe(true);
+  });
+
+  it("clears diagnostics and refreshes the visible summary", async () => {
+    const clear = vi.fn(async () => undefined);
+    const panel = createPanel({
+      diagnostics: diagnosticsPort({
+        getSummary: async () => ({ eventCount: 4, newestAt: Date.UTC(2026, 6, 23, 12) }),
+        clear
+      })
+    });
+    await panel.open();
+
+    const summary = panel.shadow.querySelector<HTMLElement>('[data-testid="debug-log-summary"]')!;
+    await vi.waitFor(() => expect(summary.textContent).toContain("4 событий"));
+    panel.shadow.querySelector<HTMLButtonElement>('[data-testid="debug-log-clear"]')?.click();
+    await vi.waitFor(() => {
+      expect(summary.textContent).toBe("Событий пока нет");
+      expect(panel.shadow.querySelector('[data-testid="debug-log-status"]')?.textContent)
+        .toBe("Журнал очищен");
+    });
+    expect(clear).toHaveBeenCalledOnce();
+    expect(panel.isOpen).toBe(true);
   });
 });
