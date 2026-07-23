@@ -35,6 +35,12 @@ function requestedWindow(...windows: readonly StatsWindow[]): StatsWindow {
   return Math.max(30, ...windows) as StatsWindow;
 }
 
+function profileRequestWindow(window: StatsWindow): StatsWindow {
+  if (window <= 20) return 30;
+  if (window === 30) return 50;
+  return 100;
+}
+
 const AUTOMATIC_POSITION_MATCH_STATES = new Set(["voting", "configuring", "ready"]);
 const MATCH_BOOTSTRAP_RETRY_DELAYS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000] as const;
 
@@ -338,6 +344,7 @@ export class EloScopeController {
           this.#route.matchId,
           revision,
           this.#settings.interfaceVisibility.matchRoom
+            || this.#settings.interfaceVisibility.quickPositionsPanel
         );
         break;
     }
@@ -409,11 +416,12 @@ export class EloScopeController {
 
     this.#currentProfileMatches = loadingState<PlayerMatch[]>();
     this.#overlay.showProfileStats(playerState.data, this.#currentProfileMatches);
+    const requestWindow = profileRequestWindow(this.#settings.profileStatsWindow);
     const matchesState = await this.#cached<PlayerMatch[]>(
-      `matches:${playerState.data.id}:30`,
-      // Fetch a small buffer so duplicate or ineligible upstream rows do not
-      // silently shrink the truthful newest-20 sample rendered by the model.
-      () => this.#adapter.getRecentMatches(playerState.data.id, 30),
+      `matches:${playerState.data.id}:${requestWindow}`,
+      // Fetch a bounded buffer where possible so duplicate or ineligible
+      // upstream rows do not silently shrink the requested truthful sample.
+      () => this.#adapter.getRecentMatches(playerState.data.id, requestWindow),
       CACHE_TTLS.playerStats,
     );
     if (!this.#isCurrent(revision) || this.#route.kind !== "profile" || this.#route.section !== "summary") {
@@ -469,6 +477,22 @@ export class EloScopeController {
     this.#currentMatch = match;
     this.#publishMapPool(match.mapPool);
     if (match.status === "finished") this.#cache.set(`match:${matchId}`, matchState, CACHE_TTLS.finishedMatch);
+    // Recent player histories are shared by the match-room enhancements below.
+    // Do not start the fairly expensive room requests when none of their
+    // consumers are enabled. In particular, selected-map wins are rendered by
+    // the map-win-rate chart, so they do not make sense as an independent
+    // history consumer when that chart is disabled.
+    const needsPlayerHistories = this.#settings.showPlayerStats
+      || this.#settings.showPlayerFormBattery
+      || this.#settings.showPlayerRoles
+      || this.#settings.showPlayerStreak
+      || this.#settings.showPlayerEncounters
+      || this.#settings.showTeamSummary
+      || this.#settings.showMapWinRates;
+    // Lifetime map totals are currently only displayed in the player stats
+    // card. The map-win-rate chart derives its recent map data from histories.
+    const needsPlayerMapStats = this.#settings.showPlayerStats;
+    const needsViewer = this.#settings.showPlayerEncounters;
     // Encounter indicators compare the viewer with every room player. Keep
     // the bounded bridge contract honest by loading its largest supported
     // window instead of presenting a smaller sample as lifetime history.
@@ -486,6 +510,14 @@ export class EloScopeController {
       await this.#maybeSendAutomaticPosition();
       return;
     }
+    if (!this.#settings.interfaceVisibility.matchRoom) {
+      this.#currentPlayerMatches.clear();
+      this.#currentEncounterMatches.clear();
+      this.#currentPlayerMapStats.clear();
+      this.#overlay.showPositions(match);
+      await this.#maybeSendAutomaticPosition();
+      return;
+    }
     // A same-room refresh can follow logout/login or a settings save without a
     // route-identity change. Remove personalized context before the first
     // render so badges from a previous viewer cannot survive while GET /viewer
@@ -493,11 +525,15 @@ export class EloScopeController {
     this.#currentViewerId = undefined;
     this.#currentViewerTeamId = undefined;
     this.#currentViewerMatches = undefined;
-    void this.#loadMatchViewerTeam(match, revision).catch(() => {
-      this.#recordControllerError();
-    });
+    if (needsViewer) {
+      void this.#loadMatchViewerTeam(match, revision).catch(() => {
+        this.#recordControllerError();
+      });
+    }
 
-    const cachedMapStats = this.#cachedPlayerMapStats(players);
+    const cachedMapStats = needsPlayerMapStats
+      ? this.#cachedPlayerMapStats(players)
+      : new Map<string, PlayerMapStats[]>();
     this.#currentPlayerMatches = new Map();
     this.#currentEncounterMatches = new Map();
     this.#currentPlayerMapStats = cachedMapStats;
@@ -508,6 +544,11 @@ export class EloScopeController {
       this.#currentViewerTeamId,
       this.#matchViewerContext(),
     ));
+
+    if (!needsPlayerHistories) {
+      await this.#maybeSendAutomaticPosition();
+      return;
+    }
 
     const states = await Promise.all(players.map(async (player) => [
       player.id,
@@ -544,7 +585,9 @@ export class EloScopeController {
       matches.set(playerId, hydrated);
     }
     if (!this.#isCurrent(revision)) return;
-    const mapStats = this.#cachedPlayerMapStats(players);
+    const mapStats = needsPlayerMapStats
+      ? this.#cachedPlayerMapStats(players)
+      : new Map<string, PlayerMapStats[]>();
     this.#currentPlayerMatches = matches;
     this.#currentEncounterMatches = encounterMatches;
     this.#currentPlayerMapStats = mapStats;
@@ -564,9 +607,11 @@ export class EloScopeController {
       this.#currentViewerTeamId,
       this.#matchViewerContext(),
     ));
-    void this.#loadPlayerMapStats(match, players, revision).catch(() => {
-      this.#recordControllerError();
-    });
+    if (needsPlayerMapStats) {
+      void this.#loadPlayerMapStats(match, players, revision).catch(() => {
+        this.#recordControllerError();
+      });
+    }
     await this.#maybeSendAutomaticPosition();
   }
 

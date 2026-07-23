@@ -3,6 +3,7 @@ import {
   eligibleMatches,
   type PlayerMatch,
   type PlayerRoleAnalysis,
+  type StatsWindow,
 } from "@eloscope/core";
 
 export const PROFILE_STATS_MATCH_WINDOW = 20 as const;
@@ -51,7 +52,7 @@ export interface ProfileStatsMapRow {
  * are omitted because the current FACEIT read adapter does not expose them.
  */
 export interface ProfileStatsModel {
-  readonly window: typeof PROFILE_STATS_MATCH_WINDOW;
+  readonly window: StatsWindow;
   readonly sampleSize: number;
   readonly wins: number;
   readonly losses: number;
@@ -89,7 +90,10 @@ const percent = (numerator: number, denominator: number): number | null => {
   return ratio === null ? null : ratio * 100;
 };
 
-const uniqueRecentMatches = (matches: readonly PlayerMatch[]): PlayerMatch[] => {
+const uniqueRecentMatches = (
+  matches: readonly PlayerMatch[],
+  window: StatsWindow,
+): PlayerMatch[] => {
   const selected: PlayerMatch[] = [];
   const seen = new Set<string>();
 
@@ -97,7 +101,7 @@ const uniqueRecentMatches = (matches: readonly PlayerMatch[]): PlayerMatch[] => 
     if (seen.has(match.id)) continue;
     seen.add(match.id);
     selected.push(match);
-    if (selected.length === PROFILE_STATS_MATCH_WINDOW) break;
+    if (selected.length === window) break;
   }
 
   return selected;
@@ -163,8 +167,9 @@ const buildMapRows = (matches: readonly PlayerMatch[]): ProfileStatsMapRow[] => 
 
 export const buildProfileStatsModel = (
   matches: readonly PlayerMatch[],
+  window: StatsWindow = PROFILE_STATS_MATCH_WINDOW,
 ): ProfileStatsModel => {
-  const selected = uniqueRecentMatches(matches);
+  const selected = uniqueRecentMatches(matches, window);
   const totals = emptyTotals();
   let headshotRounds = 0;
   let headshotMatches = 0;
@@ -191,7 +196,7 @@ export const buildProfileStatsModel = (
   }
 
   return {
-    window: PROFILE_STATS_MATCH_WINDOW,
+    window,
     sampleSize: totals.matches,
     wins: totals.wins,
     losses: totals.matches - totals.wins,

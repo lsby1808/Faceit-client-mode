@@ -19,6 +19,8 @@ describe("interface visibility", () => {
     expect(isOverlayVisibleForPath(settings, "/en/players/player")).toBe(false);
     expect(isOverlayVisibleForPath(settings, "/en/players/player/cs2/history")).toBe(false);
     expect(isOverlayVisibleForPath(settings, "/en/cs2/room/11111111-2222-3333-4444-555555555555")).toBe(false);
+    settings.interfaceVisibility.quickPositionsPanel = true;
+    expect(isOverlayVisibleForPath(settings, "/en/cs2/room/11111111-2222-3333-4444-555555555555")).toBe(true);
     expect(isOverlayVisibleForPath(settings, "/en/login")).toBe(true);
   });
 

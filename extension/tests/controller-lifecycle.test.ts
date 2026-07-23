@@ -593,6 +593,57 @@ describe("controller lifecycle", () => {
     },
   );
 
+  it("skips room data requests when every data-dependent match enhancement is disabled", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    settings.showPlayerStats = false;
+    settings.showPlayerFormBattery = false;
+    settings.showPlayerRoles = false;
+    settings.showPlayerEncounters = false;
+    settings.showPlayerStreak = false;
+    settings.showTeamSummary = false;
+    settings.showMapWinRates = false;
+    // Selected-map wins are part of the map-win-rate chart, not a separate
+    // reason to fetch match-room data.
+    settings.showSelectedMapWins = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    state.viewerRequested.mockClear();
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+    expect(state.recentMatchesRequested).not.toHaveBeenCalled();
+    expect(state.mapStatsRequested).not.toHaveBeenCalled();
+    expect(state.viewerRequested).not.toHaveBeenCalled();
+    controller.destroy();
+  });
+
+  it("loads only the data required by the enabled map-win-rate chart", async () => {
+    const settings = createDefaultSettings();
+    settings.interfaceVisibility.matchRoom = true;
+    settings.showPlayerStats = false;
+    settings.showPlayerFormBattery = false;
+    settings.showPlayerRoles = false;
+    settings.showPlayerEncounters = false;
+    settings.showPlayerStreak = false;
+    settings.showTeamSummary = false;
+    settings.showMapWinRates = true;
+    await saveSettings(settings);
+    const controller = new EloScopeController();
+    await controller.start();
+    state.mode = "match";
+    state.viewerRequested.mockClear();
+
+    await controller.navigate(`/ru/cs2/room/${state.match.id}`);
+
+    expect(state.recentMatchesRequested).toHaveBeenCalledTimes(2);
+    expect(state.mapStatsRequested).not.toHaveBeenCalled();
+    expect(state.viewerRequested).not.toHaveBeenCalled();
+    controller.destroy();
+  });
+
   it("retries a transient bootstrap failure for a newly-created room without caching the error", async () => {
     vi.useFakeTimers();
     try {

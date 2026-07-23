@@ -22,6 +22,51 @@ const DIALOG_ID = "eloscope-settings-dialog";
 const TITLE_ID = "eloscope-settings-title";
 const DESCRIPTION_ID = "eloscope-settings-description";
 
+type SettingsSectionId =
+  | "general"
+  | "match-room"
+  | "automations"
+  | "positions"
+  | "diagnostics";
+
+const SETTINGS_SECTIONS: ReadonlyArray<Readonly<{
+  id: SettingsSectionId;
+  icon: string;
+  title: string;
+  description: string;
+}>> = [
+  {
+    id: "general",
+    icon: "⌂",
+    title: "Общие",
+    description: "Данные, профиль и уровни",
+  },
+  {
+    id: "match-room",
+    icon: "◎",
+    title: "Матч-комната",
+    description: "Игроки, команды и карты",
+  },
+  {
+    id: "automations",
+    icon: "⚡",
+    title: "Автоматизации",
+    description: "Ready-up, veto и connect",
+  },
+  {
+    id: "positions",
+    icon: "✦",
+    title: "Быстрые позиции",
+    description: "Сообщения для каждой карты",
+  },
+  {
+    id: "diagnostics",
+    icon: "≡",
+    title: "Диагностика",
+    description: "Локальный журнал действий",
+  },
+];
+
 const PANEL_STYLES = `
 :host {
   --es-settings-accent: #ff5b19;
@@ -91,31 +136,32 @@ textarea:focus-visible {
   backdrop-filter: blur(7px);
 }
 .es-settings-dialog {
-  width: min(860px, 100%);
-  max-height: min(860px, calc(100vh - 48px));
-  overflow: auto;
+  display: grid;
+  width: min(1060px, 100%);
+  height: min(790px, calc(100vh - 48px));
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
   overscroll-behavior: contain;
   color: var(--es-settings-text);
-  background: var(--es-settings-bg);
+  background:
+    radial-gradient(circle at 72% -20%, rgba(255, 91, 25, .11), transparent 36%),
+    var(--es-settings-bg);
   border: 1px solid var(--es-settings-line);
-  border-radius: 18px;
+  border-radius: 20px;
   box-shadow: 0 28px 90px rgba(0,0,0,.78);
 }
 .es-settings-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 14px;
-  padding: 17px 18px;
-  background: rgba(13,15,18,.97);
+  padding: 18px 20px;
+  background: rgba(13,15,18,.94);
   border-bottom: 1px solid var(--es-settings-line);
 }
-.es-settings-brand { display: grid; width: 37px; height: 37px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: var(--es-settings-accent); font-size: 17px; font-weight: 950; }
+.es-settings-brand { display: grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border-radius: 13px; background: linear-gradient(145deg, #ff7138, #e74809); box-shadow: 0 8px 20px rgba(255,91,25,.24); font-size: 18px; font-weight: 950; }
 .es-settings-heading { min-width: 0; flex: 1; }
-.es-settings-heading h2 { margin: 0; font-size: 18px; line-height: 1.25; }
-.es-settings-heading p { margin: 3px 0 0; color: var(--es-settings-muted); font-size: 12px; }
+.es-settings-heading h2 { margin: 0; font-size: 19px; line-height: 1.25; letter-spacing: -.015em; }
+.es-settings-heading p { margin: 4px 0 0; color: var(--es-settings-muted); font-size: 12px; }
 .es-settings-close {
   display: grid;
   width: 34px;
@@ -130,24 +176,131 @@ textarea:focus-visible {
   font-size: 22px;
   line-height: 1;
 }
-.es-settings-form { padding: 16px 18px 18px; }
-.es-settings-fieldset { min-width: 0; margin: 0 0 14px; padding: 0; border: 0; }
-.es-settings-legend { width: 100%; margin: 0 0 8px; color: #fff; font-size: 12px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
-.es-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.es-settings-form {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+.es-settings-workspace {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: 224px minmax(0, 1fr);
+}
+.es-settings-nav {
+  min-width: 0;
+  overflow: auto;
+  padding: 16px 12px;
+  background: rgba(8, 10, 13, .7);
+  border-right: 1px solid var(--es-settings-line);
+}
+.es-settings-nav-title {
+  margin: 0 9px 9px;
+  color: #777f8b;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.es-settings-nav-button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin: 3px 0;
+  padding: 10px;
+  color: #c9cfd7;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  transition: color .14s ease, background .14s ease, border-color .14s ease;
+}
+.es-settings-nav-button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, .045);
+}
+.es-settings-nav-button[aria-selected="true"] {
+  color: #fff;
+  background: linear-gradient(90deg, rgba(255,91,25,.18), rgba(255,91,25,.055));
+  border-color: rgba(255, 91, 25, .32);
+}
+.es-settings-nav-icon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: #c9cfd7;
+  background: #171b20;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 9px;
+  font-size: 15px;
+  font-weight: 900;
+}
+.es-settings-nav-button[aria-selected="true"] .es-settings-nav-icon {
+  color: #fff;
+  background: var(--es-settings-accent);
+  border-color: transparent;
+}
+.es-settings-nav-copy { min-width: 0; }
+.es-settings-nav-copy strong,
+.es-settings-nav-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.es-settings-nav-copy strong { font-size: 12px; }
+.es-settings-nav-copy small { margin-top: 2px; color: #858e9a; font-size: 10px; }
+.es-settings-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 22px 26px;
+}
+.es-settings-page[hidden] { display: none; }
+.es-settings-page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid rgba(255,255,255,.075);
+}
+.es-settings-page-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #ff9a6a;
+  background: rgba(255,91,25,.1);
+  border: 1px solid rgba(255,91,25,.25);
+  border-radius: 11px;
+  font-size: 18px;
+  font-weight: 900;
+}
+.es-settings-page-copy h3 { margin: 0; color: #fff; font-size: 17px; line-height: 1.25; }
+.es-settings-page-copy p { margin: 4px 0 0; color: var(--es-settings-muted); font-size: 11px; }
+.es-settings-fieldset { min-width: 0; margin: 0 0 18px; padding: 0; border: 0; }
+.es-settings-fieldset:last-child { margin-bottom: 0; }
+.es-settings-legend { width: 100%; margin: 0 0 9px; color: #d8dde4; font-size: 10px; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
+.es-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.es-settings-grid + .es-settings-grid { margin-top: 10px; }
 .es-settings-row,
 .es-settings-stack,
 .es-position-card {
   min-width: 0;
-  padding: 12px;
-  background: var(--es-settings-panel);
+  padding: 13px 14px;
+  background: linear-gradient(145deg, rgba(25,29,35,.98), rgba(19,22,27,.98));
   border: 1px solid var(--es-settings-line);
   border-radius: 12px;
 }
-.es-settings-row { display: flex; align-items: center; gap: 12px; }
+.es-settings-row { display: flex; min-height: 72px; align-items: center; gap: 14px; }
+.es-settings-row--master {
+  margin-bottom: 10px;
+  background: linear-gradient(110deg, rgba(255,91,25,.15), rgba(24,28,34,.98) 50%);
+  border-color: rgba(255,91,25,.38);
+}
 .es-settings-copy { min-width: 0; flex: 1; }
-.es-settings-copy strong { display: block; color: #fff; }
+.es-settings-copy strong { display: block; color: #fff; font-size: 12px; line-height: 1.35; }
 .es-settings-copy small,
-.es-settings-help { display: block; margin-top: 3px; color: var(--es-settings-muted); font-size: 11px; }
+.es-settings-help { display: block; margin-top: 4px; color: var(--es-settings-muted); font-size: 10.5px; line-height: 1.45; }
 .es-settings-control,
 .es-settings-text,
 .es-settings-textarea {
@@ -158,17 +311,17 @@ textarea:focus-visible {
   border-radius: 9px;
   padding: 8px 9px;
 }
-.es-settings-row > .es-settings-control { width: auto; min-width: 92px; }
+.es-settings-row > .es-settings-control { width: auto; min-width: 122px; }
 .es-settings-textarea { min-height: 68px; margin-top: 8px; resize: vertical; }
-.es-settings-switch { position: relative; display: inline-flex; width: 42px; height: 24px; flex: 0 0 auto; }
+.es-settings-switch { position: relative; display: inline-flex; width: 44px; height: 25px; flex: 0 0 auto; }
 .es-settings-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .es-settings-switch span { width: 100%; border: 1px solid var(--es-settings-line); border-radius: 999px; background: #343a43; transition: background .14s ease; }
-.es-settings-switch span::after { content: ""; position: absolute; top: 4px; left: 4px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .14s ease; }
+.es-settings-switch span::after { content: ""; position: absolute; top: 4px; left: 4px; width: 17px; height: 17px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.42); transition: transform .14s ease; }
 .es-settings-switch input:checked + span { background: var(--es-settings-accent); }
-.es-settings-switch input:checked + span::after { transform: translateX(18px); }
+.es-settings-switch input:checked + span::after { transform: translateX(19px); }
 .es-settings-switch input:focus-visible + span { outline: 2px solid #fff; outline-offset: 2px; }
 .es-settings-stack label { display: block; margin-bottom: 6px; color: #fff; font-weight: 750; }
-.es-settings-warning { margin: 0 0 10px; padding: 10px 12px; color: #ffd7c4; background: rgba(255,91,25,.09); border: 1px solid rgba(255,91,25,.28); border-radius: 11px; font-size: 11px; }
+.es-settings-warning { margin: 0 0 10px; padding: 11px 13px; color: #ffd7c4; background: rgba(255,91,25,.08); border: 1px solid rgba(255,91,25,.25); border-radius: 11px; font-size: 10.5px; }
 .es-position-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .es-position-card[data-enabled="true"] { border-color: rgba(255,91,25,.55); box-shadow: inset 0 0 0 1px rgba(255,91,25,.12); }
 .es-position-head { display: flex; align-items: center; gap: 8px; }
@@ -196,17 +349,38 @@ textarea:focus-visible {
   font-size: 11px;
 }
 .es-diagnostics-status[data-error="true"] { color: var(--es-settings-danger); }
-.es-settings-footer { position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px; margin: 14px -18px -18px; padding: 13px 18px; background: rgba(13,15,18,.97); border-top: 1px solid var(--es-settings-line); }
+.es-settings-footer { display: flex; align-items: center; gap: 8px; padding: 13px 18px; background: rgba(13,15,18,.98); border-top: 1px solid var(--es-settings-line); }
 .es-settings-status { min-width: 0; flex: 1; color: var(--es-settings-muted); font-size: 11px; }
 .es-settings-status[data-error="true"] { color: var(--es-settings-danger); }
-.es-settings-disclaimer { margin: 9px 0 0; color: var(--es-settings-muted); font-size: 10px; }
+.es-settings-disclaimer { margin: 0; padding: 8px 18px; color: #858e9a; background: rgba(8,10,13,.52); border-top: 1px solid rgba(255,255,255,.055); font-size: 9.5px; }
 .es-visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .es-settings-backdrop { padding: 10px; }
-  .es-settings-dialog { max-height: calc(100vh - 20px); border-radius: 14px; }
+  .es-settings-dialog { height: calc(100vh - 20px); border-radius: 14px; }
+  .es-settings-workspace { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .es-settings-nav {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 9px 10px;
+    border-right: 0;
+    border-bottom: 1px solid var(--es-settings-line);
+  }
+  .es-settings-nav-title { display: none; }
+  .es-settings-nav-button {
+    width: auto;
+    min-width: max-content;
+    grid-template-columns: 28px auto;
+    margin: 0;
+    padding: 7px 9px;
+  }
+  .es-settings-nav-icon { width: 28px; height: 28px; }
+  .es-settings-nav-copy small { display: none; }
+  .es-settings-content { padding: 15px 13px 20px; }
   .es-settings-grid, .es-position-list { grid-template-columns: 1fr; }
-  .es-settings-form { padding: 13px; }
-  .es-settings-footer { margin-right: -13px; margin-bottom: -13px; margin-left: -13px; padding: 12px 13px; }
+  .es-settings-header { padding: 13px; }
+  .es-settings-footer { padding: 11px 13px; }
+  .es-settings-disclaimer { padding-inline: 13px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
@@ -312,6 +486,7 @@ export class EloScopeSettingsPanel {
   readonly #options: SettingsPanelOptions;
   readonly #diagnostics: DiagnosticsPanelPort;
   #draft: ExtensionSettings | undefined;
+  #activeSection: SettingsSectionId = "general";
   #opening = false;
   #saving = false;
 
@@ -417,7 +592,7 @@ export class EloScopeSettingsPanel {
     const description = node(
       "p",
       undefined,
-      "Статистика, безопасные автоматизации и быстрые позиции"
+      "Настройте интерфейс под себя — от карточек игроков до безопасных автоматизаций"
     );
     description.id = DESCRIPTION_ID;
     heading.append(title, description);
@@ -430,12 +605,57 @@ export class EloScopeSettingsPanel {
 
     const form = node("form", "es-settings-form") as HTMLFormElement;
     form.noValidate = true;
-    form.append(
-      this.#interfaceSection(draft),
-      this.#automationSection(draft),
-      this.#positionsSection(draft),
-      this.#diagnosticsSection()
-    );
+    const workspace = node("div", "es-settings-workspace");
+    const navigation = node("nav", "es-settings-nav");
+    navigation.setAttribute("aria-label", "Разделы настроек");
+    navigation.setAttribute("role", "tablist");
+    navigation.append(node("p", "es-settings-nav-title", "Разделы"));
+    const content = node("div", "es-settings-content");
+    const pages = new Map<SettingsSectionId, HTMLElement>([
+      ["general", this.#settingsPage(
+        "general",
+        this.#generalSection(draft),
+      )],
+      ["match-room", this.#settingsPage(
+        "match-room",
+        this.#matchRoomSection(draft),
+      )],
+      ["automations", this.#settingsPage(
+        "automations",
+        this.#automationSection(draft),
+      )],
+      ["positions", this.#settingsPage(
+        "positions",
+        this.#positionsSection(draft),
+      )],
+      ["diagnostics", this.#settingsPage(
+        "diagnostics",
+        this.#diagnosticsSection(),
+      )],
+    ]);
+    for (const section of SETTINGS_SECTIONS) {
+      const button = node("button", "es-settings-nav-button") as HTMLButtonElement;
+      button.type = "button";
+      button.id = `eloscope-settings-tab-${section.id}`;
+      button.dataset.section = section.id;
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-controls", `eloscope-settings-page-${section.id}`);
+      button.setAttribute("aria-selected", String(section.id === this.#activeSection));
+      const icon = node("span", "es-settings-nav-icon", section.icon);
+      icon.setAttribute("aria-hidden", "true");
+      const copy = node("span", "es-settings-nav-copy");
+      copy.append(
+        node("strong", undefined, section.title),
+        node("small", undefined, section.description),
+      );
+      button.append(icon, copy);
+      button.addEventListener("click", () => this.#activateSection(section.id));
+      navigation.append(button);
+      const page = pages.get(section.id);
+      if (page) content.append(page);
+    }
+    workspace.append(navigation, content);
+    form.append(workspace);
 
     const disclaimer = node(
       "p",
@@ -449,13 +669,26 @@ export class EloScopeSettingsPanel {
     const cancel = node("button", "es-settings-button", "Отмена") as HTMLButtonElement;
     cancel.type = "button";
     cancel.addEventListener("click", () => this.close());
+    const reset = node("button", "es-settings-button", "По умолчанию") as HTMLButtonElement;
+    reset.type = "button";
+    reset.dataset.testid = "settings-reset";
+    reset.addEventListener("click", () => {
+      this.#draft = settingsWithPositionMaps(
+        parseSettings(undefined),
+        this.#options.mapIds?.() ?? discoverVisibleMapIds(),
+      );
+      this.#renderDialog();
+      this.shadow
+        .querySelector<HTMLButtonElement>('[data-testid="settings-reset"]')
+        ?.focus();
+    });
     const save = node(
       "button",
       "es-settings-button es-settings-button--primary",
       "Сохранить"
     ) as HTMLButtonElement;
     save.type = "submit";
-    footer.append(status, cancel, save);
+    footer.append(status, reset, cancel, save);
     form.append(disclaimer, footer);
     form.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -466,103 +699,73 @@ export class EloScopeSettingsPanel {
     this.#backdrop.replaceChildren(dialog);
   }
 
-  #interfaceSection(settings: ExtensionSettings): HTMLFieldSetElement {
-    const fieldset = this.#fieldset("Интерфейс");
+  #settingsPage(id: SettingsSectionId, ...children: HTMLElement[]): HTMLElement {
+    const section = SETTINGS_SECTIONS.find((entry) => entry.id === id);
+    if (!section) throw new Error(`Unknown settings section: ${id}`);
+    const page = node("section", "es-settings-page");
+    page.id = `eloscope-settings-page-${id}`;
+    page.dataset.section = id;
+    page.hidden = id !== this.#activeSection;
+    page.setAttribute("role", "tabpanel");
+    page.setAttribute("aria-labelledby", `eloscope-settings-tab-${id}`);
+    const head = node("header", "es-settings-page-head");
+    const icon = node("span", "es-settings-page-icon", section.icon);
+    icon.setAttribute("aria-hidden", "true");
+    const copy = node("div", "es-settings-page-copy");
+    copy.append(
+      node("h3", undefined, section.title),
+      node("p", undefined, section.description),
+    );
+    head.append(icon, copy);
+    page.append(head, ...children);
+    return page;
+  }
+
+  #activateSection(id: SettingsSectionId): void {
+    this.#activeSection = id;
+    this.shadow.querySelectorAll<HTMLButtonElement>(".es-settings-nav-button").forEach((button) => {
+      const selected = button.dataset.section === id;
+      button.setAttribute("aria-selected", String(selected));
+    });
+    this.shadow.querySelectorAll<HTMLElement>(".es-settings-page").forEach((page) => {
+      page.hidden = page.dataset.section !== id;
+    });
+    this.shadow.querySelector<HTMLElement>(".es-settings-content")?.scrollTo({ top: 0 });
+  }
+
+  #windowSelect(
+    label: string,
+    current: StatsWindow,
+    onChange: (value: StatsWindow) => void,
+  ): HTMLSelectElement {
+    const select = node("select", "es-settings-control") as HTMLSelectElement;
+    select.setAttribute("aria-label", label);
+    for (const value of STATS_WINDOWS) {
+      const option = node("option") as HTMLOptionElement;
+      option.value = String(value);
+      option.textContent = `${value} матчей`;
+      option.selected = value === current;
+      select.append(option);
+    }
+    select.value = String(current);
+    select.addEventListener("change", () => onChange(Number(select.value) as StatsWindow));
+    return select;
+  }
+
+  #generalSection(settings: ExtensionSettings): HTMLElement {
+    const wrapper = node("div");
+    const profile = this.#fieldset("Профиль и уровни");
     const grid = node("div", "es-settings-grid");
-
-    const stats = node("select", "es-settings-control") as HTMLSelectElement;
-    stats.setAttribute("aria-label", "Окно статистики");
-    for (const value of STATS_WINDOWS) {
-      const option = node("option") as HTMLOptionElement;
-      option.value = String(value);
-      option.textContent = `${value} матчей`;
-      option.selected = value === settings.statsWindow;
-      stats.append(option);
-    }
-    stats.addEventListener("change", () => {
-      if (!this.#draft) return;
-      this.#draft = {
-        ...this.#draft,
-        statsWindow: Number(stats.value) as StatsWindow
-      };
-    });
     grid.append(this.#controlRow(
-      "Окно статистики",
-      "5–100 завершённых CS2 5v5 матчей",
-      stats
-    ));
-
-    const mapWinRateWindow = node("select", "es-settings-control") as HTMLSelectElement;
-    mapWinRateWindow.setAttribute("aria-label", "Окно WR по картам");
-    for (const value of STATS_WINDOWS) {
-      const option = node("option") as HTMLOptionElement;
-      option.value = String(value);
-      option.textContent = `${value} матчей`;
-      option.selected = value === settings.mapWinRateWindow;
-      mapWinRateWindow.append(option);
-    }
-    mapWinRateWindow.value = String(settings.mapWinRateWindow);
-    mapWinRateWindow.addEventListener("change", () => {
-      if (!this.#draft) return;
-      this.#draft = {
-        ...this.#draft,
-        mapWinRateWindow: Number(mapWinRateWindow.value) as StatsWindow
-      };
-    });
-    grid.append(this.#controlRow(
-      "Окно WR по картам",
-      "Последние завершённые матчи каждого игрока для расчёта WR по картам",
-      mapWinRateWindow
-    ));
-
-    grid.append(this.#switchRow(
-      "Расширенная шкала 1–20",
-      "На matchmaking, в профиле и комнате уровень 11–20 занимает место штатной иконки; официальный level остаётся в подсказке",
-      settings.showExtendedTier,
-      "show-extended-tier",
-      (checked) => {
-        if (this.#draft) this.#draft = { ...this.#draft, showExtendedTier: checked };
-      }
-    ));
-    grid.append(this.#switchRow(
-      "Роли игроков",
-      "Основная роль вместо аватара и все пять оценок при наведении на статистику; расчёт по 20 последним завершённым CS2 5v5",
-      settings.showPlayerRoles,
-      "show-player-roles",
-      (checked) => {
-        if (this.#draft) this.#draft = { ...this.#draft, showPlayerRoles: checked };
-      }
-    ));
-    grid.append(this.#switchRow(
-      "Серии побед и поражений",
-      "Показывать рядом с ником текущую серию побед или поражений",
-      settings.showPlayerStreak,
-      "show-player-streak",
-      (checked) => {
-        if (this.#draft) this.#draft = { ...this.#draft, showPlayerStreak: checked };
-      }
-    ));
-    grid.append(this.#switchRow(
-      "Сводка команд",
-      "Шансы, общая форма, FIREPOWER, AVG KILLS и K/D в комнате матча",
-      settings.showTeamSummary,
-      "show-team-summary",
-      (checked) => {
-        if (this.#draft) this.#draft = { ...this.#draft, showTeamSummary: checked };
-      }
-    ));
-    grid.append(this.#switchRow(
-      "Сравнение карт",
-      "Винрейт обеих команд по картам в комнате матча",
-      settings.showMapWinRates,
-      "show-map-win-rates",
-      (checked) => {
-        if (this.#draft) this.#draft = { ...this.#draft, showMapWinRates: checked };
-      }
+      "Окно статистики профиля",
+      "Количество последних завершённых CS2 5v5 матчей в баннере профиля",
+      this.#windowSelect("Окно статистики профиля", settings.profileStatsWindow, (value) => {
+        if (this.#draft) this.#draft = { ...this.#draft, profileStatsWindow: value };
+      }),
     ));
     grid.append(this.#switchRow(
       "Статистика в профиле",
-      "Встроенный баннер с достоверной статистикой последних 20 завершённых CS2 5v5 матчей",
+      "Встроенный баннер с обзором, боевыми показателями, картами и ролью игрока",
       settings.interfaceVisibility.profileStatsBanner,
       "visibility-profileStatsBanner",
       (checked) => {
@@ -571,14 +774,30 @@ export class EloScopeSettingsPanel {
           ...this.#draft,
           interfaceVisibility: {
             ...this.#draft.interfaceVisibility,
-            profileStatsBanner: checked
-          }
+            profileStatsBanner: checked,
+          },
         };
-      }
+      },
     ));
     grid.append(this.#switchRow(
-      "Overlay match room",
-      "Команды, форма и сравнение карт",
+      "Расширенная шкала 1–20",
+      "Уровни 11–20 заменяют штатную иконку в matchmaking, профиле и матч-комнате; официальный level остаётся в подсказке",
+      settings.showExtendedTier,
+      "show-extended-tier",
+      (checked) => {
+        if (this.#draft) this.#draft = { ...this.#draft, showExtendedTier: checked };
+      },
+    ));
+    profile.append(grid);
+    wrapper.append(profile);
+    return wrapper;
+  }
+
+  #matchRoomSection(settings: ExtensionSettings): HTMLElement {
+    const wrapper = node("div");
+    const master = this.#switchRow(
+      "Расширения матч-комнаты",
+      "Главный переключатель карточек игроков, командной аналитики и сравнения карт",
       settings.interfaceVisibility.matchRoom,
       "visibility-matchRoom",
       (checked) => {
@@ -587,29 +806,131 @@ export class EloScopeSettingsPanel {
           ...this.#draft,
           interfaceVisibility: {
             ...this.#draft.interfaceVisibility,
-            matchRoom: checked
-          }
+            matchRoom: checked,
+          },
         };
-      }
+      },
+    );
+    master.classList.add("es-settings-row--master");
+    wrapper.append(master);
+
+    const players = this.#fieldset("Игроки");
+    const playerGrid = node("div", "es-settings-grid");
+    playerGrid.append(this.#controlRow(
+      "Окно статистики игроков",
+      "Выборка для WR, AVG KILLS, K/D, K/R, ADR и командной формы",
+      this.#windowSelect("Окно статистики", settings.statsWindow, (value) => {
+        if (this.#draft) this.#draft = { ...this.#draft, statsWindow: value };
+      }),
     ));
-    grid.append(this.#switchRow(
-      "Быстрые позиции в комнате",
-      "Показывать закреплённую панель сообщений поверх match room",
-      settings.interfaceVisibility.quickPositionsPanel,
-      "visibility-quickPositionsPanel",
-      (checked) => {
-        if (!this.#draft) return;
-        this.#draft = {
-          ...this.#draft,
-          interfaceVisibility: {
-            ...this.#draft.interfaceVisibility,
-            quickPositionsPanel: checked
-          }
-        };
-      }
-    ));
-    fieldset.append(grid);
-    return fieldset;
+    playerGrid.append(
+      this.#switchRow(
+        "Расширенная статистика",
+        "Карточка MATCHES, WR, AVG KILLS, K/D, K/R и ADR под каждым игроком",
+        settings.showPlayerStats,
+        "show-player-stats",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showPlayerStats: checked };
+        },
+      ),
+      this.#switchRow(
+        "Батарейка формы",
+        "Текущая игровая форма рядом с ником и подробный расчёт при наведении",
+        settings.showPlayerFormBattery,
+        "show-player-form-battery",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showPlayerFormBattery: checked };
+        },
+      ),
+      this.#switchRow(
+        "Роли игроков",
+        "Роль вместо аватара и пять оценок при наведении; расчёт по 20 матчам",
+        settings.showPlayerRoles,
+        "show-player-roles",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showPlayerRoles: checked };
+        },
+      ),
+      this.#switchRow(
+        "Встречи с игроками",
+        "Сколько раз играли вместе или против, результаты и последние встречи в подсказке",
+        settings.showPlayerEncounters,
+        "show-player-encounters",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showPlayerEncounters: checked };
+        },
+      ),
+      this.#switchRow(
+        "Серии побед и поражений",
+        "Текущая зелёная или красная серия рядом с ником игрока",
+        settings.showPlayerStreak,
+        "show-player-streak",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showPlayerStreak: checked };
+        },
+      ),
+    );
+    players.append(playerGrid);
+
+    const teams = this.#fieldset("Команды и карты");
+    const teamGrid = node("div", "es-settings-grid");
+    teamGrid.append(
+      this.#switchRow(
+        "Средний ELO команд",
+        "AVG ELO каждого состава по краям заголовка матч-комнаты",
+        settings.showTeamAverageElo,
+        "show-team-average-elo",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showTeamAverageElo: checked };
+        },
+      ),
+      this.#switchRow(
+        "Прогноз изменения ELO",
+        "Ожидаемые +ELO / −ELO рядом с AVG ELO по предматчевой вероятности FACEIT",
+        settings.showEloStake,
+        "show-elo-stake",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showEloStake: checked };
+        },
+      ),
+      this.#switchRow(
+        "Сводка команд",
+        "Шансы, общая форма, FIREPOWER, AVG KILLS и K/D над составами",
+        settings.showTeamSummary,
+        "show-team-summary",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showTeamSummary: checked };
+        },
+      ),
+      this.#switchRow(
+        "Сравнение карт",
+        "Винрейт обеих команд по каждой карте под кнопкой подключения",
+        settings.showMapWinRates,
+        "show-map-win-rates",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showMapWinRates: checked };
+        },
+      ),
+      this.#switchRow(
+        "Победы на выбранной карте",
+        "Суммарное количество побед всех пяти игроков каждой команды в карточке карты",
+        settings.showSelectedMapWins,
+        "show-selected-map-wins",
+        (checked) => {
+          if (this.#draft) this.#draft = { ...this.#draft, showSelectedMapWins: checked };
+        },
+      ),
+      this.#controlRow(
+        "Окно WR по картам",
+        "Количество последних матчей каждого игрока для расчёта сравнения карт",
+        this.#windowSelect("Окно WR по картам", settings.mapWinRateWindow, (value) => {
+          if (this.#draft) this.#draft = { ...this.#draft, mapWinRateWindow: value };
+        }),
+      ),
+    );
+    teams.append(teamGrid);
+    wrapper.append(players, teams);
+    return wrapper;
   }
 
   #automationSection(settings: ExtensionSettings): HTMLFieldSetElement {
@@ -714,6 +1035,24 @@ export class EloScopeSettingsPanel {
 
   #positionsSection(settings: ExtensionSettings): HTMLFieldSetElement {
     const fieldset = this.#fieldset("Быстрые позиции");
+    const visibility = this.#switchRow(
+      "Панель быстрых позиций",
+      "Показывать закреплённую панель сообщений в матч-комнате независимо от статистических карточек",
+      settings.interfaceVisibility.quickPositionsPanel,
+      "visibility-quickPositionsPanel",
+      (checked) => {
+        if (!this.#draft) return;
+        this.#draft = {
+          ...this.#draft,
+          interfaceVisibility: {
+            ...this.#draft.interfaceVisibility,
+            quickPositionsPanel: checked,
+          },
+        };
+      },
+    );
+    visibility.classList.add("es-settings-row--master");
+    fieldset.append(visibility);
     fieldset.append(node(
       "p",
       "es-settings-warning",

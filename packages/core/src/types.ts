@@ -82,6 +82,8 @@ export interface MatchTeam {
   id: string;
   name?: string;
   players: Player[];
+  /** FACEIT's pre-match team win probability, normalized to the inclusive 0-1 range. */
+  winProbability?: number;
   averageElo?: number;
   minElo?: number;
   maxElo?: number;
@@ -99,6 +101,10 @@ export interface MatchContext {
   serverLocation?: string;
   serverConnect?: string;
   viewerIsCaptain?: boolean;
+  /** Whether this match is configured to change FACEIT Elo. */
+  calculateElo?: boolean;
+  /** True only when FACEIT marks the room with its exact `premium` tag. */
+  premiumMatch?: boolean;
 }
 
 export interface MatchPlayerStats {

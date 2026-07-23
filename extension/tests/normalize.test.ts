@@ -86,12 +86,38 @@ describe("FACEIT response contracts", () => {
       status: "finished",
       selectedMap: "dust2",
       mapPool: ["dust2", "mirage"],
+      calculateElo: true,
+      premiumMatch: false,
       teams: expect.arrayContaining([
         expect.objectContaining({
           id: "faction1",
+          winProbability: 0.5,
           players: [expect.objectContaining({ nickname: "FixturePlayer", elo: 2_511, officialLevel: 10 })],
         }),
       ]),
     }));
+  });
+
+  it("normalizes only 0-1 team probabilities and the exact premium tag", () => {
+    const base = structuredClone(currentMatch);
+    base.payload.tags = ["super", "premium"];
+    base.payload.teams.faction1.stats.winProbability = 0.42;
+    base.payload.teams.faction2.stats.winProbability = 0.58;
+    expect(normalizeMatch(base)).toMatchObject({
+      calculateElo: true,
+      premiumMatch: true,
+      teams: [
+        { id: "faction1", winProbability: 0.42 },
+        { id: "faction2", winProbability: 0.58 },
+      ],
+    });
+
+    const invalid = structuredClone(currentMatch);
+    invalid.payload.tags = ["nonpremium"];
+    invalid.payload.teams.faction1.stats.winProbability = 42;
+    invalid.payload.teams.faction2.stats.winProbability = -0.1;
+    const normalized = normalizeMatch(invalid);
+    expect(normalized).toMatchObject({ premiumMatch: false });
+    expect(normalized?.teams.every((team) => team.winProbability === undefined)).toBe(true);
   });
 });

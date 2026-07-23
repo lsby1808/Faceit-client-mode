@@ -12,12 +12,19 @@ describe("extension settings", () => {
   it("keeps every automation off by default", () => {
     const settings = createDefaultSettings();
     expect(settings.statsWindow).toBe(30);
+    expect(settings.profileStatsWindow).toBe(20);
     expect(settings.mapWinRateWindow).toBe(30);
     expect(settings.showExtendedTier).toBe(false);
+    expect(settings.showPlayerStats).toBe(true);
+    expect(settings.showPlayerFormBattery).toBe(true);
     expect(settings.showPlayerRoles).toBe(true);
+    expect(settings.showPlayerEncounters).toBe(true);
     expect(settings.showPlayerStreak).toBe(true);
+    expect(settings.showTeamAverageElo).toBe(true);
+    expect(settings.showEloStake).toBe(true);
     expect(settings.showTeamSummary).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
+    expect(settings.showSelectedMapWins).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
       history: false,
@@ -38,22 +45,36 @@ describe("extension settings", () => {
   it("fails closed for malformed values", () => {
     const settings = parseSettings({
       statsWindow: 17,
+      profileStatsWindow: 17,
       mapWinRateWindow: 17,
       showExtendedTier: "yes",
+      showPlayerStats: "yes",
+      showPlayerFormBattery: "yes",
       showPlayerRoles: "yes",
+      showPlayerEncounters: "yes",
       showPlayerStreak: "yes",
+      showTeamAverageElo: "yes",
+      showEloStake: "yes",
       showTeamSummary: "yes",
       showMapWinRates: "yes",
+      showSelectedMapWins: "yes",
       interfaceVisibility: { profile: false, history: "no", matchRoom: true },
       automations: { partyAccept: "yes", readyUp: 1, autoConnect: true }
     });
     expect(settings.statsWindow).toBe(30);
+    expect(settings.profileStatsWindow).toBe(20);
     expect(settings.mapWinRateWindow).toBe(30);
     expect(settings.showExtendedTier).toBe(false);
+    expect(settings.showPlayerStats).toBe(true);
+    expect(settings.showPlayerFormBattery).toBe(true);
     expect(settings.showPlayerRoles).toBe(true);
+    expect(settings.showPlayerEncounters).toBe(true);
     expect(settings.showPlayerStreak).toBe(true);
+    expect(settings.showTeamAverageElo).toBe(true);
+    expect(settings.showEloStake).toBe(true);
     expect(settings.showTeamSummary).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
+    expect(settings.showSelectedMapWins).toBe(true);
     expect(settings.interfaceVisibility).toEqual({
       profile: false,
       history: false,
@@ -68,13 +89,19 @@ describe("extension settings", () => {
 
   it("migrates legacy settings to enabled visual enhancements and preserves explicit opt-outs", () => {
     expect(parseSettings({ statsWindow: 50 }).showPlayerRoles).toBe(true);
+    expect(parseSettings({ showPlayerStats: false }).showPlayerStats).toBe(false);
+    expect(parseSettings({ showPlayerFormBattery: false }).showPlayerFormBattery).toBe(false);
     expect(parseSettings({ showPlayerRoles: false }).showPlayerRoles).toBe(false);
+    expect(parseSettings({ showPlayerEncounters: false }).showPlayerEncounters).toBe(false);
     expect(parseSettings({ statsWindow: 50 }).showPlayerStreak).toBe(true);
     expect(parseSettings({ showPlayerStreak: false }).showPlayerStreak).toBe(false);
+    expect(parseSettings({ showTeamAverageElo: false }).showTeamAverageElo).toBe(false);
+    expect(parseSettings({ showEloStake: false }).showEloStake).toBe(false);
     expect(parseSettings({ statsWindow: 50 }).showTeamSummary).toBe(true);
     expect(parseSettings({ showTeamSummary: false }).showTeamSummary).toBe(false);
     expect(parseSettings({ statsWindow: 50 }).showMapWinRates).toBe(true);
     expect(parseSettings({ showMapWinRates: false }).showMapWinRates).toBe(false);
+    expect(parseSettings({ showSelectedMapWins: false }).showSelectedMapWins).toBe(false);
   });
 
   it("migrates a missing or invalid map WR window to 30 exactly once", async () => {
@@ -143,6 +170,34 @@ describe("extension settings", () => {
     expect(setSpy).not.toHaveBeenCalled();
   });
 
+  it("adds newly configurable match-room features to legacy settings exactly once", async () => {
+    const legacy = createDefaultSettings() as Partial<ReturnType<typeof createDefaultSettings>>;
+    delete legacy.profileStatsWindow;
+    delete legacy.showPlayerStats;
+    delete legacy.showPlayerFormBattery;
+    delete legacy.showPlayerEncounters;
+    delete legacy.showTeamAverageElo;
+    delete legacy.showEloStake;
+    delete legacy.showSelectedMapWins;
+    await chrome.storage.local.set({ [SETTINGS_KEY]: legacy });
+    const setSpy = vi.spyOn(chrome.storage.local, "set");
+
+    await expect(loadSettings()).resolves.toMatchObject({
+      profileStatsWindow: 20,
+      showPlayerStats: true,
+      showPlayerFormBattery: true,
+      showPlayerEncounters: true,
+      showTeamAverageElo: true,
+      showEloStake: true,
+      showSelectedMapWins: true,
+    });
+    expect(setSpy).toHaveBeenCalledOnce();
+
+    setSpy.mockClear();
+    await loadSettings();
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
   it("preserves an explicit disabled team summary while migrating another legacy key", async () => {
     const legacy = createDefaultSettings() as Partial<ReturnType<typeof createDefaultSettings>>;
     legacy.showTeamSummary = false;
@@ -161,12 +216,14 @@ describe("extension settings", () => {
     });
   });
 
-  it("keeps map WR and general statistics windows independent", () => {
+  it("keeps profile, map WR and general statistics windows independent", () => {
     expect(parseSettings({
       statsWindow: 100,
+      profileStatsWindow: 20,
       mapWinRateWindow: 5
     })).toMatchObject({
       statsWindow: 100,
+      profileStatsWindow: 20,
       mapWinRateWindow: 5
     });
   });
@@ -276,12 +333,19 @@ describe("extension settings", () => {
   it("persists the complete settings object with one storage write", async () => {
     const settings = settingsWithPositionMaps(createDefaultSettings(), ["mirage"]);
     settings.statsWindow = 50;
+    settings.profileStatsWindow = 10;
     settings.mapWinRateWindow = 100;
     settings.showExtendedTier = true;
+    settings.showPlayerStats = false;
+    settings.showPlayerFormBattery = false;
     settings.showPlayerRoles = false;
+    settings.showPlayerEncounters = false;
     settings.showPlayerStreak = false;
+    settings.showTeamAverageElo = false;
+    settings.showEloStake = false;
     settings.showTeamSummary = false;
     settings.showMapWinRates = false;
+    settings.showSelectedMapWins = false;
     settings.interfaceVisibility.matchRoom = false;
     settings.interfaceVisibility.quickPositionsPanel = true;
     settings.automations.positions.mirage = {

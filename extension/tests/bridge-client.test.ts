@@ -64,6 +64,113 @@ describe("isolated bridge client", () => {
     expect(result).toMatchObject({ status: "error", error: { code: "upstream-shape" } });
   });
 
+  it("accepts the bounded normalized Elo stake fields on a match", async () => {
+    const origin = "https://www.faceit.com";
+    vi.spyOn(window, "postMessage").mockImplementation(((request: unknown) => {
+      const value = request as { id?: string; type?: string };
+      if (value.type !== "read" || !value.id) return;
+      queueMicrotask(() => {
+        window.dispatchEvent(new MessageEvent("message", {
+          origin,
+          source: window,
+          data: {
+            source: "eloscope:main",
+            version: 1,
+            type: "response",
+            id: value.id,
+            result: {
+              status: "ok",
+              sampledAt: Date.now(),
+              data: {
+                id: "match-1",
+                game: "cs2",
+                status: "ready",
+                mapPool: ["dust2"],
+                calculateElo: true,
+                premiumMatch: false,
+                teams: [
+                  {
+                    id: "alpha",
+                    winProbability: 0.42,
+                    players: [{ id: "player-1", nickname: "one", game: "cs2" }],
+                  },
+                  {
+                    id: "bravo",
+                    winProbability: 0.58,
+                    players: [{ id: "player-2", nickname: "two", game: "cs2" }],
+                  },
+                ],
+              },
+            },
+          },
+        }));
+      });
+    }) as typeof window.postMessage);
+
+    const adapter = new FaceitBridgeAdapter(origin);
+    const result = await adapter.getMatch("match-1");
+    adapter.destroy();
+    expect(result).toMatchObject({
+      status: "ready",
+      data: {
+        calculateElo: true,
+        premiumMatch: false,
+        teams: [
+          { id: "alpha", winProbability: 0.42 },
+          { id: "bravo", winProbability: 0.58 },
+        ],
+      },
+    });
+  });
+
+  it("rejects out-of-range Elo stake fields at the isolated bridge boundary", async () => {
+    const origin = "https://www.faceit.com";
+    vi.spyOn(window, "postMessage").mockImplementation(((request: unknown) => {
+      const value = request as { id?: string; type?: string };
+      if (value.type !== "read" || !value.id) return;
+      queueMicrotask(() => {
+        window.dispatchEvent(new MessageEvent("message", {
+          origin,
+          source: window,
+          data: {
+            source: "eloscope:main",
+            version: 1,
+            type: "response",
+            id: value.id,
+            result: {
+              status: "ok",
+              sampledAt: Date.now(),
+              data: {
+                id: "match-1",
+                game: "cs2",
+                status: "ready",
+                mapPool: [],
+                calculateElo: "true",
+                teams: [
+                  {
+                    id: "alpha",
+                    winProbability: 42,
+                    players: [{ id: "player-1", nickname: "one", game: "cs2" }],
+                  },
+                  {
+                    id: "bravo",
+                    winProbability: -0.1,
+                    players: [{ id: "player-2", nickname: "two", game: "cs2" }],
+                  },
+                ],
+              },
+            },
+          },
+        }));
+      });
+    }) as typeof window.postMessage);
+
+    const adapter = new FaceitBridgeAdapter(origin);
+    const result = await adapter.getMatch("match-1");
+    adapter.destroy();
+    expect(result).toMatchObject({ status: "error", error: { code: "upstream-shape" } });
+  });
+
   it("rejects a forged recent-match row with a non-string map", async () => {
     const origin = "https://www.faceit.com";
     vi.spyOn(window, "postMessage").mockImplementation(((request: unknown) => {

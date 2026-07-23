@@ -85,6 +85,16 @@ describe("ProfileStatsBannerRenderer", () => {
     expect(host()).not.toBeNull();
   });
 
+  it("renders the independently selected profile sample window", () => {
+    loadFixture("profile");
+    const renderer = new ProfileStatsBannerRenderer();
+
+    expect(renderer.render(player, readyState(matches(30)), 10)).toBe(true);
+    expect(host()?.shadowRoot?.querySelector(".window")?.textContent).toBe("10");
+    expect(host()?.shadowRoot?.textContent).toContain("Последние 10 матчей");
+    expect(host()?.shadowRoot?.textContent).not.toContain("13 / 7");
+  });
+
   it("fails closed for missing or ambiguous native anchors", () => {
     loadFixture("profile");
     const main = document.querySelector<HTMLElement>('[class*="styles__MainSection-sc-"]')!;

@@ -53,9 +53,17 @@ function isMapStats(value: unknown): boolean {
 function isMatch(value: unknown): boolean {
   if (!isRecord(value) || !isText(value.id) || value.game !== "cs2" || !isText(value.status)) return false;
   if (!Array.isArray(value.mapPool) || value.mapPool.length > 32 || !value.mapPool.every(isText) || !Array.isArray(value.teams)) return false;
+  if (
+    (value.calculateElo !== undefined && typeof value.calculateElo !== "boolean")
+    || (value.premiumMatch !== undefined && typeof value.premiumMatch !== "boolean")
+  ) {
+    return false;
+  }
   return value.teams.length >= 2 && value.teams.length <= 16 && value.teams.every((team) =>
     isRecord(team) && isText(team.id) && Array.isArray(team.players) &&
-      team.players.length > 0 && team.players.length <= 32 && team.players.every(isPlayer));
+      team.players.length > 0 && team.players.length <= 32 && team.players.every(isPlayer) &&
+      (team.winProbability === undefined ||
+        (isFiniteNumber(team.winProbability) && team.winProbability >= 0 && team.winProbability <= 1)));
 }
 
 function isMatchStats(value: unknown): boolean {

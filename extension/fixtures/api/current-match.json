@@ -6,10 +6,15 @@
     "state": "FINISHED",
     "status": "FINISHED",
     "region": "EU",
+    "calculateElo": true,
+    "tags": ["super", "nonpremium"],
     "teams": {
       "faction1": {
         "id": "faction1",
         "name": "team_alpha",
+        "stats": {
+          "winProbability": 0.5
+        },
         "roster": [
           {
             "id": "11111111-2222-3333-4444-555555555555",
@@ -23,6 +28,9 @@
       "faction2": {
         "id": "faction2",
         "name": "team_bravo",
+        "stats": {
+          "winProbability": 0.5
+        },
         "roster": [
           {
             "id": "66666666-7777-8888-9999-aaaaaaaaaaaa",

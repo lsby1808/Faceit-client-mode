@@ -126,6 +126,24 @@ describe("buildProfileStatsModel", () => {
     ]);
   });
 
+  it("uses the independently selected profile window", () => {
+    const rows = Array.from({ length: 30 }, (_, index) => makeMatch(index, {
+      result: index < 5 ? "win" : "loss",
+    }));
+
+    const ten = buildProfileStatsModel(rows, 10);
+    const thirty = buildProfileStatsModel(rows, 30);
+
+    expect(ten).toMatchObject({ window: 10, sampleSize: 10, wins: 5, losses: 5, winRate: 50 });
+    expect(thirty).toMatchObject({
+      window: 30,
+      sampleSize: 30,
+      wins: 5,
+      losses: 25,
+    });
+    expect(thirty.winRate).toBeCloseTo(100 / 6);
+  });
+
   it("reports optional-stat coverage and never turns unavailable values into zero", () => {
     const known = makeMatch(0, {
       roundsPlayed: 10,

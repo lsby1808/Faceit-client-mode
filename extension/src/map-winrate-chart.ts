@@ -702,6 +702,7 @@ export class MatchMapWinRateChartRenderer {
     playerMapStats: ReadonlyMap<string, readonly PlayerMapStats[]>,
     viewerTeamId?: string,
     window: StatsWindow = 30,
+    showSelectedWins = true,
   ): MapWinRateChartRenderResult {
     const perspective = matchFromViewerPerspective(match, viewerTeamId);
     const visibleMatch = perspective.match;
@@ -721,6 +722,7 @@ export class MatchMapWinRateChartRenderer {
       selectedMap: domMapId(visibleMatch.selectedMap),
       viewerTeamId: perspective.viewerTeamId,
       window,
+      showSelectedWins,
       teamNames: visibleMatch.teams.map(({ id, name }) => [id, name]),
       comparisons,
     });
@@ -746,7 +748,11 @@ export class MatchMapWinRateChartRenderer {
       const winsHost = this.#document.createElement("span");
       winsHost.setAttribute(INLINE_SELECTED_MAP_WINS_ATTRIBUTE, visibleMatch.id);
       const winsShadow = winsHost.attachShadow({ mode: "open" });
-      renderSelectedWins(winsShadow, visibleMatch, comparisons, perspective.viewerTeamId);
+      if (showSelectedWins) {
+        renderSelectedWins(winsShadow, visibleMatch, comparisons, perspective.viewerTeamId);
+      }
+      winsHost.hidden = !showSelectedWins;
+      winsHost.setAttribute("aria-hidden", String(!showSelectedWins));
       mount = { host, winsHost, anchor, signature };
       this.#mount = mount;
       updated = 1;
@@ -754,12 +760,18 @@ export class MatchMapWinRateChartRenderer {
       mount.host.setAttribute(INLINE_MAP_WINRATE_ATTRIBUTE, visibleMatch.id);
       renderChart(mount.host.shadowRoot as ShadowRoot, visibleMatch, comparisons, window);
       mount.winsHost.setAttribute(INLINE_SELECTED_MAP_WINS_ATTRIBUTE, visibleMatch.id);
-      renderSelectedWins(
-        mount.winsHost.shadowRoot as ShadowRoot,
-        visibleMatch,
-        comparisons,
-        perspective.viewerTeamId,
-      );
+      if (showSelectedWins) {
+        renderSelectedWins(
+          mount.winsHost.shadowRoot as ShadowRoot,
+          visibleMatch,
+          comparisons,
+          perspective.viewerTeamId,
+        );
+      } else {
+        mount.winsHost.shadowRoot?.replaceChildren();
+      }
+      mount.winsHost.hidden = !showSelectedWins;
+      mount.winsHost.setAttribute("aria-hidden", String(!showSelectedWins));
       mount.signature = signature;
       updated = 1;
     }

@@ -3,6 +3,7 @@ import {
   type Player,
   type PlayerMatch,
   type PlayerRole,
+  type StatsWindow,
 } from "@eloscope/core";
 
 import {
@@ -393,6 +394,7 @@ export class ProfileStatsBannerRenderer {
   #player: Player | undefined;
   #state: DataState<PlayerMatch[]> | undefined;
   #model: ProfileStatsModel | undefined;
+  #window: StatsWindow = 20;
   #tab: BannerTab = "overview";
   #dataSignature = "";
   #signature = "";
@@ -401,13 +403,14 @@ export class ProfileStatsBannerRenderer {
     this.#ownerDocument = ownerDocument;
   }
 
-  render(player: Player, state: DataState<PlayerMatch[]>): boolean {
+  render(player: Player, state: DataState<PlayerMatch[]>, window: StatsWindow = 20): boolean {
     this.#player = player;
     this.#state = state;
-    this.#model = state.status === "ready" ? buildProfileStatsModel(state.data) : undefined;
+    this.#window = window;
+    this.#model = state.status === "ready" ? buildProfileStatsModel(state.data, window) : undefined;
     this.#dataSignature = state.status === "ready"
       ? JSON.stringify([player.id, this.#model])
-      : `${player.id}:${state.status}`;
+      : `${player.id}:${state.status}:${window}`;
     this.#signature = "";
     return this.sync();
   }
@@ -449,6 +452,7 @@ export class ProfileStatsBannerRenderer {
     this.#player = undefined;
     this.#state = undefined;
     this.#model = undefined;
+    this.#window = 20;
     this.#dataSignature = "";
     this.#signature = "";
     this.#tab = "overview";
@@ -566,7 +570,7 @@ export class ProfileStatsBannerRenderer {
       button.addEventListener("keydown", (event) => this.#onTabKeydown(event, TAB_ENTRIES));
       tabs.append(button);
     }
-    header.append(tabs, node(this.#ownerDocument, "span", "window", "20"));
+    header.append(tabs, node(this.#ownerDocument, "span", "window", String(this.#window)));
     return header;
   }
 

@@ -144,7 +144,7 @@ export class EloScopeOverlay {
   }
 
   showProfileStats(player: Player, matches: DataState<PlayerMatch[]>): boolean {
-    return this.#profileStats.render(player, matches);
+    return this.#profileStats.render(player, matches, this.#settings.profileStatsWindow);
   }
 
   syncProfileStats(): boolean {
@@ -182,10 +182,16 @@ export class EloScopeOverlay {
       statsWindow: this.#settings.statsWindow,
       mapWinRateWindow: this.#settings.mapWinRateWindow,
       showExtendedTier: this.#settings.showExtendedTier,
+      showPlayerStats: this.#settings.showPlayerStats,
+      showPlayerFormBattery: this.#settings.showPlayerFormBattery,
       showPlayerRoles: this.#settings.showPlayerRoles,
+      showPlayerEncounters: this.#settings.showPlayerEncounters,
       showPlayerStreak: this.#settings.showPlayerStreak,
+      showTeamAverageElo: this.#settings.showTeamAverageElo,
+      showEloStake: this.#settings.showEloStake,
       showTeamSummary: this.#settings.showTeamSummary,
       showMapWinRates: this.#settings.showMapWinRates,
+      showSelectedMapWins: this.#settings.showSelectedMapWins,
     }, viewerTeamId, viewer);
   }
 

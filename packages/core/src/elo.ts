@@ -1,3 +1,5 @@
+import type { MatchContext } from "./types.js";
+
 export type OfficialEloLevel = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 export type EloScopeTier = OfficialEloLevel | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20;
 
@@ -44,6 +46,66 @@ export interface EloTierPresentation {
   readonly foreground: string;
   readonly background: string;
   readonly glow: string;
+}
+
+export interface TeamEloStake {
+  readonly teamId: string;
+  readonly gain: number;
+  readonly loss: number;
+}
+
+export type MatchEloStake = readonly [TeamEloStake, TeamEloStake];
+
+const STANDARD_ELO_K = 50;
+const PREMIUM_ELO_K = 60;
+const PROBABILITY_SUM_TOLERANCE = 1e-6;
+
+function validProbability(value: number | undefined): value is number {
+  return value !== undefined
+    && Number.isFinite(value)
+    && value >= 0
+    && value <= 1;
+}
+
+/**
+ * Estimates the pre-match Elo stake from FACEIT's own team probabilities.
+ *
+ * FACEIT does not expose a ready gain/loss pair. This is therefore only the
+ * expected base stake: post-match performance and penalties can make the
+ * eventual per-player change differ. Incomplete or contradictory upstream
+ * probabilities fail closed instead of producing a plausible-looking value.
+ */
+export function estimateEloStake(
+  match: Pick<MatchContext, "calculateElo" | "premiumMatch" | "teams">,
+): MatchEloStake | undefined {
+  if (match.calculateElo !== true || match.teams.length !== 2) return undefined;
+  const [first, second] = match.teams;
+  if (
+    !first
+    || !second
+    || first.id === second.id
+    || !validProbability(first.winProbability)
+    || !validProbability(second.winProbability)
+    || Math.abs(first.winProbability + second.winProbability - 1) > PROBABILITY_SUM_TOLERANCE
+  ) {
+    return undefined;
+  }
+
+  const k = match.premiumMatch === true ? PREMIUM_ELO_K : STANDARD_ELO_K;
+  const estimate = (teamId: string, winProbability: number): TeamEloStake => {
+    const gain = Math.round(k - winProbability * k);
+    const lossMagnitude = k - gain;
+    return Object.freeze({
+      teamId,
+      gain,
+      loss: lossMagnitude === 0 ? 0 : -lossMagnitude,
+    });
+  };
+
+  return Object.freeze([
+    estimate(first.id, first.winProbability),
+    estimate(second.id, second.winProbability),
+  ] as const);
 }
 
 function tierPresentation(

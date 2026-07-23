@@ -11,7 +11,8 @@ export function isOverlayVisibleForPath(
     case "history":
       return false;
     case "match":
-      return settings.interfaceVisibility.matchRoom;
+      return settings.interfaceVisibility.matchRoom
+        || settings.interfaceVisibility.quickPositionsPanel;
     case "matchmaking":
     case "logged-out":
     case "other":

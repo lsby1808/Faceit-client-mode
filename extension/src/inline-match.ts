@@ -7,6 +7,7 @@ import {
   calculateTeamWinChances,
   classifyPlayerRole,
   eligibleMatches,
+  estimateEloStake,
   getEloTier,
   getEloTierPresentation,
   loadingState,
@@ -26,6 +27,7 @@ import {
   type PlayerRoleAnalysis,
   type StatsWindow,
   type TeamPerformanceSummary,
+  type TeamEloStake,
 } from "@eloscope/core";
 import { MatchMapWinRateChartRenderer } from "./map-winrate-chart";
 import { buildRecentPlayerMapStats } from "./recent-map-stats";
@@ -538,6 +540,8 @@ const TEAM_STYLES = `
   .metric {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
+    max-width: 100%;
     color: #f3f4f6;
     font-size: 14px;
     font-weight: 900;
@@ -547,6 +551,18 @@ const TEAM_STYLES = `
     text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
     white-space: nowrap;
   }
+  .average, .stake { flex: 0 0 auto; }
+  .stake {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0;
+  }
+  .stake .gain { color: #21d07a; }
+  .stake .separator { color: #a7adb5; }
+  .stake .loss { color: #ff5968; }
 `;
 
 const TEAM_SUMMARY_STYLES = `
@@ -696,10 +712,16 @@ export type InlineMatchSettings = Readonly<{
   statsWindow: StatsWindow;
   mapWinRateWindow: StatsWindow;
   showExtendedTier: boolean;
+  showPlayerStats: boolean;
+  showPlayerFormBattery: boolean;
   showPlayerRoles: boolean;
+  showPlayerEncounters: boolean;
   showPlayerStreak: boolean;
+  showTeamAverageElo: boolean;
+  showEloStake: boolean;
   showTeamSummary: boolean;
   showMapWinRates: boolean;
+  showSelectedMapWins: boolean;
 }>;
 
 export type InlineMatchViewerContext = Readonly<{
@@ -1472,7 +1494,14 @@ function renderPlayer(
 function teamHeaderMetric(
   team: MatchTeam,
   side: TeamHeaderSide,
-): { average: number; known: number; text: string; signature: string } | undefined {
+  stake?: TeamEloStake,
+): {
+  average: number;
+  known: number;
+  text: string;
+  signature: string;
+  stake?: TeamEloStake;
+} | undefined {
   const elos = team.players
     .map((player) => player.elo)
     .filter(isPositiveFiniteNumber);
@@ -1495,7 +1524,8 @@ function teamHeaderMetric(
     average,
     known,
     text,
-    signature: JSON.stringify([team.id, average, known, side]),
+    signature: JSON.stringify([team.id, average, known, side, stake?.gain ?? null, stake?.loss ?? null]),
+    ...(stake ? { stake } : {}),
   };
 }
 
@@ -1505,6 +1535,7 @@ function teamForVisiblePlayers(team: MatchTeam, players: readonly Player[]): Mat
     id: team.id,
     ...(team.name ? { name: team.name } : {}),
     players: [...players],
+    ...(team.winProbability === undefined ? {} : { winProbability: team.winProbability }),
     eloKnown: elos.length,
     eloTotal: players.length,
     ...(elos.length
@@ -1515,6 +1546,12 @@ function teamForVisiblePlayers(team: MatchTeam, players: readonly Player[]): Mat
         }
       : {}),
   };
+}
+
+function hasFullLocalEloCoverage(team: MatchTeam): boolean {
+  return team.players.length > 0
+    && team.players.every((player) => isPositiveFiniteNumber(player.elo))
+    && team.eloKnown === team.players.length;
 }
 
 function renderTeam(
@@ -1528,11 +1565,39 @@ function renderTeam(
   const value = document.createElement("span");
   value.className = "metric";
   value.dataset.esTeamMetric = side;
-  value.textContent = metric.text;
-  value.setAttribute(
-    "aria-label",
+  const average = document.createElement("span");
+  average.className = "average";
+  average.textContent = metric.text;
+  value.append(average);
+
+  const accessibleParts = [
     `Средний ELO команды ${team.name ?? team.id}: ${metric.average}, игроков учтено ${metric.known}`,
-  );
+  ];
+  if (metric.stake) {
+    const gainValue = Math.abs(metric.stake.gain);
+    const lossValue = Math.abs(metric.stake.loss);
+    const forecast = document.createElement("span");
+    forecast.className = "stake";
+    forecast.dataset.esEloStake = team.id;
+    const title = `Прогноз изменения ELO: +${gainValue} при победе, −${lossValue} при поражении. Фактическое изменение может отличаться.`;
+    forecast.title = title;
+    forecast.setAttribute("aria-label", title);
+
+    const gain = document.createElement("span");
+    gain.className = "gain";
+    gain.textContent = `+${gainValue}`;
+    const separator = document.createElement("span");
+    separator.className = "separator";
+    separator.setAttribute("aria-hidden", "true");
+    separator.textContent = "/";
+    const loss = document.createElement("span");
+    loss.className = "loss";
+    loss.textContent = `−${lossValue}`;
+    forecast.append(gain, separator, loss);
+    value.append(forecast);
+    accessibleParts.push(title);
+  }
+  value.setAttribute("aria-label", accessibleParts.join(". "));
   shadow.replaceChildren(style, value);
 }
 
@@ -1914,6 +1979,7 @@ export class InlineMatchRenderer {
           recentMapStats,
           viewerTeamId,
           settings.mapWinRateWindow,
+          settings.showSelectedMapWins,
         );
       } else {
         this.#mapWinRateChart.cleanup();
@@ -1925,12 +1991,19 @@ export class InlineMatchRenderer {
       ...match,
       teams: discovery.teams.map(({ team }) => team),
     };
+    const estimatedStakes = settings.showTeamAverageElo
+      && settings.showEloStake
+      && visibleMatch.teams.every(hasFullLocalEloCoverage)
+      ? estimateEloStake(visibleMatch)
+      : undefined;
+    const stakeByTeam = new Map((estimatedStakes ?? []).map((stake) => [stake.teamId, stake] as const));
     const chartUpdated = recentMapStats
       ? this.#mapWinRateChart.render(
         visibleMatch,
         recentMapStats,
         viewerTeamId,
         settings.mapWinRateWindow,
+        settings.showSelectedMapWins,
       ).updated
       : this.#mapWinRateChart.cleanup();
 
@@ -1996,17 +2069,28 @@ export class InlineMatchRenderer {
         });
       }
     }
-    const headerMetrics = this.#discoverHeaderTeams(discovery.teams.map(({ team }) => team)).flatMap((anchor) => {
-      const metric = teamHeaderMetric(anchor.team, anchor.side);
-      return metric ? [{ anchor, metric }] : [];
-    });
+    const headerMetrics = settings.showTeamAverageElo
+      ? this.#discoverHeaderTeams(discovery.teams.map(({ team }) => team)).flatMap((anchor) => {
+          const metric = teamHeaderMetric(anchor.team, anchor.side, stakeByTeam.get(anchor.team.id));
+          return metric ? [{ anchor, metric }] : [];
+        })
+      : [];
     const expectedHeaderTeamIds = new Set(headerMetrics.map(({ anchor }) => anchor.team.id));
     const expectedSummaryTeamIds = new Set(teamSummaryEntries.map(({ anchor }) => anchor.team.id));
-    this.#removeStale(this.#playerMounts, expectedPlayerIds);
+    this.#removeStale(
+      this.#playerMounts,
+      settings.showPlayerStats ? expectedPlayerIds : new Set(),
+    );
     this.#removeStale(this.#teamMounts, expectedHeaderTeamIds);
     this.#removeStale(this.#teamSummaryMounts, expectedSummaryTeamIds);
-    this.#removeStale(this.#batteryMounts, expectedPlayerIds);
-    this.#removeStale(this.#encounterMounts, expectedPlayerIds);
+    this.#removeStale(
+      this.#batteryMounts,
+      settings.showPlayerFormBattery ? expectedPlayerIds : new Set(),
+    );
+    this.#removeStale(
+      this.#encounterMounts,
+      settings.showPlayerEncounters ? expectedPlayerIds : new Set(),
+    );
     this.#removeStale(this.#streakMounts, expectedPlayerIds);
     this.#removeStaleTiers(expectedPlayerIds);
     this.#removeStaleRoles(expectedPlayerIds);
@@ -2071,37 +2155,39 @@ export class InlineMatchRenderer {
         const historyRows = viewer?.histories?.get(anchor.player.id) ?? sourceRows;
         const totalMatches = lifetimeMatchCount(playerMapStats.get(anchor.player.id));
         const roleAnalysis = settings.showPlayerRoles ? classifyPlayerRole(rows) : undefined;
-        const signature = playerSignature(anchor.player, rows, totalMatches, settings, roleAnalysis);
-        let mount = this.#playerMounts.get(anchor.player.id);
-        if (!mount || !mount.host.isConnected || mount.host.parentElement !== anchor.holder) {
-          mount?.host.remove();
-          const host = this.#document.createElement("div");
-          host.setAttribute(INLINE_PLAYER_ATTRIBUTE, anchor.player.id);
-          const shadow = host.attachShadow({ mode: "open" });
-          mount = { host, signature: "" };
-          this.#playerMounts.set(anchor.player.id, mount);
-          renderPlayer(shadow, anchor.player, rows, totalMatches, settings, roleAnalysis);
-          mount.signature = signature;
-          updated += 1;
-        } else if (mount.signature !== signature) {
-          renderPlayer(
-            mount.host.shadowRoot as ShadowRoot,
-            anchor.player,
-            rows,
-            totalMatches,
-            settings,
-            roleAnalysis,
-          );
-          mount.signature = signature;
-          updated += 1;
+        if (settings.showPlayerStats) {
+          const signature = playerSignature(anchor.player, rows, totalMatches, settings, roleAnalysis);
+          let mount = this.#playerMounts.get(anchor.player.id);
+          if (!mount || !mount.host.isConnected || mount.host.parentElement !== anchor.holder) {
+            mount?.host.remove();
+            const host = this.#document.createElement("div");
+            host.setAttribute(INLINE_PLAYER_ATTRIBUTE, anchor.player.id);
+            const shadow = host.attachShadow({ mode: "open" });
+            mount = { host, signature: "" };
+            this.#playerMounts.set(anchor.player.id, mount);
+            renderPlayer(shadow, anchor.player, rows, totalMatches, settings, roleAnalysis);
+            mount.signature = signature;
+            updated += 1;
+          } else if (mount.signature !== signature) {
+            renderPlayer(
+              mount.host.shadowRoot as ShadowRoot,
+              anchor.player,
+              rows,
+              totalMatches,
+              settings,
+              roleAnalysis,
+            );
+            mount.signature = signature;
+            updated += 1;
+          }
+          if (anchor.mountAfter.nextElementSibling !== mount.host) {
+            anchor.mountAfter.insertAdjacentElement("afterend", mount.host);
+          }
         }
-        if (anchor.mountAfter.nextElementSibling !== mount.host) {
-          anchor.mountAfter.insertAdjacentElement("afterend", mount.host);
-        }
-        updated += this.#syncBattery(anchor, rows);
+        if (settings.showPlayerFormBattery) updated += this.#syncBattery(anchor, rows);
         updated += this.#syncTier(anchor, settings);
         updated += this.#syncRole(anchor, roleAnalysis);
-        const encounters = viewer?.id
+        const encounters = settings.showPlayerEncounters && viewer?.id
           ? buildPlayerEncounters(
             viewer.id,
             anchor.player.id,
@@ -2109,7 +2195,7 @@ export class InlineMatchRenderer {
             historyRows ? readyState(historyRows) : loadingState(),
           )
           : undefined;
-        updated += this.#syncEncounters(anchor, encounters);
+        if (settings.showPlayerEncounters) updated += this.#syncEncounters(anchor, encounters);
         const streak = settings.showPlayerStreak
           ? calculateCurrentMatchStreak(historyRows ?? [], { sampleLimit: 100 })
           : undefined;

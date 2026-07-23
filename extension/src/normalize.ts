@@ -262,15 +262,20 @@ export function normalizeMatch(value: unknown): MatchContext | null {
     .map((rawTeam, index) => {
       const team = record(rawTeam);
       if (!team) return null;
+      const teamStats = record(prop(team, "stats", "team_stats", "teamStats"));
       const players = array(prop(team, "players", "roster", "members"))
         .map(normalizePlayer)
         .filter((player): player is Player & { premadeId?: string } => player !== null);
       const idValue = text(prop(team, "id", "team_id", "teamId")) ?? `team-${index + 1}`;
       const elos = players.map((player) => player.elo).filter((elo): elo is number => elo !== undefined);
+      const winProbability = number(prop(teamStats, "winProbability", "win_probability"));
       return {
         id: idValue,
         ...(text(prop(team, "name", "team_name")) ? { name: text(prop(team, "name", "team_name")) } : {}),
         players,
+        ...(winProbability !== undefined && winProbability >= 0 && winProbability <= 1
+          ? { winProbability }
+          : {}),
         eloKnown: elos.length,
         eloTotal: players.length,
         ...(elos.length
@@ -312,9 +317,15 @@ export function normalizeMatch(value: unknown): MatchContext | null {
   const serverLocation = text(prop(root, "server_location", "serverLocation", "region"));
   const serverConnect = text(prop(root, "connect", "server_connect", "serverConnect"));
   const viewerIsCaptain = bool(prop(root, "viewer_is_captain", "viewerIsCaptain"));
+  const calculateElo = bool(prop(root, "calculateElo", "calculate_elo"));
+  const tags = array(prop(root, "tags"))
+    .map((tag) => text(tag)?.toLowerCase())
+    .filter((tag): tag is string => tag !== undefined);
   if (serverLocation) result.serverLocation = serverLocation;
   if (serverConnect) result.serverConnect = serverConnect;
   if (viewerIsCaptain !== undefined) result.viewerIsCaptain = viewerIsCaptain;
+  if (calculateElo !== undefined) result.calculateElo = calculateElo;
+  if (prop(root, "tags") !== undefined) result.premiumMatch = tags.includes("premium");
   return result;
 }
 

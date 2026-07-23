@@ -26,10 +26,16 @@ const settings: InlineMatchSettings = {
   statsWindow: 30,
   mapWinRateWindow: 30,
   showExtendedTier: true,
+  showPlayerStats: true,
+  showPlayerFormBattery: true,
   showPlayerRoles: true,
+  showPlayerEncounters: true,
   showPlayerStreak: true,
+  showTeamAverageElo: true,
+  showEloStake: true,
   showTeamSummary: true,
   showMapWinRates: true,
+  showSelectedMapWins: true,
 };
 
 function nativePlayer(nickname: string): string {
@@ -170,12 +176,15 @@ function matchContext(overrides: Partial<MatchContext> = {}): MatchContext {
     id: "fixture-match",
     game: "cs2",
     status: "ongoing",
+    calculateElo: true,
+    premiumMatch: false,
     mapPool: ["dust2", "mirage"],
     selectedMap: "dust2",
     teams: [
       {
         id: "team-alpha",
         name: "Alpha",
+        winProbability: 0.5,
         players: [
           { id: "alpha-one", nickname: "AlphaOne", game: "cs2", elo: 2_511, officialLevel: 10 },
           { id: "alpha-two", nickname: "AlphaTwo", game: "cs2", elo: 2_305, officialLevel: 10 },
@@ -187,6 +196,7 @@ function matchContext(overrides: Partial<MatchContext> = {}): MatchContext {
       {
         id: "team-bravo",
         name: "Bravo",
+        winProbability: 0.5,
         players: [
           { id: "bravo-one", nickname: "BravoOne", game: "cs2", elo: 2_020, officialLevel: 10 },
           { id: "bravo-two", nickname: "BravoTwo", game: "cs2", elo: 1_910, officialLevel: 9 },
@@ -482,8 +492,21 @@ describe("InlineMatchRenderer", () => {
     expect(rightTeamHost?.getAttribute("data-eloscope-team-side")).toBe("right");
     expect(leftTeamHost?.shadowRoot?.textContent).toContain("AVG ELO 2223");
     expect(rightTeamHost?.shadowRoot?.textContent).toContain("AVG ELO 1866");
+    const leftStake = leftTeamHost?.shadowRoot?.querySelector<HTMLElement>('[data-es-elo-stake="team-alpha"]');
+    const rightStake = rightTeamHost?.shadowRoot?.querySelector<HTMLElement>('[data-es-elo-stake="team-bravo"]');
+    expect(leftStake?.querySelector(".gain")?.textContent).toBe("+25");
+    expect(leftStake?.querySelector(".loss")?.textContent).toBe("−25");
+    expect(rightStake?.textContent).toBe("+25/−25");
+    expect(leftStake?.title).toContain("Прогноз изменения ELO");
+    expect(leftStake?.title).toContain("Фактическое изменение может отличаться");
+    expect(leftStake?.getAttribute("aria-label")).toBe(leftStake?.title);
+    expect(leftTeamHost?.shadowRoot?.querySelector(".metric")?.getAttribute("aria-label"))
+      .toContain("Прогноз изменения ELO");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("·");
     expect(leftTeamHost?.shadowRoot?.querySelector("style")?.textContent).toContain("font-size: 14px");
+    expect(leftTeamHost?.shadowRoot?.querySelector("style")?.textContent).toContain("gap: 6px");
+    expect(leftTeamHost?.shadowRoot?.querySelector("style")?.textContent).toContain(".stake .gain { color: #21d07a; }");
+    expect(leftTeamHost?.shadowRoot?.querySelector("style")?.textContent).toContain(".stake .loss { color: #ff5968; }");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("Alpha");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("coverage");
     expect(leftTeamHost?.shadowRoot?.textContent).not.toContain("2000–2511");
@@ -510,6 +533,52 @@ describe("InlineMatchRenderer", () => {
     expect(shadow.querySelector("style")?.textContent).toMatch(
       /\.overall\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(6,\s*minmax\(0,\s*1fr\)\);/s,
     );
+  });
+
+  it("removes every independently configurable match-room enhancement without touching native rows", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const match = matchContext();
+    const rows = new Map(matchRows(match));
+    const sharedViewer = encounterMatch("alpha-one", "shared-toggle", "historic-alpha", "win", 2);
+    const sharedTeammate = encounterMatch("alpha-two", "shared-toggle", "historic-alpha", "win", 2);
+    rows.set("alpha-one", [sharedViewer, ...(rows.get("alpha-one") ?? [])]);
+    rows.set("alpha-two", [sharedTeammate, ...(rows.get("alpha-two") ?? [])]);
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(
+      match,
+      rows,
+      playerMapRows(match),
+      settings,
+      undefined,
+      { id: "alpha-one", matches: [sharedViewer] },
+    );
+    expect(playerHosts()).toHaveLength(10);
+    expect(batteryHosts()).toHaveLength(10);
+    expect(encounterHosts()).toHaveLength(1);
+    expect(teamHosts()).toHaveLength(2);
+    expect(teamHosts()[0]?.shadowRoot?.querySelector("[data-es-elo-stake]")).not.toBeNull();
+
+    renderer.render(
+      match,
+      rows,
+      playerMapRows(match),
+      {
+        ...settings,
+        showPlayerStats: false,
+        showPlayerFormBattery: false,
+        showPlayerEncounters: false,
+        showTeamAverageElo: false,
+        showEloStake: false,
+      },
+      undefined,
+      { id: "alpha-one", matches: [sharedViewer] },
+    );
+    expect(playerHosts()).toHaveLength(0);
+    expect(batteryHosts()).toHaveLength(0);
+    expect(encounterHosts()).toHaveLength(0);
+    expect(teamHosts()).toHaveLength(0);
+    expect(document.querySelectorAll('[class*="styles__Holder-sc-"]')).toHaveLength(10);
   });
 
   it("shows unknown team values instead of invented zeros and removes summaries with the toggle", () => {
@@ -1375,6 +1444,46 @@ describe("InlineMatchRenderer", () => {
     expect(alphaMetric?.shadowRoot?.textContent).toContain("AVG ELO 2339");
     expect(alphaMetric?.shadowRoot?.textContent).not.toContain("·");
     expect(alphaMetric?.shadowRoot?.textContent).not.toContain("AVG ELO 0");
+    expect(teamHosts().every((host) => host.shadowRoot?.querySelector("[data-es-elo-stake]") === null)).toBe(true);
+  });
+
+  it("renders only a known FACEIT ELO forecast and refreshes it when probabilities change", () => {
+    mountNativeRoom(LEFT_PLAYERS, RIGHT_PLAYERS);
+    const base = matchContext();
+    const withProbabilities = (first: number, second: number): MatchContext => ({
+      ...base,
+      teams: [
+        { ...(base.teams[0] as MatchContext["teams"][number]), winProbability: first },
+        { ...(base.teams[1] as MatchContext["teams"][number]), winProbability: second },
+      ],
+    });
+    const renderer = new InlineMatchRenderer();
+
+    renderer.render(withProbabilities(0.7, 0.3), matchRows(base), playerMapRows(base), settings);
+    const alpha = document.querySelector<HTMLElement>(`[${INLINE_TEAM_ATTRIBUTE}="team-alpha"]`);
+    const alphaStake = (): HTMLElement | null | undefined =>
+      alpha?.shadowRoot?.querySelector<HTMLElement>('[data-es-elo-stake="team-alpha"]');
+    expect(alphaStake()?.textContent).toBe("+15/−35");
+
+    renderer.render(withProbabilities(0.6, 0.4), matchRows(base), playerMapRows(base), settings);
+    expect(alphaStake()?.textContent).toBe("+20/−30");
+
+    renderer.render(
+      { ...withProbabilities(0.5, 0.5), premiumMatch: true },
+      matchRows(base),
+      playerMapRows(base),
+      settings,
+    );
+    expect(alphaStake()?.textContent).toBe("+30/−30");
+
+    renderer.render(
+      { ...withProbabilities(0.5, 0.5), calculateElo: false },
+      matchRows(base),
+      playerMapRows(base),
+      settings,
+    );
+    expect(alpha?.shadowRoot?.textContent).toContain("AVG ELO 2223");
+    expect(alphaStake()).toBeNull();
   });
 
   it("omits a team metric when every player ELO is unavailable", () => {

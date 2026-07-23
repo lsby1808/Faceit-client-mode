@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ELO_TIER_PALETTE,
+  estimateEloStake,
   getEloTier,
   getEloTierPresentation,
   getEloTierProgress,
@@ -9,6 +10,27 @@ import {
   getOfficialEloProgress,
   type EloScopeTier,
 } from "../src/index.js";
+
+const stakeMatch = (
+  firstProbability: number | undefined,
+  secondProbability: number | undefined,
+  overrides: { calculateElo?: boolean; premiumMatch?: boolean } = {},
+) => ({
+  calculateElo: overrides.calculateElo ?? true,
+  premiumMatch: overrides.premiumMatch ?? false,
+  teams: [
+    {
+      id: "alpha",
+      players: [],
+      ...(firstProbability === undefined ? {} : { winProbability: firstProbability }),
+    },
+    {
+      id: "bravo",
+      players: [],
+      ...(secondProbability === undefined ? {} : { winProbability: secondProbability }),
+    },
+  ],
+});
 
 const TIER_BOUNDS: ReadonlyArray<Readonly<{
   tier: EloScopeTier;
@@ -225,5 +247,37 @@ describe("ELO levels", () => {
       pointsNeeded: null,
       percent: 100,
     });
+  });
+});
+
+describe("expected match Elo stake", () => {
+  it("uses FACEIT probabilities with the standard 50-point stake", () => {
+    expect(estimateEloStake(stakeMatch(0.5, 0.5))).toEqual([
+      { teamId: "alpha", gain: 25, loss: -25 },
+      { teamId: "bravo", gain: 25, loss: -25 },
+    ]);
+    expect(estimateEloStake(stakeMatch(0.4, 0.6))).toEqual([
+      { teamId: "alpha", gain: 30, loss: -20 },
+      { teamId: "bravo", gain: 20, loss: -30 },
+    ]);
+    expect(estimateEloStake(stakeMatch(0, 1))).toEqual([
+      { teamId: "alpha", gain: 50, loss: 0 },
+      { teamId: "bravo", gain: 0, loss: -50 },
+    ]);
+  });
+
+  it("uses the 20 percent Premium Match uplift", () => {
+    expect(estimateEloStake(stakeMatch(0.5, 0.5, { premiumMatch: true }))).toEqual([
+      { teamId: "alpha", gain: 30, loss: -30 },
+      { teamId: "bravo", gain: 30, loss: -30 },
+    ]);
+  });
+
+  it("fails closed for non-Elo and contradictory probability contracts", () => {
+    expect(estimateEloStake(stakeMatch(0.5, 0.5, { calculateElo: false }))).toBeUndefined();
+    expect(estimateEloStake(stakeMatch(undefined, 0.5))).toBeUndefined();
+    expect(estimateEloStake(stakeMatch(-0.1, 1.1))).toBeUndefined();
+    expect(estimateEloStake(stakeMatch(0.4, 0.5))).toBeUndefined();
+    expect(estimateEloStake({ ...stakeMatch(0.5, 0.5), teams: [] })).toBeUndefined();
   });
 });

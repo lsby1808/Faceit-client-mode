@@ -56,25 +56,47 @@ describe("EloScope settings panel", () => {
     expect(panel.shadow.textContent).toContain("Окно статистики");
     expect(panel.shadow.textContent).toContain("Окно WR по картам");
     expect(panel.shadow.textContent).toContain(
-      "Последние завершённые матчи каждого игрока для расчёта WR по картам"
+      "Количество последних матчей каждого игрока для расчёта сравнения карт"
     );
     expect(
       panel.shadow.querySelector<HTMLSelectElement>('[aria-label="Окно WR по картам"]')?.value
     ).toBe("30");
     expect(panel.shadow.textContent).toContain("Расширенная шкала 1–20");
+    expect(panel.shadow.querySelectorAll('[role="tab"]')).toHaveLength(5);
+    expect(
+      panel.shadow.querySelector('[data-section="general"]')?.getAttribute("aria-selected")
+    ).toBe("true");
+    expect(panel.shadow.querySelector('[data-section="match-room"]')?.textContent)
+      .toContain("Матч-комната");
+    expect(panel.shadow.querySelector('[data-section="automations"]')?.textContent)
+      .toContain("Автоматизации");
+    expect(panel.shadow.querySelector('[data-section="positions"]')?.textContent)
+      .toContain("Быстрые позиции");
+    expect(panel.shadow.querySelector('[data-section="diagnostics"]')?.textContent)
+      .toContain("Диагностика");
+    expect(panel.shadow.querySelector('[data-testid="settings-reset"]')).not.toBeNull();
+    expect(
+      panel.shadow.querySelector<HTMLSelectElement>('[aria-label="Окно статистики профиля"]')?.value
+    ).toBe("20");
+    expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-stats")?.checked).toBe(true);
+    expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-form-battery")?.checked).toBe(true);
     expect(panel.shadow.textContent).toContain("Роли игроков");
-    expect(panel.shadow.textContent).toContain("все пять оценок при наведении на статистику");
+    expect(panel.shadow.textContent).toContain("Роль вместо аватара и пять оценок при наведении");
     expect(panel.shadow.textContent).toContain("Серии побед и поражений");
-    expect(panel.shadow.textContent).toContain("текущую серию побед или поражений");
+    expect(panel.shadow.textContent).toContain("Текущая зелёная или красная серия");
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-streak")?.checked).toBe(true);
+    expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-encounters")?.checked).toBe(true);
+    expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-team-average-elo")?.checked).toBe(true);
+    expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-elo-stake")?.checked).toBe(true);
     expect(panel.shadow.textContent).toContain("Сводка команд");
     expect(panel.shadow.textContent).toContain(
-      "Шансы, общая форма, FIREPOWER, AVG KILLS и K/D в комнате матча"
+      "Шансы, общая форма, FIREPOWER, AVG KILLS и K/D над составами"
     );
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-team-summary")?.checked).toBe(true);
     expect(panel.shadow.textContent).toContain("Сравнение карт");
-    expect(panel.shadow.textContent).toContain("Винрейт обеих команд по картам");
+    expect(panel.shadow.textContent).toContain("Винрейт обеих команд по каждой карте");
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-map-win-rates")?.checked).toBe(true);
+    expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-selected-map-wins")?.checked).toBe(true);
     expect(panel.shadow.querySelector("#eloscope-visibility-profile")).toBeNull();
     expect(panel.shadow.querySelector("#eloscope-visibility-history")).toBeNull();
     expect(
@@ -84,7 +106,7 @@ describe("EloScope settings panel", () => {
     expect(
       panel.shadow.querySelector<HTMLInputElement>("#eloscope-visibility-quickPositionsPanel")?.checked
     ).toBe(false);
-    expect(panel.shadow.textContent).toContain("Overlay match room");
+    expect(panel.shadow.textContent).toContain("Расширения матч-комнаты");
   });
 
   it("closes on Escape and backdrop click and restores launcher focus", async () => {
@@ -104,6 +126,33 @@ describe("EloScope settings panel", () => {
     const backdrop = panel.shadow.querySelector<HTMLElement>(".es-settings-backdrop");
     backdrop?.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
     expect(panel.isOpen).toBe(false);
+  });
+
+  it("switches between readable settings pages and restores defaults in the draft", async () => {
+    const panel = createPanel();
+    await panel.open();
+
+    const matchTab = panel.shadow.querySelector<HTMLButtonElement>(
+      '#eloscope-settings-tab-match-room'
+    )!;
+    matchTab.click();
+    expect(matchTab.getAttribute("aria-selected")).toBe("true");
+    expect(
+      panel.shadow.querySelector<HTMLElement>("#eloscope-settings-page-match-room")?.hidden
+    ).toBe(false);
+    expect(
+      panel.shadow.querySelector<HTMLElement>("#eloscope-settings-page-general")?.hidden
+    ).toBe(true);
+
+    change(panel.shadow.querySelector("#eloscope-show-player-stats") as HTMLInputElement, false);
+    panel.shadow.querySelector<HTMLButtonElement>('[data-testid="settings-reset"]')?.click();
+    expect(
+      panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-stats")?.checked
+    ).toBe(true);
+    expect(
+      panel.shadow.querySelector<HTMLButtonElement>("#eloscope-settings-tab-match-room")
+        ?.getAttribute("aria-selected")
+    ).toBe("true");
   });
 
   it("traps keyboard focus inside the modal dialog", async () => {
@@ -137,12 +186,19 @@ describe("EloScope settings panel", () => {
 
     const shadow = panel.shadow;
     change(shadow.querySelector('[aria-label="Окно статистики"]') as HTMLSelectElement, "50");
+    change(shadow.querySelector('[aria-label="Окно статистики профиля"]') as HTMLSelectElement, "10");
     change(shadow.querySelector('[aria-label="Окно WR по картам"]') as HTMLSelectElement, "100");
     change(shadow.querySelector("#eloscope-show-extended-tier") as HTMLInputElement, true);
+    change(shadow.querySelector("#eloscope-show-player-stats") as HTMLInputElement, false);
+    change(shadow.querySelector("#eloscope-show-player-form-battery") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-player-roles") as HTMLInputElement, false);
+    change(shadow.querySelector("#eloscope-show-player-encounters") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-player-streak") as HTMLInputElement, false);
+    change(shadow.querySelector("#eloscope-show-team-average-elo") as HTMLInputElement, false);
+    change(shadow.querySelector("#eloscope-show-elo-stake") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-team-summary") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-show-map-win-rates") as HTMLInputElement, false);
+    change(shadow.querySelector("#eloscope-show-selected-map-wins") as HTMLInputElement, false);
     change(shadow.querySelector("#eloscope-visibility-matchRoom") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-visibility-quickPositionsPanel") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-automation-partyAccept") as HTMLInputElement, true);
@@ -169,12 +225,19 @@ describe("EloScope settings panel", () => {
 
     const stored = await loadSettings();
     expect(stored.statsWindow).toBe(50);
+    expect(stored.profileStatsWindow).toBe(10);
     expect(stored.mapWinRateWindow).toBe(100);
     expect(stored.showExtendedTier).toBe(true);
+    expect(stored.showPlayerStats).toBe(false);
+    expect(stored.showPlayerFormBattery).toBe(false);
     expect(stored.showPlayerRoles).toBe(false);
+    expect(stored.showPlayerEncounters).toBe(false);
     expect(stored.showPlayerStreak).toBe(false);
+    expect(stored.showTeamAverageElo).toBe(false);
+    expect(stored.showEloStake).toBe(false);
     expect(stored.showTeamSummary).toBe(false);
     expect(stored.showMapWinRates).toBe(false);
+    expect(stored.showSelectedMapWins).toBe(false);
     expect(stored.interfaceVisibility).toEqual({
       profile: false,
       history: false,

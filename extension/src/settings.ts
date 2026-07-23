@@ -9,15 +9,29 @@ import { STATS_WINDOWS, isStatsWindow } from "./protocol";
 
 export type ExtensionSettings = {
   statsWindow: StatsWindow;
+  /** Independent recent-match window used by the profile statistics banner. */
+  profileStatsWindow: StatsWindow;
   /** Independent recent-match window used for match-room map win rates. */
   mapWinRateWindow: StatsWindow;
   showExtendedTier: boolean;
+  /** Shows the native-flow per-player statistics card in a match room. */
+  showPlayerStats: boolean;
+  /** Shows the recent-form battery beside a player's nickname. */
+  showPlayerFormBattery: boolean;
   showPlayerRoles: boolean;
+  /** Shows prior teammate/opponent counters and their hover details. */
+  showPlayerEncounters: boolean;
   /** Shows the current consecutive win/loss run beside match-room player names. */
   showPlayerStreak: boolean;
+  /** Shows each team's average ELO in the match header. */
+  showTeamAverageElo: boolean;
+  /** Shows the estimated ELO gain/loss beside the team average. */
+  showEloStake: boolean;
   /** Shows the compact team chance/form summary above each match-room roster. */
   showTeamSummary: boolean;
   showMapWinRates: boolean;
+  /** Shows the two roster-wide win totals inside the selected-map card. */
+  showSelectedMapWins: boolean;
   interfaceVisibility: {
     /** @deprecated Profile data panels were retired; kept false for v1 storage compatibility. */
     profile: boolean;
@@ -118,12 +132,19 @@ function canonicalizePositionSettings(
 export function createDefaultSettings(): ExtensionSettings {
   return {
     statsWindow: 30,
+    profileStatsWindow: 20,
     mapWinRateWindow: 30,
     showExtendedTier: false,
+    showPlayerStats: true,
+    showPlayerFormBattery: true,
     showPlayerRoles: true,
+    showPlayerEncounters: true,
     showPlayerStreak: true,
+    showTeamAverageElo: true,
+    showEloStake: true,
     showTeamSummary: true,
     showMapWinRates: true,
+    showSelectedMapWins: true,
     interfaceVisibility: {
       profile: false,
       history: false,
@@ -149,22 +170,43 @@ export function parseSettings(value: unknown): ExtensionSettings {
 
   return {
     statsWindow: isStatsWindow(value.statsWindow) ? value.statsWindow : defaults.statsWindow,
+    profileStatsWindow: isStatsWindow(value.profileStatsWindow)
+      ? value.profileStatsWindow
+      : defaults.profileStatsWindow,
     mapWinRateWindow: isStatsWindow(value.mapWinRateWindow)
       ? value.mapWinRateWindow
       : defaults.mapWinRateWindow,
     showExtendedTier: typeof value.showExtendedTier === "boolean" ? value.showExtendedTier : false,
+    showPlayerStats: typeof value.showPlayerStats === "boolean"
+      ? value.showPlayerStats
+      : defaults.showPlayerStats,
+    showPlayerFormBattery: typeof value.showPlayerFormBattery === "boolean"
+      ? value.showPlayerFormBattery
+      : defaults.showPlayerFormBattery,
     showPlayerRoles: typeof value.showPlayerRoles === "boolean"
       ? value.showPlayerRoles
       : defaults.showPlayerRoles,
+    showPlayerEncounters: typeof value.showPlayerEncounters === "boolean"
+      ? value.showPlayerEncounters
+      : defaults.showPlayerEncounters,
     showPlayerStreak: typeof value.showPlayerStreak === "boolean"
       ? value.showPlayerStreak
       : defaults.showPlayerStreak,
+    showTeamAverageElo: typeof value.showTeamAverageElo === "boolean"
+      ? value.showTeamAverageElo
+      : defaults.showTeamAverageElo,
+    showEloStake: typeof value.showEloStake === "boolean"
+      ? value.showEloStake
+      : defaults.showEloStake,
     showTeamSummary: typeof value.showTeamSummary === "boolean"
       ? value.showTeamSummary
       : defaults.showTeamSummary,
     showMapWinRates: typeof value.showMapWinRates === "boolean"
       ? value.showMapWinRates
       : defaults.showMapWinRates,
+    showSelectedMapWins: typeof value.showSelectedMapWins === "boolean"
+      ? value.showSelectedMapWins
+      : defaults.showSelectedMapWins,
     interfaceVisibility: {
       // Keep the retired keys in the v1 storage shape so older clients fail
       // closed after a downgrade. Legacy true values must never revive panels.
@@ -189,9 +231,16 @@ function needsSettingsMigration(value: unknown): boolean {
   return value.interfaceVisibility.profile !== false
     || value.interfaceVisibility.history !== false
     || typeof value.interfaceVisibility.profileStatsBanner !== "boolean"
+    || !isStatsWindow(value.profileStatsWindow)
     || !isStatsWindow(value.mapWinRateWindow)
+    || typeof value.showPlayerStats !== "boolean"
+    || typeof value.showPlayerFormBattery !== "boolean"
     || typeof value.showPlayerStreak !== "boolean"
-    || typeof value.showTeamSummary !== "boolean";
+    || typeof value.showPlayerEncounters !== "boolean"
+    || typeof value.showTeamAverageElo !== "boolean"
+    || typeof value.showEloStake !== "boolean"
+    || typeof value.showTeamSummary !== "boolean"
+    || typeof value.showSelectedMapWins !== "boolean";
 }
 
 export async function loadSettings(): Promise<ExtensionSettings> {

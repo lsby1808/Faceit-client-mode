@@ -454,10 +454,16 @@ describe("MatchMapWinRateChartRenderer", () => {
       statsWindow: 30 as const,
       mapWinRateWindow: 30 as const,
       showExtendedTier: false,
+      showPlayerStats: false,
+      showPlayerFormBattery: false,
       showPlayerRoles: false,
+      showPlayerEncounters: false,
       showPlayerStreak: false,
+      showTeamAverageElo: false,
+      showEloStake: false,
       showTeamSummary: false,
       showMapWinRates: true,
+      showSelectedMapWins: true,
     };
 
     expect(renderer.render(match, new Map(), mapRows(match), baseSettings)).toEqual({
@@ -469,5 +475,26 @@ describe("MatchMapWinRateChartRenderer", () => {
     renderer.render(match, new Map(), mapRows(match), { ...baseSettings, showMapWinRates: false });
     expect(chartHost()).toBeNull();
     expect(selectedWinsHost()).toBeNull();
+  });
+
+  it("keeps map comparison visible while independently hiding selected-map win totals", () => {
+    mountExplicit();
+    const match = matchContext();
+    const renderer = new MatchMapWinRateChartRenderer();
+
+    expect(renderer.render(match, mapRows(match), undefined, 30, false)).toEqual({
+      status: "rendered",
+      updated: 1,
+    });
+    expect(chartHost()).not.toBeNull();
+    expect(selectedWinsHost()?.hidden).toBe(true);
+    expect(selectedWinsHost()?.shadowRoot?.querySelector("[data-es-selected-map-wins]")).toBeNull();
+
+    expect(renderer.render(match, mapRows(match), undefined, 30, true)).toEqual({
+      status: "rendered",
+      updated: 1,
+    });
+    expect(selectedWinsHost()?.hidden).toBe(false);
+    expect(selectedWinsHost()?.shadowRoot?.querySelector("[data-es-selected-map-wins]")).not.toBeNull();
   });
 });
