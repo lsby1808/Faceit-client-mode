@@ -27,6 +27,8 @@ export type ExtensionSettings = {
   showTeamAverageElo: boolean;
   /** Shows the estimated ELO gain/loss beside the team average. */
   showEloStake: boolean;
+  /** Shows region, map pool and partial ELO in the match accept popup. */
+  showMatchAcceptPreview: boolean;
   /** Shows the compact team chance/form summary above each match-room roster. */
   showTeamSummary: boolean;
   showMapWinRates: boolean;
@@ -148,6 +150,7 @@ export function createDefaultSettings(): ExtensionSettings {
     showPlayerStreak: true,
     showTeamAverageElo: true,
     showEloStake: true,
+    showMatchAcceptPreview: true,
     showTeamSummary: true,
     showMapWinRates: true,
     showSelectedMapWins: true,
@@ -209,6 +212,9 @@ export function parseSettings(value: unknown): ExtensionSettings {
     showEloStake: typeof value.showEloStake === "boolean"
       ? value.showEloStake
       : defaults.showEloStake,
+    showMatchAcceptPreview: typeof value.showMatchAcceptPreview === "boolean"
+      ? value.showMatchAcceptPreview
+      : defaults.showMatchAcceptPreview,
     showTeamSummary: typeof value.showTeamSummary === "boolean"
       ? value.showTeamSummary
       : defaults.showTeamSummary,

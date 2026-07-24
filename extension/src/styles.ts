@@ -33,4 +33,19 @@ button:disabled { cursor:not-allowed; opacity:.48; }
 .es-select { color:var(--es-text); background:#0e1014; border:1px solid var(--es-line); border-radius:7px; padding:6px 7px; }
 .es-primary { border:0; border-radius:8px; padding:7px 10px; color:#fff; background:var(--es-accent); font-weight:800; }
 .es-status { min-height:16px; margin-top:5px; color:var(--es-muted); font-size:11px; }
+.es-match-accept-preview { position:fixed; left:50%; top:50%; transform:translate(-50%, calc(-50% - 150px)); width:min(420px,calc(100vw - 32px)); z-index:2147483001; pointer-events:none; }
+.es-match-accept-card { padding:12px 14px; border:1px solid var(--es-line); border-radius:14px; background:var(--es-bg); box-shadow:0 16px 48px #000d; }
+.es-match-accept-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+.es-match-accept-section { display:grid; gap:6px; margin-top:10px; }
+.es-match-accept-label { color:var(--es-muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+.es-match-accept-value { font-weight:600; }
+.es-match-accept-maps { display:flex; flex-wrap:wrap; gap:6px; }
+.es-match-accept-map { display:inline-flex; padding:4px 8px; border-radius:999px; border:1px solid var(--es-line); background:var(--es-card); font-size:12px; }
+.es-match-accept-teams { display:grid; gap:8px; }
+.es-match-accept-team { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.es-match-accept-team-name { font-weight:700; }
+.es-match-accept-team-elo { color:#ffc19e; font-weight:700; }
+.es-match-accept-players { display:flex; flex-wrap:wrap; gap:4px; }
+.es-match-accept-player { padding:2px 6px; border-radius:6px; background:#ffffff0d; font-size:11px; color:var(--es-muted); }
+.es-match-accept-note { margin:10px 0 0; color:var(--es-muted); font-size:11px; }
 `;

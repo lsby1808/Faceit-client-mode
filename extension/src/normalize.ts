@@ -2,6 +2,8 @@ import type {
   MatchContext,
   MatchPlayerStats,
   MatchStats,
+  PendingMatchPreview,
+  PendingMatchPreviewTeam,
   Player,
   PlayerMapStats,
   PlayerMatch,
@@ -249,6 +251,153 @@ export function normalizeMapStats(value: unknown): PlayerMapStats[] | null {
 function teamValues(value: unknown): unknown[] {
   const object = record(value);
   return array(prop(object, "teams", "factions") ?? value);
+}
+
+const PRE_MATCH_PHASES = new Set([
+  "CHECK_IN",
+  "CHECKIN",
+  "VOTING",
+  "CONFIGURING",
+  "READY",
+  "PENDING",
+  "WAITING",
+]);
+
+export function isPreMatchAcceptPhase(phase: string): boolean {
+  const normalized = phase.trim().toUpperCase().replace(/[\s-]+/gu, "_");
+  return PRE_MATCH_PHASES.has(normalized);
+}
+
+function canonicalMapId(raw: unknown): string | undefined {
+  const value = text(raw)?.replace(/^de_/iu, "").toLowerCase();
+  return value || undefined;
+}
+
+function extractPreviewRegions(root: RecordValue): string[] {
+  const regions: string[] = [];
+  const seen = new Set<string>();
+  const add = (name: string | undefined): void => {
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    regions.push(name);
+  };
+
+  for (const source of [
+    array(prop(root, "locations")),
+    array(prop(root, "servers")),
+    array(prop(root, "serverLocations", "server_locations")),
+  ]) {
+    for (const item of source) {
+      if (typeof item === "string") add(item);
+      else add(text(prop(record(item), "class_name", "name", "guid", "value")));
+    }
+  }
+
+  add(text(prop(root, "region", "server_location", "serverLocation")));
+
+  for (const tag of array(prop(root, "tags"))) {
+    const value = text(tag);
+    if (value && /^[A-Z][A-Za-z ]+$/u.test(value)) add(value);
+  }
+
+  return regions;
+}
+
+function extractPreviewMapPool(root: RecordValue): string[] {
+  const maps: string[] = [];
+  const seen = new Set<string>();
+  const add = (raw: unknown): void => {
+    const map = canonicalMapId(raw);
+    if (!map || seen.has(map)) return;
+    seen.add(map);
+    maps.push(map);
+  };
+
+  const voting = record(prop(root, "voting", "vote"));
+  const mapVoting = record(prop(voting, "map", "maps"));
+  for (const entry of array(prop(mapVoting, "entities", "available", "pool"))) {
+    add(text(prop(record(entry), "name", "id", "value", "guid"), entry));
+  }
+
+  for (const tag of array(prop(root, "tags"))) {
+    const value = text(tag);
+    if (!value?.includes("de_")) continue;
+    for (const item of value.split(",")) {
+      const candidate = item.trim();
+      if (candidate.startsWith("de_")) add(candidate);
+    }
+    break;
+  }
+
+  maps.sort((left, right) => left.localeCompare(right));
+  return maps;
+}
+
+function extractPreviewTeams(root: RecordValue): PendingMatchPreviewTeam[] | undefined {
+  const rawTeams = prop(root, "teams") ?? [prop(root, "faction1"), prop(root, "faction2")].filter(Boolean);
+  const teams = teamValues(rawTeams)
+    .map((rawTeam, index) => {
+      const team = record(rawTeam);
+      if (!team) return null;
+      const players = array(prop(team, "players", "roster", "members"))
+        .map(normalizePlayer)
+        .filter((player): player is Player & { premadeId?: string } => player !== null)
+        .map((player) => ({
+          nickname: player.nickname,
+          ...(player.elo !== undefined ? { elo: player.elo } : {}),
+          ...(player.officialLevel !== undefined ? { officialLevel: player.officialLevel } : {}),
+        }));
+      if (!players.length) return null;
+      const idValue = text(prop(team, "id", "team_id", "teamId")) ?? `team-${index + 1}`;
+      const elos = players.map((player) => player.elo).filter((elo): elo is number => elo !== undefined);
+      return {
+        id: idValue,
+        ...(text(prop(team, "name", "team_name")) ? { name: text(prop(team, "name", "team_name")) } : {}),
+        players,
+        ...(elos.length
+          ? {
+              eloKnown: elos.length,
+              eloTotal: players.length,
+              averageElo: Math.round(elos.reduce((sum, elo) => sum + elo, 0) / elos.length),
+              minElo: Math.min(...elos),
+              maxElo: Math.max(...elos),
+            }
+          : {}),
+      };
+    })
+    .filter((team): team is NonNullable<typeof team> => team !== null);
+
+  return teams.length ? teams : undefined;
+}
+
+export function normalizePendingMatchSignal(value: unknown): PendingMatchPreview | null {
+  const root = record(payload(value));
+  if (!root) return null;
+
+  const matchId = text(prop(root, "id", "match_id", "matchId"));
+  const phase = text(prop(root, "status", "state"));
+  if (!matchId || !phase) return null;
+
+  const game = text(prop(root, "game", "game_id"))?.toLowerCase();
+  if (game !== undefined && game !== "cs2") return null;
+  if (!isPreMatchAcceptPhase(phase)) return null;
+
+  const regions = extractPreviewRegions(root);
+  const mapPool = extractPreviewMapPool(root);
+  const teams = extractPreviewTeams(root);
+  const hasElo = teams?.some((team) => (team.eloKnown ?? 0) > 0) ?? false;
+
+  if (!regions.length && !mapPool.length && !hasElo) return null;
+
+  return {
+    matchId,
+    phase,
+    regions,
+    mapPool,
+    ...(teams ? { teams } : {}),
+  };
 }
 
 export function normalizeMatch(value: unknown): MatchContext | null {

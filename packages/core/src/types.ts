@@ -107,6 +107,32 @@ export interface MatchContext {
   premiumMatch?: boolean;
 }
 
+/** Sanitized matchmaking accept-popup preview derived from intercepted match reads. */
+export interface PendingMatchPreviewPlayer {
+  nickname: string;
+  elo?: number;
+  officialLevel?: number;
+}
+
+export interface PendingMatchPreviewTeam {
+  id: string;
+  name?: string;
+  averageElo?: number;
+  minElo?: number;
+  maxElo?: number;
+  eloKnown?: number;
+  eloTotal?: number;
+  players: PendingMatchPreviewPlayer[];
+}
+
+export interface PendingMatchPreview {
+  matchId: string;
+  phase: string;
+  regions: string[];
+  mapPool: MapId[];
+  teams?: PendingMatchPreviewTeam[];
+}
+
 export interface MatchPlayerStats {
   playerId: string;
   teamId: string;

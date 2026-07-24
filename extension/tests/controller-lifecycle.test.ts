@@ -101,6 +101,10 @@ vi.mock("../src/automations", () => ({
 
 vi.mock("../src/bridge-client", () => ({
   FaceitBridgeAdapter: class {
+    subscribeMatchSignals(): () => void {
+      return () => undefined;
+    }
+
     destroy(): void {
       state.resolvePlayer?.({
         status: "error",
@@ -289,6 +293,9 @@ vi.mock("../src/ui", () => ({
     syncProfileTier(...args: unknown[]): void { state.overlaySyncProfileTier(...args); }
     showProfileStats(...args: unknown[]): void { state.overlayShowProfileStats(...args); }
     syncProfileStats(...args: unknown[]): void { state.overlaySyncProfileStats(...args); }
+    showMatchAcceptPreview(): boolean { return true; }
+    hideMatchAcceptPreview(): void {}
+    syncMatchAcceptPreview(): boolean { return true; }
     showMatch(...args: unknown[]): typeof state.overlayRenderResult {
       state.overlayShowMatch(...args);
       return state.overlayRenderResult;

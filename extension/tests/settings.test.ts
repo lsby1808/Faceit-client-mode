@@ -22,6 +22,7 @@ describe("extension settings", () => {
     expect(settings.showPlayerStreak).toBe(true);
     expect(settings.showTeamAverageElo).toBe(true);
     expect(settings.showEloStake).toBe(true);
+    expect(settings.showMatchAcceptPreview).toBe(true);
     expect(settings.showTeamSummary).toBe(true);
     expect(settings.showMapWinRates).toBe(true);
     expect(settings.showSelectedMapWins).toBe(true);

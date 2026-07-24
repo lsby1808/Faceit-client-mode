@@ -64,6 +64,7 @@ const EVENT_CODES = [
   "automation.result",
   "position.result",
   "render.matchmaking",
+  "render.match-accept-preview",
   "render.profile",
   "render.match",
 ] as const;

@@ -4,6 +4,7 @@ import {
   type DataState,
   type MatchContext,
   type MapId,
+  type PendingMatchPreview,
   type Player,
   type PlayerMapStats,
   type PlayerMatch,
@@ -105,6 +106,7 @@ export class EloScopeController {
   #lastAutomationSignature = "";
   #lastRenderSignature = "";
   #lastNativeRenderSignature = "";
+  #pendingMatchPreview: PendingMatchPreview | undefined;
   #stopObserver: (() => void) | undefined;
   #destroyed = false;
   readonly #lifecycle = new AbortController();
@@ -196,6 +198,9 @@ export class EloScopeController {
     });
 
     window.addEventListener("message", this.#routeMessage);
+    this.#adapter.subscribeMatchSignals((preview) => {
+      this.#handleMatchSignal(preview);
+    });
     this.#stopObserver = observeScopedDom(() => { void this.#handleDomMutation(); });
     await this.navigate(location.pathname);
     debugLog.record({
@@ -278,6 +283,10 @@ export class EloScopeController {
       this.#currentViewerTeamId = undefined;
       this.#currentViewerMatches = undefined;
       this.#publishMapPool([]);
+    }
+    if (nextRoute.kind !== "matchmaking") {
+      this.#pendingMatchPreview = undefined;
+      this.#overlay?.hideMatchAcceptPreview();
     }
 
     switch (this.#route.kind) {
@@ -864,6 +873,9 @@ export class EloScopeController {
           this.#overlay.syncMatchmakingTier(this.#currentTierPlayer),
         );
       }
+      if (this.#pendingMatchPreview && this.#settings.showMatchAcceptPreview) {
+        this.#overlay.syncMatchAcceptPreview();
+      }
       return;
     }
     if (this.#route.kind !== "match" || !this.#currentMatch) return;
@@ -931,6 +943,28 @@ export class EloScopeController {
         status: result,
       });
     }
+  }
+
+  #handleMatchSignal(preview: PendingMatchPreview | null): void {
+    if (this.#destroyed || this.#route.kind !== "matchmaking") return;
+    if (!this.#settings.showMatchAcceptPreview) return;
+
+    if (!preview) {
+      this.#pendingMatchPreview = undefined;
+      this.#overlay.hideMatchAcceptPreview();
+      return;
+    }
+
+    this.#pendingMatchPreview = preview;
+    debugLog.record({
+      component: "controller",
+      event: "render.match-accept-preview",
+      route: this.#route.kind,
+      status: "rendered",
+      count: preview.mapPool.length,
+      total: preview.regions.length,
+    });
+    this.#overlay.showMatchAcceptPreview(preview);
   }
 
   #runAutomations(): void {
