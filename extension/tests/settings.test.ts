@@ -11,6 +11,8 @@ import {
 describe("extension settings", () => {
   it("keeps every automation off by default", () => {
     const settings = createDefaultSettings();
+    expect(settings.language).toBe("ru");
+    expect(settings.languagePrompted).toBe(false);
     expect(settings.statsWindow).toBe(30);
     expect(settings.profileStatsWindow).toBe(20);
     expect(settings.mapWinRateWindow).toBe(30);
@@ -52,6 +54,8 @@ describe("extension settings", () => {
       statsWindow: 17,
       profileStatsWindow: 17,
       mapWinRateWindow: 17,
+      language: "de",
+      languagePrompted: "yes",
       showExtendedTier: "yes",
       showPlayerStats: "yes",
       showPlayerFormBattery: "yes",
@@ -68,6 +72,8 @@ describe("extension settings", () => {
       automations: { partyAccept: "yes", readyUp: 1, autoConnect: true }
     });
     expect(settings.statsWindow).toBe(30);
+    expect(settings.language).toBe("ru");
+    expect(settings.languagePrompted).toBe(false);
     expect(settings.profileStatsWindow).toBe(20);
     expect(settings.mapWinRateWindow).toBe(30);
     expect(settings.showExtendedTier).toBe(false);
@@ -98,6 +104,10 @@ describe("extension settings", () => {
   });
 
   it("migrates legacy settings to enabled visual enhancements and preserves explicit opt-outs", () => {
+    expect(parseSettings({ language: "en", languagePrompted: true })).toMatchObject({
+      language: "en",
+      languagePrompted: true
+    });
     expect(parseSettings({ statsWindow: 50 }).showPlayerRoles).toBe(true);
     expect(parseSettings({ showPlayerStats: false }).showPlayerStats).toBe(false);
     expect(parseSettings({ showPlayerFormBattery: false }).showPlayerFormBattery).toBe(false);
@@ -124,6 +134,8 @@ describe("extension settings", () => {
 
     await expect(loadSettings()).resolves.toMatchObject({
       statsWindow: 30,
+      language: "ru",
+      languagePrompted: false,
       mapWinRateWindow: 30
     });
     expect(setSpy).toHaveBeenCalledOnce();
@@ -199,6 +211,7 @@ describe("extension settings", () => {
       showPlayerEncounters: true,
       showTeamAverageElo: true,
       showEloStake: true,
+      showMatchAcceptPreview: true,
       showSelectedMapWins: true,
     });
     expect(setSpy).toHaveBeenCalledOnce();

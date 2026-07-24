@@ -54,6 +54,7 @@ describe("EloScope settings panel", () => {
     expect(panel.shadow.activeElement).toBe(dialog);
     expect(panel.launcher.tabIndex).toBe(-1);
     expect(panel.shadow.textContent).toContain("Окно статистики");
+    expect(panel.shadow.textContent).toContain("Язык интерфейса");
     expect(panel.shadow.textContent).toContain("Приложение Windows");
     expect(panel.shadow.textContent).toContain("Запускать вместе с Windows");
     expect(panel.shadow.textContent).toContain("Сворачивать в системный трей");
@@ -83,6 +84,7 @@ describe("EloScope settings panel", () => {
     ).toBe("20");
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-shell-autostart")?.checked).toBe(false);
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-shell-minimize-to-tray")?.checked).toBe(false);
+    expect(panel.shadow.querySelector<HTMLSelectElement>('[aria-label="Язык интерфейса"]')?.value).toBe("ru");
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-stats")?.checked).toBe(true);
     expect(panel.shadow.querySelector<HTMLInputElement>("#eloscope-show-player-form-battery")?.checked).toBe(true);
     expect(panel.shadow.textContent).toContain("Роли игроков");
@@ -194,6 +196,7 @@ describe("EloScope settings panel", () => {
     change(shadow.querySelector('[aria-label="Окно статистики"]') as HTMLSelectElement, "50");
     change(shadow.querySelector('[aria-label="Окно статистики профиля"]') as HTMLSelectElement, "10");
     change(shadow.querySelector('[aria-label="Окно WR по картам"]') as HTMLSelectElement, "100");
+    change(shadow.querySelector('[aria-label="Язык интерфейса"]') as HTMLSelectElement, "en");
     change(shadow.querySelector("#eloscope-shell-autostart") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-shell-minimize-to-tray") as HTMLInputElement, true);
     change(shadow.querySelector("#eloscope-show-extended-tier") as HTMLInputElement, true);
@@ -237,6 +240,8 @@ describe("EloScope settings panel", () => {
     expect(stored.statsWindow).toBe(50);
     expect(stored.profileStatsWindow).toBe(10);
     expect(stored.mapWinRateWindow).toBe(100);
+    expect(stored.language).toBe("en");
+    expect(stored.languagePrompted).toBe(true);
     expect(stored.showExtendedTier).toBe(true);
     expect(stored.showPlayerStats).toBe(false);
     expect(stored.showPlayerFormBattery).toBe(false);
@@ -268,6 +273,23 @@ describe("EloScope settings panel", () => {
       serverVeto: { enabled: true, order: ["warsaw", "frankfurt"] }
     });
     expect(shellApply).toHaveBeenCalledWith(stored.shell, "0123456789abcdef0123456789abcdef0123456789abcdef");
+  });
+
+  it("asks for language once on first launch", async () => {
+    const onSaved = vi.fn(async () => undefined);
+    const panel = createPanel({ onSaved });
+
+    await expect(panel.promptForLanguageIfNeeded()).resolves.toBe(true);
+    expect(panel.shadow.textContent).toContain("Choose language");
+    panel.shadow.querySelector<HTMLButtonElement>('[data-language="en"]')?.click();
+
+    await vi.waitFor(() => expect(panel.isOpen).toBe(false));
+    const stored = await loadSettings();
+    expect(stored.language).toBe("en");
+    expect(stored.languagePrompted).toBe(true);
+    expect(onSaved).toHaveBeenCalledOnce();
+
+    await expect(panel.promptForLanguageIfNeeded()).resolves.toBe(false);
   });
 
   it("edits dynamic quick positions and keeps confirm as the safe default", async () => {
