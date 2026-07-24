@@ -1,4 +1,6 @@
 import type { PendingMatchPreview } from "@eloscope/core";
+import { tr } from "./i18n";
+import type { ExtensionLanguage } from "./settings";
 
 function formatMapLabel(map: string): string {
   const label = map.replace(/^de_/iu, "");
@@ -9,12 +11,16 @@ export class MatchAcceptPreviewRenderer {
   readonly #host: HTMLElement;
   #visible = false;
 
-  constructor(private readonly shadow: ShadowRoot) {
+  constructor(private readonly shadow: ShadowRoot, private language: ExtensionLanguage = "ru") {
     this.#host = document.createElement("section");
     this.#host.className = "es-match-accept-preview";
     this.#host.hidden = true;
     this.#host.setAttribute("aria-live", "polite");
     this.shadow.querySelector(".es-shell")?.append(this.#host);
+  }
+
+  updateLanguage(language: ExtensionLanguage): void {
+    this.language = language;
   }
 
   destroy(): void {
@@ -46,7 +52,7 @@ export class MatchAcceptPreviewRenderer {
     const head = document.createElement("header");
     head.className = "es-match-accept-head";
     const title = document.createElement("strong");
-    title.textContent = "До принятия";
+    title.textContent = tr(this.language, "До принятия");
     const badge = document.createElement("span");
     badge.className = "es-badge";
     badge.textContent = preview.phase;
@@ -55,7 +61,7 @@ export class MatchAcceptPreviewRenderer {
 
     if (preview.regions.length) {
       card.append(this.#section(
-        "Регион / серверы",
+        tr(this.language, "Регион / серверы"),
         preview.regions.join(" · "),
       ));
     }
@@ -100,7 +106,7 @@ export class MatchAcceptPreviewRenderer {
         } else {
           const muted = document.createElement("span");
           muted.className = "es-muted";
-          muted.textContent = "ELO скрыт";
+          muted.textContent = tr(this.language, "ELO скрыт");
           row.append(muted);
         }
         teams.append(row);
@@ -123,14 +129,14 @@ export class MatchAcceptPreviewRenderer {
       section.className = "es-match-accept-section";
       const label = document.createElement("span");
       label.className = "es-match-accept-label";
-      label.textContent = "ELO команд";
+      label.textContent = tr(this.language, "ELO команд");
       section.append(label, teams);
       card.append(section);
     }
 
     const note = document.createElement("p");
     note.className = "es-match-accept-note";
-    note.textContent = "Данные перехвачены из ответа FACEIT до принятия матча. Состав может быть неполным.";
+    note.textContent = tr(this.language, "Данные перехвачены из ответа FACEIT до принятия матча. Состав может быть неполным.");
     card.append(note);
     fragment.append(card);
     return fragment;

@@ -7,7 +7,11 @@ import {
 } from "@eloscope/core";
 import { STATS_WINDOWS, isStatsWindow } from "./protocol";
 
+export type ExtensionLanguage = "ru" | "en";
+
 export type ExtensionSettings = {
+  language: ExtensionLanguage;
+  languagePrompted: boolean;
   statsWindow: StatsWindow;
   /** Independent recent-match window used by the profile statistics banner. */
   profileStatsWindow: StatsWindow;
@@ -139,6 +143,8 @@ function canonicalizePositionSettings(
 
 export function createDefaultSettings(): ExtensionSettings {
   return {
+    language: "ru",
+    languagePrompted: false,
     statsWindow: 30,
     profileStatsWindow: 20,
     mapWinRateWindow: 30,
@@ -173,6 +179,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function isLanguage(value: unknown): value is ExtensionLanguage {
+  return value === "ru" || value === "en";
+}
+
 export function parseSettings(value: unknown): ExtensionSettings {
   const defaults = createDefaultSettings();
   if (!isRecord(value)) return defaults;
@@ -183,6 +193,8 @@ export function parseSettings(value: unknown): ExtensionSettings {
   const shell = isRecord(value.shell) ? value.shell : {};
 
   return {
+    language: isLanguage(value.language) ? value.language : defaults.language,
+    languagePrompted: typeof value.languagePrompted === "boolean" ? value.languagePrompted : defaults.languagePrompted,
     statsWindow: isStatsWindow(value.statsWindow) ? value.statsWindow : defaults.statsWindow,
     profileStatsWindow: isStatsWindow(value.profileStatsWindow)
       ? value.profileStatsWindow
@@ -259,12 +271,15 @@ function needsSettingsMigration(value: unknown): boolean {
     || typeof value.interfaceVisibility.profileStatsBanner !== "boolean"
     || !isStatsWindow(value.profileStatsWindow)
     || !isStatsWindow(value.mapWinRateWindow)
+    || !isLanguage(value.language)
+    || typeof value.languagePrompted !== "boolean"
     || typeof value.showPlayerStats !== "boolean"
     || typeof value.showPlayerFormBattery !== "boolean"
     || typeof value.showPlayerStreak !== "boolean"
     || typeof value.showPlayerEncounters !== "boolean"
     || typeof value.showTeamAverageElo !== "boolean"
     || typeof value.showEloStake !== "boolean"
+    || typeof value.showMatchAcceptPreview !== "boolean"
     || typeof value.showTeamSummary !== "boolean"
     || typeof value.showSelectedMapWins !== "boolean"
     || typeof shell.autostart !== "boolean"

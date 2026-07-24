@@ -83,6 +83,15 @@ async function start(): Promise<void> {
     }
   });
   settingsPanel.mount();
+  void settingsPanel.promptForLanguageIfNeeded().catch(() => {
+    debugLog.record({
+      level: "warn",
+      component: "settings",
+      event: "settings.error",
+      route: currentRouteKind(),
+      status: "error",
+    });
+  });
 
   window.addEventListener("message", (event: MessageEvent<unknown>) => {
     if (event.source !== window || event.origin !== location.origin) return;

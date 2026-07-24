@@ -12,6 +12,7 @@ import { InlineMatchRenderer, type InlineMatchRenderResult } from "./inline-matc
 import { MatchAcceptPreviewRenderer } from "./match-accept-preview";
 import { NativeTierSurfaceRenderer } from "./native-tier-surfaces";
 import { ProfileStatsBannerRenderer } from "./profile-stats-banner";
+import { localizeTree, matchesText, tr } from "./i18n";
 import type { ExtensionSettings } from "./settings";
 import { canonicalPositionMapId, positionForMap, STATS_WINDOWS } from "./settings";
 import { isSelectedMapVisible, type PositionSendResult } from "./positions";
@@ -38,10 +39,14 @@ function append(parent: ParentNode, ...children: Array<Node | string | null | un
   }
 }
 
-function createWindowSelect(current: StatsWindow, onChange: (value: StatsWindow) => void): HTMLSelectElement {
-  const select = element("select", { className: "es-window", title: "Окно статистики" });
+function createWindowSelect(
+  language: ExtensionSettings["language"],
+  current: StatsWindow,
+  onChange: (value: StatsWindow) => void
+): HTMLSelectElement {
+  const select = element("select", { className: "es-window", title: tr(language, "Окно статистики") });
   for (const value of STATS_WINDOWS) {
-    const option = element("option", { text: `${value} матчей` });
+    const option = element("option", { text: matchesText(language, value) });
     option.value = String(value);
     option.selected = value === current;
     select.append(option);
@@ -89,7 +94,7 @@ export class EloScopeOverlay {
     this.#positions.hidden = true;
     this.#shell.append(this.#positions);
     this.shadow.append(this.#shell);
-    this.#matchAcceptPreview = new MatchAcceptPreviewRenderer(this.shadow);
+    this.#matchAcceptPreview = new MatchAcceptPreviewRenderer(this.shadow, this.#settings.language);
     (document.documentElement ?? document).append(this.host);
   }
 
@@ -103,6 +108,7 @@ export class EloScopeOverlay {
 
   updateSettings(settings: ExtensionSettings): void {
     this.#settings = settings;
+    this.#matchAcceptPreview.updateLanguage(settings.language);
     if (!settings.showExtendedTier) this.#nativeTiers.cleanup();
     if (!settings.showMatchAcceptPreview) this.#matchAcceptPreview.cleanup();
     if (!settings.interfaceVisibility.profileStatsBanner) this.#profileStats.cleanup();
@@ -197,7 +203,7 @@ export class EloScopeOverlay {
     viewerTeamId?: string,
     viewer?: MatchViewerContext,
   ): InlineMatchRenderResult {
-    return this.#inlineMatch.render(match, playerMatches, playerMapStats, {
+    const result = this.#inlineMatch.render(match, playerMatches, playerMapStats, {
       statsWindow: this.#settings.statsWindow,
       mapWinRateWindow: this.#settings.mapWinRateWindow,
       showExtendedTier: this.#settings.showExtendedTier,
@@ -212,6 +218,8 @@ export class EloScopeOverlay {
       showMapWinRates: this.#settings.showMapWinRates,
       showSelectedMapWins: this.#settings.showSelectedMapWins,
     }, viewerTeamId, viewer);
+    localizeTree(this.shadow, this.#settings.language);
+    return result;
   }
 
   showPositions(match: MatchContext): void {
@@ -223,12 +231,12 @@ export class EloScopeOverlay {
     const head = element("div", { className: "es-positions-head" });
     append(
       head,
-      element("strong", { text: "Быстрые позиции" }),
+      element("strong", { text: tr(this.#settings.language, "Быстрые позиции") }),
       match.selectedMap
-        ? element("span", { className: "es-badge", text: `Выбрана ${match.selectedMap}` })
-        : element("span", { className: "es-muted", text: "Карта ещё не выбрана" }),
+        ? element("span", { className: "es-badge", text: tr(this.#settings.language, `Выбрана ${match.selectedMap}`, `Selected ${match.selectedMap}`) })
+        : element("span", { className: "es-muted", text: tr(this.#settings.language, "Карта ещё не выбрана") }),
       element("span", { className: "es-spacer" }),
-      createWindowSelect(this.#settings.statsWindow, this.callbacks.onStatsWindow),
+      createWindowSelect(this.#settings.language, this.#settings.statsWindow, this.callbacks.onStatsWindow),
     );
     const grid = element("div", { className: "es-position-grid" });
     for (const map of match.mapPool) grid.append(this.#positionCard(match, map));
@@ -253,10 +261,14 @@ export class EloScopeOverlay {
     append(label, enabled, ` ${map.toUpperCase()}`);
     const textarea = element("textarea") as HTMLTextAreaElement;
     textarea.value = current.message;
-    textarea.placeholder = `Позиция на ${map}`;
+    textarea.placeholder = tr(this.#settings.language, `Позиция на ${map}`, `Position on ${map}`);
     textarea.maxLength = 280;
     const mode = element("select", { className: "es-select" }) as HTMLSelectElement;
-    for (const [value, title] of [["confirm", "По кнопке"], ["prefill", "Заполнить чат"], ["auto", "Авто после выбора"]] as const) {
+    for (const [value, title] of [
+      ["confirm", tr(this.#settings.language, "По кнопке")],
+      ["prefill", tr(this.#settings.language, "Заполнить чат")],
+      ["auto", tr(this.#settings.language, "Авто после выбора")]
+    ] as const) {
       const option = element("option", { text: title });
       option.value = value;
       option.selected = current.mode === value;
@@ -270,17 +282,24 @@ export class EloScopeOverlay {
     enabled.addEventListener("change", savePosition);
     textarea.addEventListener("change", savePosition);
     mode.addEventListener("change", savePosition);
-    const send = element("button", { className: "es-primary", text: mode.value === "prefill" ? "Подготовить" : "Отправить" });
+    const send = element("button", {
+      className: "es-primary",
+      text: mode.value === "prefill"
+        ? tr(this.#settings.language, "Подготовить")
+        : tr(this.#settings.language, "Отправить")
+    });
     send.type = "button";
     mode.addEventListener("change", () => {
-      send.textContent = mode.value === "prefill" ? "Подготовить" : "Отправить";
+      send.textContent = mode.value === "prefill"
+        ? tr(this.#settings.language, "Подготовить")
+        : tr(this.#settings.language, "Отправить");
     });
     const updateSendState = (): void => {
       send.disabled = !enabled.checked || !selected;
       send.title = !selected
-        ? "Отправка доступна после выбора этой карты"
+        ? tr(this.#settings.language, "Отправка доступна после выбора этой карты")
         : !enabled.checked
-          ? "Сначала включите сообщение для карты"
+          ? tr(this.#settings.language, "Сначала включите сообщение для карты")
           : "";
     };
     enabled.addEventListener("change", updateSendState);
@@ -291,11 +310,11 @@ export class EloScopeOverlay {
       send.setAttribute("disabled", "true");
       const result = await this.callbacks.onPositionSend(map, textarea.value, mode.value as "confirm" | "auto" | "prefill");
       const labels: Record<PositionSendResult, string> = {
-        sent: "Отправлено",
-        prepared: "Текст подготовлен — чат ждёт ручную отправку",
-        duplicate: "Уже отправлено в этом матче",
-        "chat-unavailable": "Чат пока не готов",
-        empty: "Введите текст"
+        sent: tr(this.#settings.language, "Отправлено"),
+        prepared: tr(this.#settings.language, "Текст подготовлен — чат ждёт ручную отправку"),
+        duplicate: tr(this.#settings.language, "Уже отправлено в этом матче"),
+        "chat-unavailable": tr(this.#settings.language, "Чат пока не готов"),
+        empty: tr(this.#settings.language, "Введите текст")
       };
       status.textContent = labels[result];
       send.removeAttribute("disabled");
