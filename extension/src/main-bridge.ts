@@ -13,6 +13,7 @@ import {
   type RouteMessage
 } from "./protocol";
 import { normalizeBridgeData } from "./normalize";
+import { installMatchSignalHook } from "./match-signal-hook";
 
 const FACEIT_PAGE_ORIGIN = "https://www.faceit.com";
 const MAX_DEPTH = 9;
@@ -229,6 +230,7 @@ function installBridge(): void {
   });
 
   installRouteObserver();
+  installMatchSignalHook();
 }
 
 installBridge();

@@ -1,4 +1,5 @@
-import type { DataState, FaceitReadAdapter, MatchContext, MatchStats, Player, PlayerMapStats, PlayerMatch, StatsWindow, VetoState, Viewer } from "@eloscope/core";
+import type { DataState, FaceitReadAdapter, MatchContext, MatchStats, PendingMatchPreview, Player, PlayerMapStats, PlayerMatch, StatsWindow, VetoState, Viewer } from "@eloscope/core";
+import { isValidMatchSignalMessage } from "./match-signal-hook";
 import {
   ISOLATED_SOURCE,
   MAIN_SOURCE,
@@ -115,6 +116,7 @@ function debugStatus(result: BridgeResult): DebugStatus {
 
 export class FaceitBridgeAdapter implements FaceitReadAdapter {
   readonly #pending = new Map<string, Pending>();
+  readonly #matchSignalListeners = new Set<(preview: PendingMatchPreview | null) => void>();
   readonly #origin: string;
 
   constructor(origin = "https://www.faceit.com") {
@@ -122,8 +124,16 @@ export class FaceitBridgeAdapter implements FaceitReadAdapter {
     window.addEventListener("message", this.#onMessage);
   }
 
+  subscribeMatchSignals(listener: (preview: PendingMatchPreview | null) => void): () => void {
+    this.#matchSignalListeners.add(listener);
+    return () => {
+      this.#matchSignalListeners.delete(listener);
+    };
+  }
+
   destroy(): void {
     window.removeEventListener("message", this.#onMessage);
+    this.#matchSignalListeners.clear();
     debugLog.record({
       component: "bridge",
       event: "bridge.destroy",
@@ -141,7 +151,18 @@ export class FaceitBridgeAdapter implements FaceitReadAdapter {
     const message = event.data as Partial<MainMessage>;
     if (
       message?.source !== MAIN_SOURCE ||
-      message.version !== PROTOCOL_VERSION ||
+      message.version !== PROTOCOL_VERSION
+    ) {
+      return;
+    }
+
+    if (message.type === "matchSignal") {
+      if (!isValidMatchSignalMessage(message)) return;
+      for (const listener of this.#matchSignalListeners) listener(message.preview);
+      return;
+    }
+
+    if (
       message.type !== "response" ||
       typeof (message as Partial<BridgeResponse>).id !== "string"
     ) {

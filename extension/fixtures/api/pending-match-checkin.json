@@ -1,0 +1,51 @@
+{
+  "code": "OPERATION-OK",
+  "payload": {
+    "id": "1-bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+    "game": "cs2",
+    "state": "CHECK_IN",
+    "status": "CHECK_IN",
+    "region": "EU",
+    "tags": [
+      "de_mirage,de_nuke,de_ancient,de_inferno,de_dust2,de_vertigo,de_anubis",
+      "Frankfurt",
+      "Stockholm"
+    ],
+    "locations": [
+      { "name": "Frankfurt", "guid": "frankfurt" },
+      { "name": "Stockholm", "guid": "stockholm" }
+    ],
+    "teams": {
+      "faction1": {
+        "id": "faction1",
+        "name": "team_alpha",
+        "roster": [
+          {
+            "id": "11111111-2222-3333-4444-555555555555",
+            "nickname": "AlphaOne",
+            "elo": 2511,
+            "gameSkillLevel": 10
+          },
+          {
+            "id": "22222222-3333-4444-5555-666666666666",
+            "nickname": "AlphaTwo",
+            "elo": 2488,
+            "gameSkillLevel": 10
+          }
+        ]
+      },
+      "faction2": {
+        "id": "faction2",
+        "name": "team_bravo",
+        "roster": [
+          {
+            "id": "66666666-7777-8888-9999-aaaaaaaaaaaa",
+            "nickname": "BravoOne",
+            "elo": 2645,
+            "gameSkillLevel": 10
+          }
+        ]
+      }
+    }
+  }
+}

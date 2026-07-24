@@ -830,6 +830,15 @@ export class EloScopeSettingsPanel {
         if (this.#draft) this.#draft = { ...this.#draft, showExtendedTier: checked };
       },
     ));
+    grid.append(this.#switchRow(
+      "Превью до принятия",
+      "Регион, map pool и доступный ELO в попапе «Матч готов» до нажатия Принять",
+      settings.showMatchAcceptPreview,
+      "show-match-accept-preview",
+      (checked) => {
+        if (this.#draft) this.#draft = { ...this.#draft, showMatchAcceptPreview: checked };
+      },
+    ));
     profile.append(grid);
     wrapper.append(app, profile);
     return wrapper;

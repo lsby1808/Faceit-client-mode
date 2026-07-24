@@ -1,4 +1,4 @@
-import type { StatsWindow } from "@eloscope/core";
+import type { PendingMatchPreview, StatsWindow } from "@eloscope/core";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const ISOLATED_SOURCE = "eloscope:isolated" as const;
@@ -74,7 +74,15 @@ export type RouteMessage = {
   pathname: string;
 };
 
-export type MainMessage = BridgeResponse | RouteMessage;
+export type MatchSignalMessage = {
+  source: typeof MAIN_SOURCE;
+  version: typeof PROTOCOL_VERSION;
+  type: "matchSignal";
+  preview: PendingMatchPreview | null;
+  sampledAt: number;
+};
+
+export type MainMessage = BridgeResponse | RouteMessage | MatchSignalMessage;
 
 export const STATS_WINDOWS = [5, 10, 20, 30, 50, 100] as const;
 

@@ -1,6 +1,7 @@
 import {
   type DataState,
   type MatchContext,
+  type PendingMatchPreview,
   type Player,
   type PlayerMapStats,
   type PlayerMatch,
@@ -8,6 +9,7 @@ import {
 } from "@eloscope/core";
 import type { CompatibilityStatus } from "./compatibility";
 import { InlineMatchRenderer, type InlineMatchRenderResult } from "./inline-match";
+import { MatchAcceptPreviewRenderer } from "./match-accept-preview";
 import { NativeTierSurfaceRenderer } from "./native-tier-surfaces";
 import { ProfileStatsBannerRenderer } from "./profile-stats-banner";
 import type { ExtensionSettings } from "./settings";
@@ -66,6 +68,7 @@ export class EloScopeOverlay {
   readonly #shell: HTMLElement;
   readonly #positions: HTMLElement;
   readonly #inlineMatch = new InlineMatchRenderer();
+  readonly #matchAcceptPreview: MatchAcceptPreviewRenderer;
   readonly #nativeTiers = new NativeTierSurfaceRenderer();
   readonly #profileStats = new ProfileStatsBannerRenderer();
   #settings: ExtensionSettings;
@@ -86,11 +89,13 @@ export class EloScopeOverlay {
     this.#positions.hidden = true;
     this.#shell.append(this.#positions);
     this.shadow.append(this.#shell);
+    this.#matchAcceptPreview = new MatchAcceptPreviewRenderer(this.shadow);
     (document.documentElement ?? document).append(this.host);
   }
 
   destroy(): void {
     this.#inlineMatch.destroy();
+    this.#matchAcceptPreview.destroy();
     this.#nativeTiers.destroy();
     this.#profileStats.destroy();
     this.host.remove();
@@ -99,6 +104,7 @@ export class EloScopeOverlay {
   updateSettings(settings: ExtensionSettings): void {
     this.#settings = settings;
     if (!settings.showExtendedTier) this.#nativeTiers.cleanup();
+    if (!settings.showMatchAcceptPreview) this.#matchAcceptPreview.cleanup();
     if (!settings.interfaceVisibility.profileStatsBanner) this.#profileStats.cleanup();
     if (!settings.interfaceVisibility.quickPositionsPanel) this.#hidePositions();
   }
@@ -109,6 +115,7 @@ export class EloScopeOverlay {
 
   hideRoutePanels(): void {
     this.#inlineMatch.cleanup();
+    this.#matchAcceptPreview.cleanup();
     this.#nativeTiers.cleanup();
     this.#profileStats.cleanup();
     this.#nativeTierSurface = undefined;
@@ -127,6 +134,18 @@ export class EloScopeOverlay {
   syncMatchmakingTier(player: Player): number {
     this.#nativeTierSurface = "matchmaking";
     return this.#nativeTiers.syncMatchmaking(player, this.#settings.showExtendedTier);
+  }
+
+  showMatchAcceptPreview(preview: PendingMatchPreview): boolean {
+    return this.#matchAcceptPreview.render(preview);
+  }
+
+  hideMatchAcceptPreview(): void {
+    this.#matchAcceptPreview.cleanup();
+  }
+
+  syncMatchAcceptPreview(): boolean {
+    return this.#matchAcceptPreview.sync();
   }
 
   showProfileTier(player: Player, includeProgressRail: boolean): number {
