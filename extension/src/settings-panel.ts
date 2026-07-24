@@ -6,6 +6,7 @@ import type {
 } from "@eloscope/core";
 import type { DomRoot } from "./dom";
 import { debugLog } from "./debug-log";
+import { LANGUAGE_LABELS, localizeTree, tr } from "./i18n";
 import { visibleSelectedMap } from "./positions";
 import { requestNativeShellSettings } from "./shell-settings-bridge";
 import {
@@ -15,6 +16,7 @@ import {
   settingsWithPositionMaps,
   STATS_WINDOWS,
   type ExtensionSettings,
+  type ExtensionLanguage,
   type ShellSettings
 } from "./settings";
 
@@ -334,6 +336,13 @@ textarea:focus-visible {
 .es-settings-button { padding: 8px 12px; color: var(--es-settings-text); background: var(--es-settings-card); border: 1px solid var(--es-settings-line); border-radius: 9px; font-weight: 750; }
 .es-settings-button--primary { color: #fff; background: var(--es-settings-accent); border-color: transparent; }
 .es-settings-button--danger { color: var(--es-settings-danger); }
+.es-language-choice { display: grid; gap: 12px; padding: 20px; }
+.es-language-choice h2 { margin: 0; font-size: 20px; }
+.es-language-choice p { margin: 0; color: var(--es-settings-muted); }
+.es-language-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.es-language-option { display: grid; gap: 4px; padding: 14px; text-align: left; border-radius: 12px; }
+.es-language-option strong { font-size: 15px; }
+.es-language-option small { color: var(--es-settings-muted); }
 .es-diagnostics-card { display: grid; gap: 10px; }
 .es-diagnostics-summary {
   padding: 9px 10px;
@@ -469,6 +478,10 @@ function diagnosticSummaryText(summary: {
   return `${eventCount} событий`;
 }
 
+function settingLanguage(settings: ExtensionSettings | undefined): ExtensionLanguage {
+  return settings?.language ?? "ru";
+}
+
 export function discoverVisibleMapIds(root: DomRoot = document): MapId[] {
   const maps: string[] = [];
   const selectedMap = visibleSelectedMap(root);
@@ -578,6 +591,60 @@ export class EloScopeSettingsPanel {
     this.launcher.tabIndex = 0;
     this.launcher.setAttribute("aria-expanded", "false");
     this.launcher.focus();
+  }
+
+  async promptForLanguageIfNeeded(): Promise<boolean> {
+    if (this.#opening || this.isOpen) return false;
+    const settings = await loadSettings();
+    if (settings.languagePrompted) return false;
+    this.#draft = settings;
+    this.#renderLanguagePrompt(settings);
+    this.#backdrop.hidden = false;
+    this.launcher.tabIndex = -1;
+    this.launcher.setAttribute("aria-expanded", "true");
+    this.shadow.querySelector<HTMLElement>(".es-language-option")?.focus();
+    return true;
+  }
+
+  async #chooseLanguage(language: ExtensionLanguage): Promise<void> {
+    const current = this.#draft ?? await loadSettings();
+    const next = parseSettings({ ...current, language, languagePrompted: true });
+    await saveSettings(next);
+    await this.#options.onSaved?.(next);
+    this.#draft = next;
+    this.close();
+  }
+
+  #renderLanguagePrompt(settings: ExtensionSettings): void {
+    const dialog = node("section", "es-settings-dialog");
+    dialog.id = DIALOG_ID;
+    dialog.tabIndex = -1;
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", "Choose EloScope language");
+    const choice = node("div", "es-language-choice");
+    choice.append(
+      node("h2", undefined, "Выберите язык / Choose language"),
+      node("p", undefined, "EloScope сохранит выбор. Язык можно поменять позже в настройках."),
+    );
+    const actions = node("div", "es-language-actions");
+    for (const language of ["ru", "en"] as const) {
+      const button = node("button", "es-settings-button es-language-option") as HTMLButtonElement;
+      button.type = "button";
+      button.dataset.language = language;
+      button.append(
+        node("strong", undefined, LANGUAGE_LABELS[language]),
+        node("small", undefined, language === "ru" ? "Интерфейс на русском" : "Interface in English"),
+      );
+      button.addEventListener("click", () => {
+        void this.#chooseLanguage(language);
+      });
+      actions.append(button);
+    }
+    choice.append(actions);
+    dialog.append(choice);
+    this.#backdrop.replaceChildren(dialog);
+    localizeTree(dialog, settings.language);
   }
 
   #renderDialog(): void {
@@ -707,6 +774,7 @@ export class EloScopeSettingsPanel {
 
     dialog.append(header, form);
     this.#backdrop.replaceChildren(dialog);
+    localizeTree(dialog, draft.language);
   }
 
   #settingsPage(id: SettingsSectionId, ...children: HTMLElement[]): HTMLElement {
@@ -753,7 +821,7 @@ export class EloScopeSettingsPanel {
     for (const value of STATS_WINDOWS) {
       const option = node("option") as HTMLOptionElement;
       option.value = String(value);
-      option.textContent = `${value} матчей`;
+      option.textContent = tr(settingLanguage(this.#draft), `${value} матчей`, `${value} matches`);
       option.selected = value === current;
       select.append(option);
     }
@@ -767,6 +835,7 @@ export class EloScopeSettingsPanel {
     const app = this.#fieldset("Приложение Windows");
     const appGrid = node("div", "es-settings-grid");
     appGrid.append(
+      this.#languageRow(settings),
       this.#switchRow(
         "Запускать вместе с Windows",
         "Добавляет EloScope в автозапуск Windows. Если трей включён, клиент стартует свернутым.",
@@ -842,6 +911,33 @@ export class EloScopeSettingsPanel {
     profile.append(grid);
     wrapper.append(app, profile);
     return wrapper;
+  }
+
+  #languageRow(settings: ExtensionSettings): HTMLElement {
+    const select = node("select", "es-settings-control") as HTMLSelectElement;
+    select.setAttribute("aria-label", "Язык интерфейса");
+    for (const language of ["ru", "en"] as const) {
+      const option = node("option") as HTMLOptionElement;
+      option.value = language;
+      option.textContent = LANGUAGE_LABELS[language];
+      option.selected = settings.language === language;
+      select.append(option);
+    }
+    select.addEventListener("change", () => {
+      if (!this.#draft) return;
+      this.#draft = {
+        ...this.#draft,
+        language: select.value as ExtensionLanguage,
+        languagePrompted: true
+      };
+      this.#renderDialog();
+      this.shadow.querySelector<HTMLSelectElement>('[aria-label="Язык интерфейса"], [aria-label="Interface language"]')?.focus();
+    });
+    return this.#controlRow(
+      "Язык интерфейса",
+      "Используется в настройках и оверлеях EloScope. Можно изменить в любой момент.",
+      select
+    );
   }
 
   #matchRoomSection(settings: ExtensionSettings): HTMLElement {
